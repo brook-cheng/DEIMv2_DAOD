@@ -4,14 +4,14 @@ evaluator:
   type: CocoEvaluator
   iou_types: ['bbox', ]
 
-num_classes: 1 # your dataset classes
+num_classes: 2 # your dataset classes, deafault 0: background
 remap_mscoco_category: False
 
 train_dataloader:
   type: DataLoader
   dataset:
     type: CocoDetection
-    img_folder: /home/cx/cx_dir/data/deimv2_train_data/safetyhook_detection/2025_10_16/hook_coco/train
+    img_folder: /home/cx/cx_dir/data/deimv2_train_data/safetyhook_detection/2025_10_16/hook_coco/images/train
     ann_file: /home/cx/cx_dir/data/deimv2_train_data/safetyhook_detection/2025_10_16/hook_coco/annotations/instances_train.json
     return_masks: False
     transforms:
@@ -28,7 +28,7 @@ val_dataloader:
   type: DataLoader
   dataset:
     type: CocoDetection
-    img_folder: /home/cx/cx_dir/data/deimv2_train_data/safetyhook_detection/2025_10_16/hook_coco/val
+    img_folder: /home/cx/cx_dir/data/deimv2_train_data/safetyhook_detection/2025_10_16/hook_coco/images/val
     ann_file: /home/cx/cx_dir/data/deimv2_train_data/safetyhook_detection/2025_10_16/hook_coco/annotations/instances_val.json
     return_masks: False
     transforms:

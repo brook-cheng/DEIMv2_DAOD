@@ -10,11 +10,21 @@ Copyright (c) 2023 lyuwenyu. All Rights Reserved.
 """
 
 import os
+
+os.environ.update(
+    {
+        "NCCL_DEBUG": "INFO",
+        "MKL_THREADING_LAYER": "INTEL",
+        "MKL_SERVICE_FORCE_INTEL": "1",
+        "CUDA_VISIBLE_DEVICES": "0,1",
+        # "PYTORCH_NVML_BASED_CUDA_CHECK": "1",
+        "CUDA_LAUNCH_BLOCKING": "1",
+    }
+)
+
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
 import argparse
 
@@ -27,7 +37,9 @@ debug = True
 if debug:
     import torch
 
-    print(f"GPU Num:{torch.cuda.device_count()}")
+    print(f"PyTorch CUDA version: {torch.__version__}")
+    print(f"GPU available: {torch.cuda.is_available()}")
+    print(f"Device count: {torch.cuda.device_count()}")
 
     def custom_repr(self):
         return f"{{Tensor:{tuple(self.shape)}}} {original_repr(self)}"
@@ -82,18 +94,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # priority 0
-    parser.add_argument("-c", "--config", type=str, default="")
+    parser.add_argument(
+        "-c", "--config", type=str, default="configs/deimv2/deimv2_dinov3_x_custom.yml"
+    )
     parser.add_argument("-r", "--resume", type=str, help="resume from checkpoint")
     parser.add_argument("-t", "--tuning", type=str, help="tuning from checkpoint")
     parser.add_argument(
         "-d",
         "--device",
         type=str,
+        default="cuda:0",
         help="device",
     )
     parser.add_argument("--seed", type=int, default=0, help="exp reproducibility")
     parser.add_argument(
-        "--use-amp", action="store_true", help="auto mixed precision training"
+        "--use-amp",
+        action="store_true",
+        default=True,
+        help="auto mixed precision training",
     )
     parser.add_argument("--output-dir", type=str, help="output directoy")
     parser.add_argument("--summary-dir", type=str, help="tensorboard summry")

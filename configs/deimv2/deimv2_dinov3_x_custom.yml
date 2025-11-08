@@ -59,18 +59,21 @@ optimizer:
   betas: [0.9, 0.999]
   weight_decay: 0.000125
 
-epoches: 32 #  Total epochs: 20 for training + EMA  for 4n = 12. n refers to the model size in the matched config.
+epoches: 200 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
 
 ema:  # added EMA settings
-decay: 0.9998  # adjusted by 1 - (1 - decay) * 2
-warmups: 500  # halved
+  decay: 0.9998  # adjusted by 1 - (1 - decay) * 2
+  warmups: 500  # halved
 
-flat_epoch: 14    # 4 + 20 // 2
+lr_warmup_scheduler:
+  warmup_duration: 250  # halved
+
+flat_epoch: 96    # 4 + 20 // 2
 no_aug_epoch: 12  # 4n
 
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
-  total_batch_size: 64
+  total_batch_size: 12
   dataset:
     transforms:
       ops:
