@@ -110,7 +110,8 @@ class DINOv3STAs(nn.Module):
             self.dinov3 = DinoVisionTransformer(name=name)
             if weights_path is not None and os.path.exists(weights_path):
                 print(f"Loading ckpt from {weights_path}...")
-                self.dinov3.load_state_dict(torch.load(weights_path, weights_only=True))
+                dinov3_weight = torch.load(weights_path, weights_only=True)
+                self.dinov3.load_state_dict(dinov3_weight)
             else:
                 print("Training DINOv3 from scratch...")
         else:
@@ -132,7 +133,6 @@ class DINOv3STAs(nn.Module):
         if not finetune:
             self.dinov3.eval()
             self.dinov3.requires_grad_(False)
-        self.dinov3.requires_grad_(False)
 
         # init the feature pyramid
         self.use_sta = use_sta
