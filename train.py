@@ -95,7 +95,10 @@ if __name__ == "__main__":
 
     # priority 0
     parser.add_argument(
-        "-c", "--config", type=str, default="configs/deimv2/deimv2_dinov3_x_custom.yml"
+        "-c",
+        "--config",
+        type=str,
+        default="configs/deimv2/deimv2_dinov3_x_custom.yml",
     )
     parser.add_argument("-r", "--resume", type=str, help="resume from checkpoint")
     parser.add_argument("-t", "--tuning", type=str, help="tuning from checkpoint")
@@ -110,7 +113,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use-amp",
         action="store_true",
-        default=True,
+        default=False,
         help="auto mixed precision training",
     )
     parser.add_argument("--output-dir", type=str, help="output directoy")
@@ -132,5 +135,13 @@ if __name__ == "__main__":
 
     parser.add_argument("--local-rank", type=int, help="local rank id")
     args = parser.parse_args()
+
+    # model test part
+    args.config = "./configs/deimv2/deimv2_dinov3_x_custom_val.yml"
+    args.test_only = True
+    args.resume = (
+        "./outputs/deimv2_dinov3_x_custom/best_stg2_freeze_1109_e186_mAP67.pth"
+    )
+    args.device = "cuda:0"
 
     main(args)

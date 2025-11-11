@@ -21,6 +21,7 @@ from functools import partial
 from ..core import register
 from .vit_tiny import VisionTransformer
 from .dinov3 import DinoVisionTransformer
+from collections import OrderedDict
 
 
 class SpatialPriorModulev2(nn.Module):
@@ -110,7 +111,18 @@ class DINOv3STAs(nn.Module):
             self.dinov3 = DinoVisionTransformer(name=name)
             if weights_path is not None and os.path.exists(weights_path):
                 print(f"Loading ckpt from {weights_path}...")
-                dinov3_weight = torch.load(weights_path, weights_only=True)
+                weights = torch.load(weights_path, weights_only=True)
+                model_weight = weights["model"]
+                dinov3_weight = OrderedDict()
+                dinov3_weight_flag = False
+                for layer_weigt in model_weight:
+                    if "backbone.dinov3." in layer_weigt:
+                        dinov3_weight[layer_weigt.replace("backbone.dinov3.", "")] = (
+                            model_weight[layer_weigt]
+                        )
+                        dinov3_weight_flag = True
+                if not dinov3_weight_flag:
+                    dinov3_weight = weights
                 self.dinov3.load_state_dict(dinov3_weight)
             else:
                 print("Training DINOv3 from scratch...")
