@@ -137,11 +137,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # model test part
-    args.config = "./configs/deimv2/deimv2_dinov3_x_custom_val.yml"
-    args.test_only = True
-    args.resume = (
-        "./outputs/deimv2_dinov3_x_custom/best_stg2_freeze_1109_e186_mAP67.pth"
-    )
+    args.config = "./configs/deimv2/deimv2_dinov3_x_custom.yml"
+    args.test_only = False
+    # args.resume = (
+    #     "./outputs/deimv2_dinov3_x_custom/best_stg2_freeze_1109_e186_mAP67.pth"
+    # )
     args.device = "cuda:0"
 
     main(args)

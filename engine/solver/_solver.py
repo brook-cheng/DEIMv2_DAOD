@@ -210,7 +210,7 @@ class BaseSolver(object):
         """Load state dict, train/eval"""
         if "last_epoch" in state:
             self.last_epoch = state["last_epoch"]
-            print("Load last_epoch")
+            print(f"Load last_epoch:{self.last_epoch}")
 
         for k, v in self.__dict__.items():
             if hasattr(v, "load_state_dict") and k in state:

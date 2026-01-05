@@ -225,11 +225,11 @@ class DetSolver(BaseSolver):
     ):
         self.eval()
 
-        module = self.ema.module if self.ema else self.model
-        torch.save(
-            module.state_dict(),
-            "outputs/model_weight_init_test/model_val_weigth_saved.pth",
-        )
+        if self.ema:
+            module = self.ema.module
+        else:
+            module = self.model
+
         test_stats, coco_evaluator = evaluate(
             module,
             self.criterion,

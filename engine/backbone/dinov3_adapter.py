@@ -23,6 +23,8 @@ from .vit_tiny import VisionTransformer
 from .dinov3 import DinoVisionTransformer
 from collections import OrderedDict
 
+from tools.analysis.feature_merge import save_pca_features
+
 
 class SpatialPriorModulev2(nn.Module):
     def __init__(self, inplanes=16):
@@ -244,5 +246,15 @@ class DINOv3STAs(nn.Module):
         c2 = self.norms[0](self.convs[0](fused_feats[0]))
         c3 = self.norms[1](self.convs[1](fused_feats[1]))
         c4 = self.norms[2](self.convs[2](fused_feats[2]))
+
+        save_pca_features(x, c2, "./test/data/output/c2")
+        save_pca_features(x, c3, "./test/data/output/c3")
+        save_pca_features(x, c4, "./test/data/output/c4")
+        save_pca_features(x, sem_feats[0], "./test/data/output/sem_feats_c2")
+        save_pca_features(x, sem_feats[1], "./test/data/output/sem_feats_c3")
+        save_pca_features(x, sem_feats[2], "./test/data/output/sem_feats_c4")
+        save_pca_features(x, fused_feats[0], "./test/data/output/fused_c2")
+        save_pca_features(x, fused_feats[1], "./test/data/output/fused_c3")
+        save_pca_features(x, fused_feats[2], "./test/data/output/fused_c4")
 
         return c2, c3, c4
