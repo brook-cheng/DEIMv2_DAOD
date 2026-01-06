@@ -2,7 +2,6 @@ import os
 import torch
 import numpy as np
 import cv2
-from pytorch_grad_cam import GradCAM
 import sklearn
 import sklearn.preprocessing
 from sklearn.decomposition import PCA
