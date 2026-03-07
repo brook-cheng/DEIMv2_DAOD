@@ -26,7 +26,7 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
                     device: torch.device, epoch: int, max_norm: float = 0, **kwargs):
     model.train()
     criterion.train()
-    metric_logger = MetricLogger(delimiter="  ")
+    metric_logger = MetricLogger(delimiter="  ", log_level='minimal')
     metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value:.6f}'))
     header = 'Epoch: [{}]'.format(epoch)
 
@@ -118,7 +118,16 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
+    print("\n" + "="*60)
+    print("Training Summary - Epoch {}".format(epoch))
+    print("="*60)
+    print(f"Total Loss: {metric_logger.loss.global_avg:.4f}")
+    print(f"Match Aware Loss: {metric_logger.loss_mal.global_avg:.4f}")
+    print(f"BBox Loss: {metric_logger.loss_bbox.global_avg:.4f}")
+    print(f"GIoU Loss: {metric_logger.loss_giou.global_avg:.4f}")
+    print(f"Learning Rate: {metric_logger.lr.global_avg:.6f}")
+    print("="*60 + "\n")
+
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
@@ -128,10 +137,9 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
     criterion.eval()
     coco_evaluator.cleanup()
 
-    metric_logger = MetricLogger(delimiter="  ")
+    metric_logger = MetricLogger(delimiter="  ", log_level='minimal')
     # metric_logger.add_meter('class_error', SmoothedValue(window_size=1, fmt='{value:.2f}'))
     header = 'Test:'
-
     # iou_types = tuple(k for k in ('segm', 'bbox') if k in postprocessor.keys())
     iou_types = coco_evaluator.iou_types
     # coco_evaluator = CocoEvaluator(base_ds, iou_types)
@@ -157,7 +165,9 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
+    print("\n" + "="*60)
+    print("Validation Summary")
+    print("="*60)
     if coco_evaluator is not None:
         coco_evaluator.synchronize_between_processes()
 
@@ -166,8 +176,18 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
         coco_evaluator.accumulate()
         coco_evaluator.summarize()
 
+        stats = {}
+        if 'bbox' in coco_evaluator.iou_types:
+            stats['coco_eval_bbox'] = coco_evaluator.coco_eval['bbox'].stats.tolist()
+            print(f"AP @ IoU=0.50:0.95 = {stats['coco_eval_bbox'][0]:.4f}")
+            print(f"AP @ IoU=0.50       = {stats['coco_eval_bbox'][1]:.4f}")
+            print(f"AP @ IoU=0.75       = {stats['coco_eval_bbox'][2]:.4f}")
+            print(f"AP @ IoU=0.50 (small)= {stats['coco_eval_bbox'][3]:.4f}")
+            print(f"AP @ IoU=0.50 (medium)= {stats['coco_eval_bbox'][4]:.4f}")
+            print(f"AP @ IoU=0.50 (large) = {stats['coco_eval_bbox'][5]:.4f}")
+        print("="*60 + "\n")
+
     stats = {}
-    # stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
     if coco_evaluator is not None:
         if 'bbox' in iou_types:
             stats['coco_eval_bbox'] = coco_evaluator.coco_eval['bbox'].stats.tolist()

@@ -19,6 +19,7 @@ os.environ.update(
         "CUDA_VISIBLE_DEVICES": "0,1",
         # "PYTORCH_NVML_BASED_CUDA_CHECK": "1",
         "CUDA_LAUNCH_BLOCKING": "1",
+        "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:512",
     }
 )
 

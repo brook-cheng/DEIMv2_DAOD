@@ -10,3 +10,4 @@ transformers
 opencv-python
 scikit-learn
 matplotlib
+tqdm
