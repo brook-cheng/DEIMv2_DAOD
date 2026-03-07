@@ -1,5 +1,5 @@
 __include__: [
-  '../dataset/custom_detection.yml',
+  './dataset_custom_detection.yml',
   '../runtime.yml',
   '../base/dataloader.yml',
   '../base/optimizer.yml',

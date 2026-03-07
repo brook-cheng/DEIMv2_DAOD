@@ -7,3 +7,6 @@ tensorboard
 scipy
 calflops
 transformers
+opencv-python
+scikit-learn
+matplotlib
