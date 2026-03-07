@@ -143,4 +143,4 @@ dmypy.json
 *.html
 .DS_Store
 
-/test
+test/data
