@@ -16,10 +16,11 @@ os.environ.update(
         "NCCL_DEBUG": "INFO",
         "MKL_THREADING_LAYER": "INTEL",
         "MKL_SERVICE_FORCE_INTEL": "1",
-        "CUDA_VISIBLE_DEVICES": "0,1",
+        "CUDA_VISIBLE_DEVICES": "0",
         # "PYTORCH_NVML_BASED_CUDA_CHECK": "1",
         "CUDA_LAUNCH_BLOCKING": "1",
         "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:512",
+        "COMET_API_KEY": "EoSgIYtwa6a5rKElgh9KD59xS",
     }
 )
 
@@ -49,63 +50,83 @@ if debug:
     torch.Tensor.__repr__ = custom_repr
 
 
+def init_comet_experiment(cfg: YAMLConfig) -> None:
+    """Initialize Comet ML experiment for training monitoring"""
+    try:
+        import comet_ml
+
+        api_key = os.getenv("COMET_API_KEY")
+        project_name = os.getenv("COMET_PROJECT_NAME", "deimv2-training")
+
+        if api_key:
+            # comet_ml.init(api_key=api_key, project_name=project_name)
+            comet_ml.login(api_key=api_key, project_name=project_name)
+
+            experiment = comet_ml.Experiment()
+            experiment.log_parameters(cfg.yaml_cfg)
+
+            cfg._comet_experiment = experiment
+            print(f"\nComet ML initialized: {experiment.url}\n")
+        else:
+            cfg._comet_experiment = None
+
+    except Exception as e:
+        print(f"Comet ML init failed: {e}")
+        cfg._comet_experiment = None
+
+
 def print_training_config(cfg: YAMLConfig) -> None:
     """Print structured training configuration"""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Training Configuration")
-    print("="*60)
+    print("=" * 60)
 
-    # Dataset info
-    print(f"\n📊 Dataset:")
+    print(f"\nDataset:")
     print(f"  Classes: {cfg.yaml_cfg.get('num_classes', 'N/A')}")
-    train_ds = cfg.yaml_cfg.get('train_dataloader', {}).get('dataset', {})
-    val_ds = cfg.yaml_cfg.get('val_dataloader', {}).get('dataset', {})
+    train_ds = cfg.yaml_cfg.get("train_dataloader", {}).get("dataset", {})
+    val_ds = cfg.yaml_cfg.get("val_dataloader", {}).get("dataset", {})
     if isinstance(train_ds, dict):
         print(f"  Train images: {train_ds.get('img_folder', 'N/A')}")
         print(f"  Val images: {val_ds.get('img_folder', 'N/A')}")
 
-    # Batch size
-    print(f"\n📦 Batch Size:")
-    train_bs = cfg.yaml_cfg.get('train_dataloader', {}).get('total_batch_size', 'N/A')
-    val_bs = cfg.yaml_cfg.get('val_dataloader', {}).get('total_batch_size', 'N/A')
+    print(f"\nBatch Size:")
+    train_bs = cfg.yaml_cfg.get("train_dataloader", {}).get("total_batch_size", "N/A")
+    val_bs = cfg.yaml_cfg.get("val_dataloader", {}).get("total_batch_size", "N/A")
     print(f"  Train: {train_bs}")
     print(f"  Val: {val_bs}")
 
-    # Model architecture
-    print(f"\n🏗️ Model:")
-    if 'DINOv3STAs' in cfg.yaml_cfg:
+    print(f"\nModel:")
+    if "DINOv3STAs" in cfg.yaml_cfg:
         print(f"  Backbone: DINOv3 ({cfg.yaml_cfg['DINOv3STAs'].get('name', 'N/A')})")
-    elif 'HGNetv2' in cfg.yaml_cfg:
+    elif "HGNetv2" in cfg.yaml_cfg:
         print(f"  Backbone: HGNetv2 ({cfg.yaml_cfg['HGNetv2'].get('name', 'N/A')})")
-    print(f"  Decoder: {cfg.yaml_cfg.get('DEIMTransformer', {}).get('num_layers', 'N/A')} layers, {cfg.yaml_cfg.get('DEIMTransformer', {}).get('num_queries', 'N/A')} queries")
+    print(
+        f"  Decoder: {cfg.yaml_cfg.get('DEIMTransformer', {}).get('num_layers', 'N/A')} layers, {cfg.yaml_cfg.get('DEIMTransformer', {}).get('num_queries', 'N/A')} queries"
+    )
 
-    # Training schedule
-    print(f"\n📅 Schedule:")
+    print(f"\nSchedule:")
     print(f"  Epochs: {cfg.epoches}")
     print(f"  Warmup iters: {cfg.warmup_iter}")
     print(f"  Flat epochs: {cfg.flat_epoch}")
     print(f"  No-aug epochs: {cfg.no_aug_epoch}")
 
-    # Optimizer
-    print(f"\n⚙️ Optimizer:")
-    opt_cfg = cfg.yaml_cfg.get('optimizer', {})
+    print(f"\nOptimizer:")
+    opt_cfg = cfg.yaml_cfg.get("optimizer", {})
     print(f"  Type: {opt_cfg.get('type', 'N/A')}")
     print(f"  Base LR: {opt_cfg.get('lr', 'N/A')}")
     print(f"  Weight decay: {opt_cfg.get('weight_decay', 'N/A')}")
 
-    # EMA & AMP
-    print(f"\n🔧 Techniques:")
+    print(f"\nTechniques:")
     print(f"  EMA: {cfg.use_ema} (decay={cfg.ema_decay})")
     print(f"  AMP: {cfg.use_amp}")
     print(f"  SyncBN: {cfg.sync_bn}")
 
-    # Output
-    print(f"\n💾 Output:")
+    print(f"\nOutput:")
     print(f"  Directory: {cfg.output_dir}")
     print(f"  Checkpoint freq: {cfg.checkpoint_freq}")
     print(f"  Device: {cfg.device}")
 
-    print("="*60 + "\n")
+    print("=" * 60 + "\n")
 
 
 def main(
@@ -137,6 +158,7 @@ def main(
         if "HGNetv2" in cfg.yaml_cfg:
             cfg.yaml_cfg["HGNetv2"]["pretrained"] = False
 
+    init_comet_experiment(cfg)
     print_training_config(cfg)
 
     solver = TASKS[cfg.yaml_cfg["task"]](cfg)
@@ -145,6 +167,10 @@ def main(
         solver.val()
     else:
         solver.fit()
+
+    if hasattr(cfg, "_comet_experiment") and cfg._comet_experiment is not None:
+        cfg._comet_experiment.end()
+        print("\nComet ML experiment ended\n")
 
     dist_utils.cleanup()
 

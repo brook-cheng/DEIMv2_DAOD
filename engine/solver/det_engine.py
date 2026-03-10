@@ -16,6 +16,11 @@ import torch.amp
 from torch.utils.tensorboard import SummaryWriter
 from torch.cuda.amp.grad_scaler import GradScaler
 
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
+
 from ..optim import ModelEMA, Warmup
 from ..data import CocoEvaluator
 from ..misc import MetricLogger, SmoothedValue, dist_utils
@@ -37,9 +42,18 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
     scaler :GradScaler = kwargs.get('scaler', None)
     lr_warmup_scheduler :Warmup = kwargs.get('lr_warmup_scheduler', None)
 
+    comet_exp = kwargs.get('comet_exp', None)
+    comet_step = kwargs.get('comet_step', None)
+
     cur_iters = epoch * len(data_loader)
 
-    for i, (samples, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    use_tqdm = tqdm is not None
+    if use_tqdm:
+        data_loader_iter = tqdm(enumerate(data_loader), total=len(data_loader), desc=f'Epoch {epoch}', leave=True)
+    else:
+        data_loader_iter = enumerate(metric_logger.log_every(data_loader, print_freq, header))
+
+    for i, (samples, targets) in data_loader_iter:
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         global_step = epoch * len(data_loader) + i
@@ -109,6 +123,21 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
         metric_logger.update(loss=loss_value, **loss_dict_reduced)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
 
+        # 更新 tqdm 进度条信息
+        if use_tqdm:
+            postfix_dict = {
+                'lr': f'{optimizer.param_groups[0]["lr"]:.8f}',
+                'loss_total': f'{loss_value:.4f}',
+                'loss_mal': f'{loss_dict_reduced.get("loss_mal", 0):.4f}',
+                'loss_bbox': f'{loss_dict_reduced.get("loss_bbox", 0):.4f}',
+                'loss_giou': f'{loss_dict_reduced.get("loss_giou", 0):.4f}',
+            }
+            if 'loss_fgl' in loss_dict_reduced:
+                postfix_dict['loss_fgl'] = f'{loss_dict_reduced["loss_fgl"]:.4f}'
+            if 'loss_ddf' in loss_dict_reduced:
+                postfix_dict['ddf'] = f'{loss_dict_reduced["loss_ddf"]:.4f}'
+            data_loader_iter.set_postfix(postfix_dict)
+
         if writer and dist_utils.is_main_process() and global_step % 10 == 0:
             writer.add_scalar('Loss/total', loss_value.item(), global_step)
             for j, pg in enumerate(optimizer.param_groups):
@@ -116,7 +145,12 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
             for k, v in loss_dict_reduced.items():
                 writer.add_scalar(f'Loss/{k}', v.item(), global_step)
 
-    # gather the stats from all processes
+        if comet_exp and dist_utils.is_main_process() and global_step % 10 == 0:
+            comet_exp.log_metric('loss_total', loss_value.item(), step=global_step)
+            comet_exp.log_metric('learning_rate', optimizer.param_groups[0]['lr'], step=global_step)
+            for k, v in loss_dict_reduced.items():
+                comet_exp.log_metric(f'loss_{k}', v.item(), step=global_step)
+
     metric_logger.synchronize_between_processes()
     print("\n" + "="*60)
     print("Training Summary - Epoch {}".format(epoch))
@@ -128,11 +162,18 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
     print(f"Learning Rate: {metric_logger.lr.global_avg:.6f}")
     print("="*60 + "\n")
 
+    if comet_exp and dist_utils.is_main_process():
+        comet_exp.log_metric('epoch_loss_total', metric_logger.loss.global_avg, step=comet_step)
+        comet_exp.log_metric('epoch_loss_mal', metric_logger.loss_mal.global_avg, step=comet_step)
+        comet_exp.log_metric('epoch_loss_bbox', metric_logger.loss_bbox.global_avg, step=comet_step)
+        comet_exp.log_metric('epoch_loss_giou', metric_logger.loss_giou.global_avg, step=comet_step)
+        comet_exp.log_metric('epoch_lr', metric_logger.lr.global_avg, step=comet_step)
+
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
 @torch.no_grad()
-def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, data_loader, coco_evaluator: CocoEvaluator, device):
+def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, data_loader, coco_evaluator: CocoEvaluator, device, **kwargs):
     model.eval()
     criterion.eval()
     coco_evaluator.cleanup()
@@ -145,7 +186,20 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
     # coco_evaluator = CocoEvaluator(base_ds, iou_types)
     # coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
 
-    for samples, targets in metric_logger.log_every(data_loader, 10, header):
+    comet_exp = kwargs.get('comet_exp', None)
+    comet_step = kwargs.get('comet_step', None)
+
+    # 验证时也使用 tqdm
+    use_tqdm = tqdm is not None
+    # use_tqdm =None
+    if use_tqdm:
+        data_loader_iter = tqdm(enumerate(data_loader), total=len(data_loader), desc='Validating', leave=True)
+    else:
+        data_loader_iter = enumerate(metric_logger.log_every(data_loader, 10, header))
+
+    for idx, load_vars in data_loader_iter:
+        samples=load_vars[0]
+        targets=load_vars[1]
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -185,6 +239,16 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
             print(f"AP @ IoU=0.50 (small)= {stats['coco_eval_bbox'][3]:.4f}")
             print(f"AP @ IoU=0.50 (medium)= {stats['coco_eval_bbox'][4]:.4f}")
             print(f"AP @ IoU=0.50 (large) = {stats['coco_eval_bbox'][5]:.4f}")
+
+            print(f"AR @ IoU=0.50:0.95 = {stats['coco_eval_bbox'][8]:.4f}")
+            print(f"AR @ IoU=0.50       = {stats['coco_eval_bbox'][12]:.4f}")
+            print(f"AR @ IoU=0.75       = {stats['coco_eval_bbox'][13]:.4f}")
+            print(f"AR @ IoU=0.50 (small)= {stats['coco_eval_bbox'][9]:.4f}")
+            print(f"AR @ IoU=0.50 (medium)= {stats['coco_eval_bbox'][10]:.4f}")
+            print(f"AR @ IoU=0.50 (large) = {stats['coco_eval_bbox'][11]:.4f}")
+
+            comet_exp.log_metric('AR', stats['coco_eval_bbox'][12], step=comet_step)
+            comet_exp.log_metric('AP', stats['coco_eval_bbox'][1], step=comet_step)
         print("="*60 + "\n")
 
     stats = {}

@@ -35,6 +35,8 @@ class DetSolver(BaseSolver):
             if i in [194, 195]:
                 print(f"Index {i}: {name} - requires_grad: {param.requires_grad}")
 
+        comet_exp = getattr(self.cfg, '_comet_experiment', None)
+
         self.self_lr_scheduler = False
         if args.lrsheduler is not None:
             iter_per_epoch = len(self.train_dataloader)
@@ -110,6 +112,8 @@ class DetSolver(BaseSolver):
                 scaler=self.scaler,
                 lr_warmup_scheduler=self.lr_warmup_scheduler,
                 writer=self.writer,
+                comet_exp=comet_exp,
+                comet_step=epoch
             )
 
             if not self.self_lr_scheduler:  # update by epoch
@@ -139,6 +143,8 @@ class DetSolver(BaseSolver):
                 self.val_dataloader,
                 self.evaluator,
                 self.device,
+                comet_exp=comet_exp,
+                comet_step=epoch
             )
 
             for k in test_stats:

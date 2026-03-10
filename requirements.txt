@@ -11,3 +11,4 @@ opencv-python
 scikit-learn
 matplotlib
 tqdm
+comet_ml

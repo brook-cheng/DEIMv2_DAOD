@@ -48,7 +48,7 @@ class FlatCosineLRScheduler:
         flat_epochs (int): Number of flat epochs (for flat-cosine scheduler).
         no_aug_epochs (int): Number of no-augmentation epochs.
     """
-    def __init__(self, optimizer, lr_gamma, iter_per_epoch, total_epochs, 
+    def __init__(self, optimizer, lr_gamma, iter_per_epoch, total_epochs,
                  warmup_iter, flat_epochs, no_aug_epochs, scheduler_type="cosine"):
         self.base_lrs = [group["initial_lr"] for group in optimizer.param_groups]
         self.min_lrs = [base_lr * lr_gamma for base_lr in self.base_lrs]
@@ -56,6 +56,7 @@ class FlatCosineLRScheduler:
         total_iter = int(iter_per_epoch * total_epochs)
         no_aug_iter = int(iter_per_epoch * no_aug_epochs)
         flat_iter = int(iter_per_epoch * flat_epochs)
+        warmup_iter=int(iter_per_epoch * warmup_iter)
 
         print(self.base_lrs, self.min_lrs, total_iter, warmup_iter, flat_iter, no_aug_iter)
         self.lr_func = partial(flat_cosine_schedule, total_iter, warmup_iter, flat_iter, no_aug_iter)
