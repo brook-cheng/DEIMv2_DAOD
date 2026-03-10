@@ -19,7 +19,7 @@ DINOv3STAs:
   name: dinov3_vitb16
   weights_path: ./ckpts/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth
   interaction_indexes: [5,8,11]   # only need the [1/8, 1/16, 1/32]
-  finetune: True
+  finetune: False
   conv_inplane: 128 # hidden_dim/4
   hidden_dim: 512 # embed_dim*2/3
 
@@ -131,7 +131,7 @@ train_dataloader:
         - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
       policy:
         epoch: [4, 29, 50]   # list
-  total_batch_size: 2 # total batch size equals to gpu_nums*batch_size
+  total_batch_size: 8 # total batch size equals to gpu_nums*batch_size
   collate_fn:
     mixup_epochs: [4, 29]
     stop_epoch: 50
@@ -145,4 +145,4 @@ val_dataloader:
         - {type: Resize, size: [640, 640], }
         - {type: ConvertPILImage, dtype: 'float32', scale: True}
         - {type: Normalize, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}
-  total_batch_size: 2 # total batch size equals to gpu_nums*batch_size
+  total_batch_size: 8 # total batch size equals to gpu_nums*batch_size

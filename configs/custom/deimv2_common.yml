@@ -88,8 +88,8 @@ flat_epoch: 29    # 4 + epoch // 2, e.g., 40 = 4 + 72 / 2
 no_aug_epoch: 8
 
 ## Dense O2O: Mosaic + Mixup + CopyBlend
-train_dataloader: 
-  dataset: 
+train_dataloader:
+  dataset:
     transforms:
       ops:
         - {type: Mosaic, output_size: 320, rotation_range: 10, translation_range: [0.1, 0.1], scaling_range: [0.5, 1.5],
@@ -105,7 +105,7 @@ train_dataloader:
         - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
       # Mosaic options
       policy:
-        epoch: [4, 29, 50]   # list 
+        epoch: [4, 29, 50]   # list
         ops: ['Mosaic', 'RandomPhotometricDistort', 'RandomZoomOut', 'RandomIoUCrop']
       mosaic_prob: 0.5
 
