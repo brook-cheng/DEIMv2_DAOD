@@ -16,7 +16,7 @@ os.environ.update(
         "NCCL_DEBUG": "INFO",
         "MKL_THREADING_LAYER": "INTEL",
         "MKL_SERVICE_FORCE_INTEL": "1",
-        "CUDA_VISIBLE_DEVICES": "0",
+        "CUDA_VISIBLE_DEVICES": "1",
         # "PYTORCH_NVML_BASED_CUDA_CHECK": "1",
         "CUDA_LAUNCH_BLOCKING": "1",
         "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:512,garbage_collection_threshold:0.5",
