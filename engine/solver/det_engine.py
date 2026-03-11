@@ -304,7 +304,7 @@ def evaluate(
             print(f"AP @ IoU=0.50 (medium)= {stats['coco_eval_bbox'][4]:.4f}")
             print(f"AP @ IoU=0.50 (large) = {stats['coco_eval_bbox'][5]:.4f}")
 
-            stats_dict = coco_evaluator.coco_eval["bbox"].stats_as_dict()
+            stats_dict = coco_evaluator.coco_eval["bbox"].stats_as_dict
             print(f"AR @ IoU=0.50:0.95 = {stats_dict['AR_all']:.4f}")
             print(f"AR @ IoU=0.50       = {stats_dict['AR_50']:.4f}")
             print(f"AR @ IoU=0.75       = {stats_dict['AR_75']:.4f}")
