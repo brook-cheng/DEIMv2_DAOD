@@ -1,8 +1,14 @@
+--index-url https://download.pytorch.org/whl/cu118
 torch==2.5.1
 torchvision==0.20.1
 faster-coco-eval>=1.6.7
+opencv-python
 PyYAML
 tensorboard
 scipy
 calflops
 transformers
+scikit-learn
+matplotlib
+tqdm
+comet_ml

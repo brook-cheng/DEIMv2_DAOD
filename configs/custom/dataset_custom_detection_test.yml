@@ -4,21 +4,21 @@ evaluator:
   type: CocoEvaluator
   iou_types: ['bbox', ]
 
-num_classes: 777 # your dataset classes
+num_classes: 2 # your dataset classes, deafault 0: background
 remap_mscoco_category: False
 
 train_dataloader:
   type: DataLoader
   dataset:
     type: CocoDetection
-    img_folder: /data/yourdataset/train
-    ann_file: /data/yourdataset/train/train.json
+    img_folder: /mnt/d/project_data/model_test/deimv2_train_data/hook_coco/images/train
+    ann_file: /mnt/d/project_data/model_test/deimv2_train_data/hook_coco/annotations/instances_train.json
     return_masks: False
     transforms:
       type: Compose
       ops: ~
   shuffle: True
-  num_workers: 4
+  num_workers: 8
   drop_last: True
   collate_fn:
     type: BatchImageCollateFunction
@@ -28,14 +28,14 @@ val_dataloader:
   type: DataLoader
   dataset:
     type: CocoDetection
-    img_folder: /data/yourdataset/val
-    ann_file: /data/yourdataset/val/val.json
+    img_folder: /mnt/d/project_data/model_test/deimv2_train_data/hook_coco/images/test
+    ann_file: /mnt/d/project_data/model_test/deimv2_train_data/hook_coco/annotations/instances_test.json
     return_masks: False
     transforms:
       type: Compose
       ops: ~
   shuffle: False
-  num_workers: 4
+  num_workers: 8
   drop_last: False
   collate_fn:
     type: BatchImageCollateFunction

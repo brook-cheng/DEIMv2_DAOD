@@ -149,9 +149,11 @@ def reduce_dict(input_dict, average=True) -> Dict[str, torch.Tensor]:
 
 
 class MetricLogger(object):
-    def __init__(self, delimiter="\t"):
+    def __init__(self, delimiter="\t", log_level='standard'):
         self.meters = defaultdict(SmoothedValue)
         self.delimiter = delimiter
+        self.log_level = log_level
+        self.key_metrics = ['loss', 'loss_mal', 'loss_bbox', 'loss_giou']
 
     def update(self, **kwargs):
         for k, v in kwargs.items():
@@ -168,13 +170,23 @@ class MetricLogger(object):
         raise AttributeError("'{}' object has no attribute '{}'".format(
             type(self).__name__, attr))
 
-    def __str__(self):
+    def _get_key_metrics_str(self):
+        """Get formatted string for key metrics only"""
         loss_str = []
-        for name, meter in self.meters.items():
-            loss_str.append(
-                "{}: {}".format(name, str(meter))
-            )
+        for name in self.key_metrics:
+            if name in self.meters:
+                meter = self.meters[name]
+                loss_str.append(f"{name}: {meter.value:.4f} ({meter.global_avg:.4f})")
         return self.delimiter.join(loss_str)
+
+    def __str__(self):
+        if self.log_level == 'minimal':
+            return self._get_key_metrics_str()
+        else:
+            loss_str = []
+            for name, meter in self.meters.items():
+                loss_str.append(f"{name}: {meter}")
+            return self.delimiter.join(loss_str)
 
     def synchronize_between_processes(self):
         for meter in self.meters.values():

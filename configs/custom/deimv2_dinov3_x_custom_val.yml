@@ -1,5 +1,5 @@
 __include__: [
-  '../dataset/coco_detection.yml',
+  './dataset_custom_detection_val.yml',
   '../runtime.yml',
   '../base/dataloader.yml',
   '../base/optimizer.yml',
@@ -7,14 +7,14 @@ __include__: [
 ]
 
 
-output_dir: ./outputs/deimv2_dinov3_x_coco
+output_dir: ./outputs/deimv2_dinov3_x_custom_val
 
 DEIM:
   backbone: DINOv3STAs
 
 DINOv3STAs:
   name: dinov3_vits16plus
-  weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
+  weights_path: ./outputs/deimv2_dinov3_x_custom/best_stg2_freeze_1109_e186_mAP67.pth
   interaction_indexes: [5,8,11]   # only need the [1/8, 1/16, 1/32]
   finetune: True
   conv_inplane: 64
@@ -59,8 +59,21 @@ optimizer:
   betas: [0.9, 0.999]
   weight_decay: 0.000125
 
+epoches: 200 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+
+ema:  # added EMA settings
+  decay: 0.9998  # adjusted by 1 - (1 - decay) * 2
+  warmups: 500  # halved
+
+lr_warmup_scheduler:
+  warmup_duration: 250  # halved
+
+flat_epoch: 96    # 4 + 20 // 2
+no_aug_epoch: 12  # 4n
+
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
+  total_batch_size: 12
   dataset:
     transforms:
       ops:

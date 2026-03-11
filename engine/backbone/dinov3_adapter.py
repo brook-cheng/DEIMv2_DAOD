@@ -21,6 +21,9 @@ from functools import partial
 from ..core import register
 from .vit_tiny import VisionTransformer
 from .dinov3 import DinoVisionTransformer
+from collections import OrderedDict
+
+from tools.analysis.vis_feature import save_pca_features
 
 
 class SpatialPriorModulev2(nn.Module):
@@ -39,7 +42,14 @@ class SpatialPriorModulev2(nn.Module):
         # 1/8
         self.conv2 = nn.Sequential(
             *[
-                nn.Conv2d(inplanes, 2 * inplanes, kernel_size=3, stride=2, padding=1, bias=False),
+                nn.Conv2d(
+                    inplanes,
+                    2 * inplanes,
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                    bias=False,
+                ),
                 nn.SyncBatchNorm(2 * inplanes),
             ]
         )
@@ -47,7 +57,14 @@ class SpatialPriorModulev2(nn.Module):
         self.conv3 = nn.Sequential(
             *[
                 nn.GELU(),
-                nn.Conv2d(2 * inplanes, 4 * inplanes, kernel_size=3, stride=2, padding=1, bias=False),
+                nn.Conv2d(
+                    2 * inplanes,
+                    4 * inplanes,
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                    bias=False,
+                ),
                 nn.SyncBatchNorm(4 * inplanes),
             ]
         )
@@ -55,16 +72,23 @@ class SpatialPriorModulev2(nn.Module):
         self.conv4 = nn.Sequential(
             *[
                 nn.GELU(),
-                nn.Conv2d(4 * inplanes, 4 * inplanes, kernel_size=3, stride=2, padding=1, bias=False),
+                nn.Conv2d(
+                    4 * inplanes,
+                    4 * inplanes,
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                    bias=False,
+                ),
                 nn.SyncBatchNorm(4 * inplanes),
             ]
         )
 
     def forward(self, x):
         c1 = self.stem(x)
-        c2 = self.conv2(c1)     # 1/8
-        c3 = self.conv3(c2)     # 1/16
-        c4 = self.conv4(c3)     # 1/32
+        c2 = self.conv2(c1)  # 1/8
+        c3 = self.conv3(c2)  # 1/16
+        c4 = self.conv4(c3)  # 1/32
 
         return c2, c3, c4
 
@@ -85,20 +109,39 @@ class DINOv3STAs(nn.Module):
         hidden_dim=None,
     ):
         super(DINOv3STAs, self).__init__()
-        if 'dinov3' in name:
+        if "dinov3" in name:
             self.dinov3 = DinoVisionTransformer(name=name)
             if weights_path is not None and os.path.exists(weights_path):
-                print(f'Loading ckpt from {weights_path}...')
-                self.dinov3.load_state_dict(torch.load(weights_path))
+                print(f"Loading ckpt from {weights_path}...")
+                weights = torch.load(weights_path, weights_only=True)
+                dinov3_weight = OrderedDict()
+                if "model" in weights:
+                    model_weight = weights["model"]
+                    dinov3_weight_flag = False
+                    for layer_weigt in model_weight:
+                        if "backbone.dinov3." in layer_weigt:
+                            dinov3_weight[
+                                layer_weigt.replace("backbone.dinov3.", "")
+                            ] = model_weight[layer_weigt]
+                            dinov3_weight_flag = True
+                    if not dinov3_weight_flag:
+                        dinov3_weight = weights
+                else:
+                    dinov3_weight = weights
+                self.dinov3.load_state_dict(dinov3_weight)
             else:
-                print('Training DINOv3 from scratch...')
+                print("Training DINOv3 from scratch...")
         else:
-            self.dinov3 =  VisionTransformer(embed_dim=embed_dim, num_heads=num_heads, return_layers=interaction_indexes)
+            self.dinov3 = VisionTransformer(
+                embed_dim=embed_dim,
+                num_heads=num_heads,
+                return_layers=interaction_indexes,
+            )
             if weights_path is not None and os.path.exists(weights_path):
-                print(f'Loading ckpt from {weights_path}...')
+                print(f"Loading ckpt from {weights_path}...")
                 self.dinov3._model.load_state_dict(torch.load(weights_path))
             else:
-                print('Training ViT-Tiny from scratch...')
+                print("Training ViT-Tiny from scratch...")
 
         embed_dim = self.dinov3.embed_dim
         self.interaction_indexes = interaction_indexes
@@ -118,17 +161,42 @@ class DINOv3STAs(nn.Module):
 
         # linear projection
         hidden_dim = hidden_dim if hidden_dim is not None else embed_dim
-        self.convs = nn.ModuleList([
-            nn.Conv2d(embed_dim + conv_inplane*2, hidden_dim, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.Conv2d(embed_dim + conv_inplane*4, hidden_dim, kernel_size=1, stride=1, padding=0, bias=False),
-            nn.Conv2d(embed_dim + conv_inplane*4, hidden_dim, kernel_size=1, stride=1, padding=0, bias=False)
-        ])
+        self.convs = nn.ModuleList(
+            [
+                nn.Conv2d(
+                    embed_dim + conv_inplane * 2,
+                    hidden_dim,
+                    kernel_size=1,
+                    stride=1,
+                    padding=0,
+                    bias=False,
+                ),
+                nn.Conv2d(
+                    embed_dim + conv_inplane * 4,
+                    hidden_dim,
+                    kernel_size=1,
+                    stride=1,
+                    padding=0,
+                    bias=False,
+                ),
+                nn.Conv2d(
+                    embed_dim + conv_inplane * 4,
+                    hidden_dim,
+                    kernel_size=1,
+                    stride=1,
+                    padding=0,
+                    bias=False,
+                ),
+            ]
+        )
         # norm
-        self.norms = nn.ModuleList([
-            nn.SyncBatchNorm(hidden_dim),
-            nn.SyncBatchNorm(hidden_dim),
-            nn.SyncBatchNorm(hidden_dim)
-        ])
+        self.norms = nn.ModuleList(
+            [
+                nn.SyncBatchNorm(hidden_dim),
+                nn.SyncBatchNorm(hidden_dim),
+                nn.SyncBatchNorm(hidden_dim),
+            ]
+        )
 
     def forward(self, x):
         # Code for matching with oss
@@ -136,23 +204,34 @@ class DINOv3STAs(nn.Module):
         H_toks, W_toks = x.shape[2] // self.patch_size, x.shape[3] // self.patch_size
         bs, C, h, w = x.shape
 
-        if len(self.interaction_indexes) > 0 and not isinstance(self.dinov3, VisionTransformer):
+        if len(self.interaction_indexes) > 0 and not isinstance(
+            self.dinov3, VisionTransformer
+        ):
             all_layers = self.dinov3.get_intermediate_layers(
                 x, n=self.interaction_indexes, return_class_token=True
             )
         else:
             all_layers = self.dinov3(x)
 
-        if len(all_layers) == 1:    # repeat the same layer for all the three scales
+        if len(all_layers) == 1:  # repeat the same layer for all the three scales
             all_layers = [all_layers[0], all_layers[0], all_layers[0]]
-        
+
         sem_feats = []
         num_scales = len(all_layers) - 2
         for i, sem_feat in enumerate(all_layers):
             feat, _ = sem_feat
-            sem_feat = feat.transpose(1, 2).view(bs, -1, H_c, W_c).contiguous()  # [B, D, H, W]
-            resize_H, resize_W = int(H_c * 2**(num_scales-i)), int(W_c * 2**(num_scales-i))
-            sem_feat = F.interpolate(sem_feat, size=[resize_H, resize_W], mode="bilinear", align_corners=False)
+            sem_feat = (
+                feat.transpose(1, 2).view(bs, -1, H_c, W_c).contiguous()
+            )  # [B, D, H, W]
+            resize_H, resize_W = int(H_c * 2 ** (num_scales - i)), int(
+                W_c * 2 ** (num_scales - i)
+            )
+            sem_feat = F.interpolate(
+                sem_feat,
+                size=[resize_H, resize_W],
+                mode="bilinear",
+                align_corners=False,
+            )
             sem_feats.append(sem_feat)
 
         # fusion
@@ -167,5 +246,7 @@ class DINOv3STAs(nn.Module):
         c2 = self.norms[0](self.convs[0](fused_feats[0]))
         c3 = self.norms[1](self.convs[1](fused_feats[1]))
         c4 = self.norms[2](self.convs[2](fused_feats[2]))
+
+        # save_pca_features(x, [c2, sem_feats[0], c3, sem_feats[1], c4, sem_feats[2]])
 
         return c2, c3, c4

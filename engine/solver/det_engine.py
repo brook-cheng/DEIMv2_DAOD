@@ -6,7 +6,6 @@ Modified from DETR (https://github.com/facebookresearch/detr/blob/main/engine.py
 Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 """
 
-
 import sys
 import math
 from typing import Iterable
@@ -16,49 +15,84 @@ import torch.amp
 from torch.utils.tensorboard import SummaryWriter
 from torch.cuda.amp.grad_scaler import GradScaler
 
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None
+
 from ..optim import ModelEMA, Warmup
 from ..data import CocoEvaluator
 from ..misc import MetricLogger, SmoothedValue, dist_utils
 
 
-def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, criterion: torch.nn.Module,
-                    data_loader: Iterable, optimizer: torch.optim.Optimizer,
-                    device: torch.device, epoch: int, max_norm: float = 0, **kwargs):
+def train_one_epoch(
+    self_lr_scheduler,
+    lr_scheduler,
+    model: torch.nn.Module,
+    criterion: torch.nn.Module,
+    data_loader: Iterable,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    epoch: int,
+    max_norm: float = 0,
+    **kwargs,
+):
     model.train()
     criterion.train()
-    metric_logger = MetricLogger(delimiter="  ")
-    metric_logger.add_meter('lr', SmoothedValue(window_size=1, fmt='{value:.6f}'))
-    header = 'Epoch: [{}]'.format(epoch)
+    metric_logger = MetricLogger(delimiter="  ", log_level="minimal")
+    metric_logger.add_meter("lr", SmoothedValue(window_size=1, fmt="{value:.6f}"))
+    header = "Epoch: [{}]".format(epoch)
 
-    print_freq = kwargs.get('print_freq', 10)
-    writer :SummaryWriter = kwargs.get('writer', None)
+    print_freq = kwargs.get("print_freq", 10)
+    writer: SummaryWriter = kwargs.get("writer", None)
 
-    ema :ModelEMA = kwargs.get('ema', None)
-    scaler :GradScaler = kwargs.get('scaler', None)
-    lr_warmup_scheduler :Warmup = kwargs.get('lr_warmup_scheduler', None)
+    ema: ModelEMA = kwargs.get("ema", None)
+    scaler: GradScaler = kwargs.get("scaler", None)
+    lr_warmup_scheduler: Warmup = kwargs.get("lr_warmup_scheduler", None)
+
+    comet_exp = kwargs.get("comet_exp", None)
+    comet_step = kwargs.get("comet_step", None)
 
     cur_iters = epoch * len(data_loader)
 
-    for i, (samples, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+    use_tqdm = tqdm is not None
+    if use_tqdm:
+        data_loader_iter = tqdm(
+            enumerate(data_loader),
+            total=len(data_loader),
+            desc=f"Epoch {epoch}",
+            leave=True,
+        )
+    else:
+        data_loader_iter = enumerate(
+            metric_logger.log_every(data_loader, print_freq, header)
+        )
+
+    for i, (samples, targets) in data_loader_iter:
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         global_step = epoch * len(data_loader) + i
-        metas = dict(epoch=epoch, step=i, global_step=global_step, epoch_step=len(data_loader))
+        metas = dict(
+            epoch=epoch, step=i, global_step=global_step, epoch_step=len(data_loader)
+        )
 
         if scaler is not None:
             with torch.autocast(device_type=str(device), cache_enabled=True):
                 outputs = model(samples, targets=targets)
 
-            if torch.isnan(outputs['pred_boxes']).any() or torch.isinf(outputs['pred_boxes']).any():
-                print(outputs['pred_boxes'])
+            if (
+                torch.isnan(outputs["pred_boxes"]).any()
+                or torch.isinf(outputs["pred_boxes"]).any()
+            ):
+                print(outputs["pred_boxes"])
                 state = model.state_dict()
                 new_state = {}
                 for key, value in model.state_dict().items():
                     # Replace 'module' with 'model' in each key
-                    new_key = key.replace('module.', '')
+                    new_key = key.replace("module.", "")
                     # Add the updated key-value pair to the state dictionary
                     state[new_key] = value
-                new_state['model'] = state
+                new_state["model"] = state
                 dist_utils.save_on_master(new_state, "./NaN.pth")
 
             with torch.autocast(device_type=str(device), enabled=False):
@@ -79,7 +113,7 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
             outputs = model(samples, targets=targets)
             loss_dict = criterion(outputs, targets, **metas)
 
-            loss : torch.Tensor = sum(loss_dict.values())
+            loss: torch.Tensor = sum(loss_dict.values())
             optimizer.zero_grad()
             loss.backward()
 
@@ -109,35 +143,124 @@ def train_one_epoch(self_lr_scheduler, lr_scheduler, model: torch.nn.Module, cri
         metric_logger.update(loss=loss_value, **loss_dict_reduced)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
 
-        if writer and dist_utils.is_main_process() and global_step % 10 == 0:
-            writer.add_scalar('Loss/total', loss_value.item(), global_step)
-            for j, pg in enumerate(optimizer.param_groups):
-                writer.add_scalar(f'Lr/pg_{j}', pg['lr'], global_step)
-            for k, v in loss_dict_reduced.items():
-                writer.add_scalar(f'Loss/{k}', v.item(), global_step)
+        # 更新 tqdm 进度条信息
+        if use_tqdm:
+            postfix_dict = {
+                "lr": f'{optimizer.param_groups[0]["lr"]:.8f}',
+                "loss_total": f"{loss_value:.4f}",
+                "loss_mal": f'{loss_dict_reduced.get("loss_mal", 0):.4f}',
+                "loss_bbox": f'{loss_dict_reduced.get("loss_bbox", 0):.4f}',
+                "loss_giou": f'{loss_dict_reduced.get("loss_giou", 0):.4f}',
+            }
+            if "loss_fgl" in loss_dict_reduced:
+                postfix_dict["loss_fgl"] = f'{loss_dict_reduced["loss_fgl"]:.4f}'
+            if "loss_ddf" in loss_dict_reduced:
+                postfix_dict["ddf"] = f'{loss_dict_reduced["loss_ddf"]:.4f}'
+            data_loader_iter.set_postfix(postfix_dict)
 
-    # gather the stats from all processes
+        if writer and dist_utils.is_main_process() and global_step % 10 == 0:
+            writer.add_scalar("Loss/total", loss_value.item(), global_step)
+            for j, pg in enumerate(optimizer.param_groups):
+                writer.add_scalar(f"Lr/pg_{j}", pg["lr"], global_step)
+            for k, v in loss_dict_reduced.items():
+                writer.add_scalar(f"Loss/{k}", v.item(), global_step)
+
+        if comet_exp and dist_utils.is_main_process() and global_step % 10 == 0:
+            comet_exp.log_metric(
+                "lr", optimizer.param_groups[0]["lr"], step=global_step
+            )
+            comet_exp.log_metric("loss_total", loss_value.item(), step=global_step)
+            comet_exp.log_metric(
+                "loss_mal", loss_dict_reduced.get("loss_mal", 0), step=global_step
+            )
+            comet_exp.log_metric(
+                "loss_bbox", loss_dict_reduced.get("loss_bbox", 0), step=global_step
+            )
+            comet_exp.log_metric(
+                "loss_giou", loss_dict_reduced.get("loss_giou", 0), step=global_step
+            )
+            if "loss_fgl" in loss_dict_reduced:
+                comet_exp.log_metric(
+                    "loss_fgl", loss_dict_reduced["loss_fgl"], step=global_step
+                )
+            if "loss_ddf" in loss_dict_reduced:
+                comet_exp.log_metric(
+                    "loss_ddf", loss_dict_reduced["loss_ddf"], step=global_step
+                )
+
+            for k, v in loss_dict_reduced.items():
+                comet_exp.log_metric(f"batch_{k}", v.item(), step=global_step)
+
     metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
+    print("\n" + "=" * 60)
+    print("Training Summary - Epoch {}".format(epoch))
+    print("=" * 60)
+    print(f"Total Loss: {metric_logger.loss.global_avg:.4f}")
+    print(f"Match Aware Loss: {metric_logger.loss_mal.global_avg:.4f}")
+    print(f"BBox Loss: {metric_logger.loss_bbox.global_avg:.4f}")
+    print(f"GIoU Loss: {metric_logger.loss_giou.global_avg:.4f}")
+    print(f"Learning Rate: {metric_logger.lr.global_avg:.6f}")
+    print("=" * 60 + "\n")
+
+    if comet_exp and dist_utils.is_main_process():
+        comet_exp.log_metric(
+            "epoch_loss_total", metric_logger.loss.global_avg, step=comet_step
+        )
+        comet_exp.log_metric(
+            "epoch_loss_mal", metric_logger.loss_mal.global_avg, step=comet_step
+        )
+        comet_exp.log_metric(
+            "epoch_loss_bbox", metric_logger.loss_bbox.global_avg, step=comet_step
+        )
+        comet_exp.log_metric(
+            "epoch_loss_giou", metric_logger.loss_giou.global_avg, step=comet_step
+        )
+        comet_exp.log_metric("epoch_lr", metric_logger.lr.global_avg, step=comet_step)
+
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
 
 @torch.no_grad()
-def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, data_loader, coco_evaluator: CocoEvaluator, device):
+def evaluate(
+    model: torch.nn.Module,
+    criterion: torch.nn.Module,
+    postprocessor,
+    data_loader,
+    coco_evaluator: CocoEvaluator,
+    device,
+    **kwargs,
+):
     model.eval()
     criterion.eval()
     coco_evaluator.cleanup()
 
-    metric_logger = MetricLogger(delimiter="  ")
+    metric_logger = MetricLogger(delimiter="  ", log_level="minimal")
     # metric_logger.add_meter('class_error', SmoothedValue(window_size=1, fmt='{value:.2f}'))
-    header = 'Test:'
-
+    header = "Test:"
     # iou_types = tuple(k for k in ('segm', 'bbox') if k in postprocessor.keys())
     iou_types = coco_evaluator.iou_types
     # coco_evaluator = CocoEvaluator(base_ds, iou_types)
     # coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
 
-    for samples, targets in metric_logger.log_every(data_loader, 10, header):
+    comet_exp = kwargs.get("comet_exp", None)
+    comet_step = kwargs.get("comet_step", None)
+
+    # 验证时也使用 tqdm
+    use_tqdm = tqdm is not None
+    # use_tqdm =None
+    if use_tqdm:
+        data_loader_iter = tqdm(
+            enumerate(data_loader),
+            total=len(data_loader),
+            desc="Validating",
+            leave=True,
+        )
+    else:
+        data_loader_iter = enumerate(metric_logger.log_every(data_loader, 10, header))
+
+    for idx, load_vars in data_loader_iter:
+        samples = load_vars[0]
+        targets = load_vars[1]
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -151,13 +274,18 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
         #     target_sizes = torch.stack([t["size"] for t in targets], dim=0)
         #     results = postprocessor['segm'](results, outputs, orig_target_sizes, target_sizes)
 
-        res = {target['image_id'].item(): output for target, output in zip(targets, results)}
+        res = {
+            target["image_id"].item(): output
+            for target, output in zip(targets, results)
+        }
         if coco_evaluator is not None:
             coco_evaluator.update(res)
 
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
-    print("Averaged stats:", metric_logger)
+    print("\n" + "=" * 60)
+    print("Validation Summary")
+    print("=" * 60)
     if coco_evaluator is not None:
         coco_evaluator.synchronize_between_processes()
 
@@ -166,12 +294,35 @@ def evaluate(model: torch.nn.Module, criterion: torch.nn.Module, postprocessor, 
         coco_evaluator.accumulate()
         coco_evaluator.summarize()
 
+        stats = {}
+        if "bbox" in coco_evaluator.iou_types:
+            stats["coco_eval_bbox"] = coco_evaluator.coco_eval["bbox"].stats.tolist()
+            print(f"AP @ IoU=0.50:0.95 = {stats['coco_eval_bbox'][0]:.4f}")
+            print(f"AP @ IoU=0.50       = {stats['coco_eval_bbox'][1]:.4f}")
+            print(f"AP @ IoU=0.75       = {stats['coco_eval_bbox'][2]:.4f}")
+            print(f"AP @ IoU=0.50 (small)= {stats['coco_eval_bbox'][3]:.4f}")
+            print(f"AP @ IoU=0.50 (medium)= {stats['coco_eval_bbox'][4]:.4f}")
+            print(f"AP @ IoU=0.50 (large) = {stats['coco_eval_bbox'][5]:.4f}")
+
+            stats_dict = coco_evaluator.coco_eval["bbox"].stats_as_dict
+            print(f"AR @ IoU=0.50:0.95 = {stats_dict['AR_all']:.4f}")
+            print(f"AR @ IoU=0.50       = {stats_dict['AR_50']:.4f}")
+            print(f"AR @ IoU=0.75       = {stats_dict['AR_75']:.4f}")
+            print(f"AR @ IoU=0.50 (small)= {stats_dict['AR_small']:.4f}")
+            print(f"AR @ IoU=0.50 (medium)= {stats_dict['AR_medium']:.4f}")
+            print(f"AR @ IoU=0.50 (large) = {stats_dict['AR_large']:.4f}")
+
+            comet_exp.log_metric("AR_0.5:95", stats_dict["AR_all"], step=comet_step)
+            comet_exp.log_metric("AR_50", stats_dict["AR_50"], step=comet_step)
+            comet_exp.log_metric("AP_0.5:95", stats_dict["AP_all"], step=comet_step)
+            comet_exp.log_metric("AP_50", stats_dict["AP_50"], step=comet_step)
+        print("=" * 60 + "\n")
+
     stats = {}
-    # stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
     if coco_evaluator is not None:
-        if 'bbox' in iou_types:
-            stats['coco_eval_bbox'] = coco_evaluator.coco_eval['bbox'].stats.tolist()
-        if 'segm' in iou_types:
-            stats['coco_eval_masks'] = coco_evaluator.coco_eval['segm'].stats.tolist()
+        if "bbox" in iou_types:
+            stats["coco_eval_bbox"] = coco_evaluator.coco_eval["bbox"].stats.tolist()
+        if "segm" in iou_types:
+            stats["coco_eval_masks"] = coco_evaluator.coco_eval["segm"].stats.tolist()
 
     return stats, coco_evaluator
