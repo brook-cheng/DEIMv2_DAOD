@@ -28,8 +28,8 @@ val_dataloader:
   type: DataLoader
   dataset:
     type: CocoDetection
-    img_folder: /mnt/d/project_data/model_test/deimv2_train_data/hook_coco/images/test
-    ann_file: /mnt/d/project_data/model_test/deimv2_train_data/hook_coco/annotations/instances_test.json
+    img_folder: /home/cx/cx_dir/data/deimv2_train_data/safetyhook_detection/2025_10_16/hook_coco/images/test
+    ann_file: /home/cx/cx_dir/data/deimv2_train_data/safetyhook_detection/2025_10_16/hook_coco/annotations/instances_test.json
     return_masks: False
     transforms:
       type: Compose

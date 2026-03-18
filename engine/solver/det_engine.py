@@ -166,6 +166,8 @@ def train_one_epoch(
                 writer.add_scalar(f"Loss/{k}", v.item(), global_step)
 
         if comet_exp and dist_utils.is_main_process() and global_step % 10 == 0:
+            for k, v in loss_dict_reduced.items():
+                comet_exp.log_metric(f"batch_{k}", v.item(), step=global_step)
             comet_exp.log_metric(
                 "lr", optimizer.param_groups[0]["lr"], step=global_step
             )
@@ -188,9 +190,6 @@ def train_one_epoch(
                     "loss_ddf", loss_dict_reduced["loss_ddf"], step=global_step
                 )
 
-            for k, v in loss_dict_reduced.items():
-                comet_exp.log_metric(f"batch_{k}", v.item(), step=global_step)
-
     metric_logger.synchronize_between_processes()
     print("\n" + "=" * 60)
     print("Training Summary - Epoch {}".format(epoch))
@@ -204,18 +203,18 @@ def train_one_epoch(
 
     if comet_exp and dist_utils.is_main_process():
         comet_exp.log_metric(
-            "epoch_loss_total", metric_logger.loss.global_avg, step=comet_step
+            "epoch_loss_total", metric_logger.loss.global_avg, epoch=comet_step
         )
         comet_exp.log_metric(
-            "epoch_loss_mal", metric_logger.loss_mal.global_avg, step=comet_step
+            "epoch_loss_mal", metric_logger.loss_mal.global_avg, epoch=comet_step
         )
         comet_exp.log_metric(
-            "epoch_loss_bbox", metric_logger.loss_bbox.global_avg, step=comet_step
+            "epoch_loss_bbox", metric_logger.loss_bbox.global_avg, epoch=comet_step
         )
         comet_exp.log_metric(
-            "epoch_loss_giou", metric_logger.loss_giou.global_avg, step=comet_step
+            "epoch_loss_giou", metric_logger.loss_giou.global_avg, epoch=comet_step
         )
-        comet_exp.log_metric("epoch_lr", metric_logger.lr.global_avg, step=comet_step)
+        comet_exp.log_metric("epoch_lr", metric_logger.lr.global_avg, epoch=comet_step)
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
@@ -312,10 +311,15 @@ def evaluate(
             print(f"AR @ IoU=0.50 (medium)= {stats_dict['AR_medium']:.4f}")
             print(f"AR @ IoU=0.50 (large) = {stats_dict['AR_large']:.4f}")
 
-            comet_exp.log_metric("AR_0.5:95", stats_dict["AR_all"], step=comet_step)
-            comet_exp.log_metric("AR_50", stats_dict["AR_50"], step=comet_step)
-            comet_exp.log_metric("AP_0.5:95", stats_dict["AP_all"], step=comet_step)
-            comet_exp.log_metric("AP_50", stats_dict["AP_50"], step=comet_step)
+            if comet_exp is not None:
+                comet_exp.log_metric(
+                    "AR_0.5:95", stats_dict["AR_all"], epoch=comet_step
+                )
+                comet_exp.log_metric("AR_50", stats_dict["AR_50"], epoch=comet_step)
+                comet_exp.log_metric(
+                    "AP_0.5:95", stats_dict["AP_all"], epoch=comet_step
+                )
+                comet_exp.log_metric("AP_50", stats_dict["AP_50"], epoch=comet_step)
         print("=" * 60 + "\n")
 
     stats = {}

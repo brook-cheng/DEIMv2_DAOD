@@ -1,5 +1,5 @@
 __include__: [
-  './dataset_custom_detection.yml',
+  './dataset_custom_detection_train.yml',
   '../runtime.yml',
   '../base/dataloader.yml',
   './deimv2_common.yml',
@@ -17,7 +17,7 @@ DEIM:
 
 DINOv3STAs:
   name: dinov3_vitb16
-  weights_path: ./ckpts/dinov3_vitb16_pretrain_lvd1689m-73cec8be.pth
+  weights_path: ./outputs/deimv2_dinov3_b_coco/best_stg2_finetune_0312.pth
   interaction_indexes: [5,8,11]   # only need the [1/8, 1/16, 1/32]
   finetune: True
   conv_inplane: 128 # hidden_dim/4
@@ -51,29 +51,8 @@ ema:
   warmups: 1000
   start: 0
 clip_max_norm: 0.1
-# optimizer:
-#   type: AdamW
-#   params:
-#     -
-#       # except norm/bn/bias in self.dinov3
-#       params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
-#       lr: 0.00001
-#     -
-#       # including norm/bn/bias in self.dinov3
-#       params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
-#       lr: 0.00001
-#       weight_decay: 0.
-#     -
-#       # including norm/bn/bias except for the self.dinov3
-#       params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
-#       weight_decay: 0.
-
-#   lr: 0.0005
-#   betas: [0.9, 0.999]
-#   weight_decay: 0.000125
-
 optimizer:
-  type: SGD
+  type: AdamW
   params:
     -
       # except norm/bn/bias in self.dinov3
@@ -90,12 +69,33 @@ optimizer:
       weight_decay: 0.
 
   lr: 0.0005
-  momentum : 0.937
-  weight_decay: 0.0005
+  betas: [0.9, 0.999]
+  weight_decay: 0.000125
+
+# optimizer:
+#   type: SGD
+#   params:
+#     -
+#       # except norm/bn/bias in self.dinov3
+#       params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
+#       lr: 0.00001
+#     -
+#       # including norm/bn/bias in self.dinov3
+#       params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
+#       lr: 0.00001
+#       weight_decay: 0.
+#     -
+#       # including norm/bn/bias except for the self.dinov3
+#       params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
+#       weight_decay: 0.
+
+#   lr: 0.0005
+#   momentum : 0.937
+#   weight_decay: 0.0005
 
 
 ## DEIM LR-Scheduler
-epoches: 21 # 72 + 2n  # Increase to search for the optimal ema
+epoches: 30 # 72 + 2n  # Increase to search for the optimal ema
 
 lr_scheduler:
   type: MultiStepLR
@@ -108,9 +108,9 @@ lr_warmup_scheduler:
 
 lrsheduler: flatcosine
 lr_gamma: 0.5
-warmup_iter: 3 # epoch//7
-flat_epoch: 10    # epoch // 2
-no_aug_epoch: 3 # epoch // 7
+warmup_iter: 10 # epoch//3
+flat_epoch: 20    # epoch // 3 + warmup_iter
+no_aug_epoch: 10 # epoch // 3
 
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
