@@ -1,0 +1,1 @@
+# 将模型输出结果转换为coco标注格式，格式参考coco_annotation_demo.json

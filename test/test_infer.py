@@ -19,7 +19,7 @@ from torchvision import transforms
 from PIL import Image, ImageDraw, ImageFont
 
 # There is an example in the end!
-os.environ.update({"CUDA_VISIBLE_DEVICES": "1"})
+os.environ.update({"CUDA_VISIBLE_DEVICES": "0"})
 
 
 class DEIMv2(nn.Module, PyTorchModelHubMixin):

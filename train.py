@@ -223,11 +223,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # model test part
-    # args.config = "./configs/custom/deimv2_dinov3_b_custom.yml"
+    args.config = "./configs/custom/deimv2_dinov3_b_custom.yml"
     args.test_only = False
     # args.resume = (
     #     "./outputs/deimv2_dinov3_x_custom/best_stg2_freeze_1109_e186_mAP67.pth"
     # )
-    args.device = "cuda:1"
+    args.device = "cuda:0"
 
     main(args)
