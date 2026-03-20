@@ -157,8 +157,8 @@ def main(
     if args.resume or args.tuning:
         if "HGNetv2" in cfg.yaml_cfg:
             cfg.yaml_cfg["HGNetv2"]["pretrained"] = False
-
-    init_comet_experiment(cfg)
+    if not args.test_only:
+        init_comet_experiment(cfg)
     print_training_config(cfg)
 
     solver = TASKS[cfg.yaml_cfg["task"]](cfg)
