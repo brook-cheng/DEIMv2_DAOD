@@ -728,6 +728,10 @@ class DEIMTransformer(nn.Module):
         )
 
         # decoder
+        # out_bboxes: (bs,num_queries+num_denoising*2,4,decoder_layer_num), bbox predictions after every FDR layer;
+        # out_logits: (num_classes,num_queries+num_denoising*2,4,decoder_layer_num), final logits prediction;
+        # out_corners: distribute bins after every FDR layer; out_refs: basic reference points before every FDR layer;
+        # pre_bboxes: init bbox prediction after first decoder layer; pre_logits: init logits prediction after first decoder layer;
         out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits = (
             self.decoder(
                 init_ref_contents,
@@ -747,14 +751,14 @@ class DEIMTransformer(nn.Module):
         )
 
         if self.training and dn_meta is not None:
-            # the output from the first decoder layer, only one
+            # the output from the first decoder layer,before the rest layer begin FDR process, only one
             dn_pre_logits, pre_logits = torch.split(
                 pre_logits, dn_meta["dn_num_split"], dim=1
             )
             dn_pre_bboxes, pre_bboxes = torch.split(
                 pre_bboxes, dn_meta["dn_num_split"], dim=1
             )
-
+            # the output from the all decoder layer,after FDR process
             dn_out_logits, out_logits = torch.split(
                 out_logits, dn_meta["dn_num_split"], dim=2
             )

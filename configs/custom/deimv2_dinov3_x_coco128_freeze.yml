@@ -1,13 +1,13 @@
 __include__: [
-  './dataset_custom_detection_train.yml',
+  './dataset_coco128_detection_train.yml',
   '../runtime.yml',
   '../base/dataloader.yml',
-  '../base/deimv2.yml',
+  './deimv2_common.yml',
 ]
   # '../base/optimizer.yml',
 
 
-output_dir: ./outputs/deimv2_dinov3_x_custom_freeze
+output_dir: ./outputs/deimv2_dinov3_x_debug
 
 use_focal_loss: True
 eval_spatial_size: [640, 640] # h w
@@ -93,7 +93,7 @@ no_aug_epoch: 8
 
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
-  total_batch_size: 8 # total batch size equals to gpu_nums*batch_size
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
   dataset:
     transforms:
       ops:
@@ -113,13 +113,14 @@ train_dataloader:
         epoch: [4, 29, 50]   # list
 
   collate_fn:
+    base_size: 640
     mixup_epochs: [4, 29]
     stop_epoch: 50
     copyblend_epochs: [4, 50]
     base_size_repeat: 3
 
 val_dataloader:
-  total_batch_size: 1 # total batch size equals to gpu_nums*batch_size
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
   dataset:
     transforms:
       ops:
