@@ -728,10 +728,12 @@ class DEIMTransformer(nn.Module):
         )
 
         # decoder
-        # out_bboxes: (bs,num_queries+num_denoising*2,4,decoder_layer_num), bbox predictions after every FDR layer;
-        # out_logits: (num_classes,num_queries+num_denoising*2,4,decoder_layer_num), final logits prediction;
-        # out_corners: distribute bins after every FDR layer; out_refs: basic reference points before every FDR layer;
-        # pre_bboxes: init bbox prediction after first decoder layer; pre_logits: init logits prediction after first decoder layer;
+        # out_bboxes: (decoder_layer_num,bs,num_queries+num_denoising*2,4), bbox predictions after every FDR layer;
+        # out_logits: (decoder_layer_num,bs,num_queries+num_denoising*2,num_classes), final logits prediction related with corners;
+        # out_corners: (decoder_layer_num,bs,num_queries+num_denoising*2,4 * (reg_max + 1)), distribute bins after every FDR layer;
+        # out_refs: (decoder_layer_num,bs,num_queries+num_denoising*2,4), basic reference points before every FDR layer;
+        # pre_bboxes: (bs,num_queries+num_denoising*2,4), init bbox prediction after first decoder layer;
+        # pre_logits: (bs,num_queries+num_denoising*2,num_classes), init logits prediction after first decoder layer;
         out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits = (
             self.decoder(
                 init_ref_contents,
@@ -786,6 +788,7 @@ class DEIMTransformer(nn.Module):
             out = {"pred_logits": out_logits[-1], "pred_boxes": out_bboxes[-1]}
 
         if self.training and self.aux_loss:
+            # Layer-wise Supervision
             out["aux_outputs"] = self._set_aux_loss2(
                 out_logits[:-1],
                 out_bboxes[:-1],
