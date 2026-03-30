@@ -159,20 +159,25 @@ class DEIMCriterion(nn.Module):
             device=src_logits.device,
         )
         target_classes[idx] = target_classes_o
+        # convert gt lables to one-hot code
         target = F.one_hot(target_classes, num_classes=self.num_classes + 1)[..., :-1]
 
         target_score_o = torch.zeros_like(target_classes, dtype=src_logits.dtype)
         target_score_o[idx] = ious.to(target_score_o.dtype)
         target_score = target_score_o.unsqueeze(-1) * target
-
+        # p
         pred_score = F.sigmoid(src_logits).detach()
+        # q^{\gamma}
         target_score = target_score.pow(self.gamma)
         if self.mal_alpha != None:
             weight = self.mal_alpha * pred_score.pow(self.gamma) * (1 - target) + target
         else:
+            # weight=p^{\gamma}*(1-y)+y, y\in{0,1}
             weight = pred_score.pow(self.gamma) * (1 - target) + target
 
         # print(" ### DEIM-gamma{}-alpha{} ### ".format(self.gamma, self.mal_alpha))
+        # loss(x,y)=L=\{l_1,l_2,...,l_N\}^T, l_n=-w_n*(y_n*log(sigmoid(x_n))+(1-y_n)log(1-sigmoid(x_n)))
+        # l=-w(q^{\gamma}*log(p)+(1-q^{\gamma})*log(1-p)))
         loss = F.binary_cross_entropy_with_logits(
             src_logits, target_score, weight=weight, reduction="none"
         )
