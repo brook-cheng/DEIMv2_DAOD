@@ -133,7 +133,9 @@ class DEIMCriterion(nn.Module):
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
         return {"loss_vfl": loss}
 
-    def loss_labels_mal(self, outputs, targets, indices, num_boxes, values=None):
+    def loss_labels_mal(
+        self, outputs, targets, indices, num_boxes, values=None, beta=0.5
+    ):
         assert "pred_boxes" in outputs
         idx = self._get_src_permutation_idx(indices)
         if values is None:
@@ -181,7 +183,11 @@ class DEIMCriterion(nn.Module):
         loss = F.binary_cross_entropy_with_logits(
             src_logits, target_score, weight=weight, reduction="none"
         )
+
         # FIXME:震荡问题
+        if beta != None:
+            loss = loss + beta * (1 - pred_score) * (1 - target_score)
+
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
         return {"loss_mal": loss}
 
