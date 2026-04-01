@@ -73,7 +73,7 @@ optimizer:
   betas: [0.9, 0.999]
   weight_decay: 0.000125
 
-epoches: 81 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+epoches: 20 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
 
 lr_scheduler:
   type: MultiStepLR
@@ -86,21 +86,24 @@ lr_warmup_scheduler:
 
 lrsheduler: flatcosine
 lr_gamma: 0.5
-warmup_iter: 8
-flat_epoch: 49    # epoch // 2 + warmup_iter
-no_aug_epoch: 8
+warmup_iter: 3
+flat_epoch: 15    # epoch // 2 + warmup_iter
+no_aug_epoch: 2
 
 # loss
 DEIMCriterion:
   weight_dict: {loss_mal: 1, loss_bbox: 5, loss_giou: 2, loss_fgl: 0.15, loss_ddf: 1.5}
   losses: ['mal', 'boxes', 'local']
-  gamma: 1.5 # 值越小iou损失对mal损失影响越小
+  gamma: 0.5 # 值越小iou损失对mal损失影响越小，mal_iou_type!='iou'时，gamma应当设置较小值[0,0.5]，否则可设置[0,2]
   # mal_alpha: 1.5 # 负样本预测错误损失权重
+  mal_beta: 0.5 # mal损失(0,0)趋向惩罚权重
+  mal_iou_type: 'iou' # mal损失iou类型: iou,giou,diou,ciou,eiou
+  local_iou_type: 'iou' # local损失iou类型: iou,giou,diou,ciou,eiou
 
 
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
-  total_batch_size: 1 # total batch size equals to gpu_nums*batch_size
+  total_batch_size: 8 # total batch size equals to gpu_nums*batch_size
   dataset:
     transforms:
       ops:

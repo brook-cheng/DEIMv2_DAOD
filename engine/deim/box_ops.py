@@ -27,23 +27,23 @@ def box_xyxy_to_cxcywh(x: Tensor) -> Tensor:
 
 
 # modified from torchvision to also return the union
-def box_iou(boxes1: Tensor, boxes2: Tensor):
-    area1 = box_area(boxes1)
-    area2 = box_area(boxes2)
+def box_iou(pred: Tensor, target: Tensor, eps: float = 1e-7):
+    area1 = box_area(pred)
+    area2 = box_area(target)
 
-    lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])  # [N,M,2]
-    rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])  # [N,M,2]
+    lt = torch.max(pred[:, None, :2], target[:, :2])  # [N,M,2]
+    rb = torch.min(pred[:, None, 2:], target[:, 2:])  # [N,M,2]
 
     wh = (rb - lt).clamp(min=0)  # [N,M,2]
     inter = wh[:, :, 0] * wh[:, :, 1]  # [N,M]
 
-    union = area1[:, None] + area2 - inter
+    union = area1[:, None] + area2 - inter + eps
 
     iou = inter / union
     return iou, union
 
 
-def generalized_box_iou(boxes1, boxes2):
+def generalized_box_iou(pred, target):
     """
     Generalized IoU from https://giou.stanford.edu/
 
@@ -54,16 +54,16 @@ def generalized_box_iou(boxes1, boxes2):
     """
     # degenerate boxes gives inf / nan results
     # so do an early check
-    assert (boxes1[:, 2:] >= boxes1[:, :2]).all()
-    assert (boxes2[:, 2:] >= boxes2[:, :2]).all()
-    iou, union = box_iou(boxes1, boxes2)
+    assert (pred[:, 2:] >= pred[:, :2]).all()
+    assert (target[:, 2:] >= target[:, :2]).all()
+    iou, union = box_iou(pred, target)
 
-    lt = torch.min(boxes1[:, None, :2], boxes2[:, :2])
-    rb = torch.max(boxes1[:, None, 2:], boxes2[:, 2:])
+    lt = torch.min(pred[:, None, :2], target[:, :2])
+    rb = torch.max(pred[:, None, 2:], target[:, 2:])
 
     wh = (rb - lt).clamp(min=0)  # [N,M,2]
     area = wh[:, :, 0] * wh[:, :, 1]
-
+    # [-1,1]
     return iou - (area - union) / area
 
 
@@ -110,26 +110,26 @@ def diou(pred: Tensor, target: Tensor, eps: float = 1e-7) -> Tensor:
         Tensor: Loss tensor.
     """
     # overlap
-    lt = torch.max(pred[:, :2], target[:, :2])
-    rb = torch.min(pred[:, 2:], target[:, 2:])
+    lt = torch.max(pred[:, None, :2], target[:, :2])
+    rb = torch.min(pred[:, None, 2:], target[:, 2:])
     wh = (rb - lt).clamp(min=0)
-    overlap = wh[:, 0] * wh[:, 1]
+    overlap = wh[:, :, 0] * wh[:, :, 1]
 
     # union
     ap = (pred[:, 2] - pred[:, 0]) * (pred[:, 3] - pred[:, 1])
     ag = (target[:, 2] - target[:, 0]) * (target[:, 3] - target[:, 1])
-    union = ap + ag - overlap + eps
+    union = ap[:, None] + ag - overlap + eps
 
     # IoU
     ious = overlap / union
 
     # enclose area
-    enclose_x1y1 = torch.min(pred[:, :2], target[:, :2])
-    enclose_x2y2 = torch.max(pred[:, 2:], target[:, 2:])
+    enclose_x1y1 = torch.min(pred[:, None, :2], target[:, :2])
+    enclose_x2y2 = torch.max(pred[:, None, 2:], target[:, 2:])
     enclose_wh = (enclose_x2y2 - enclose_x1y1).clamp(min=0)
 
-    cw = enclose_wh[:, 0]
-    ch = enclose_wh[:, 1]
+    cw = enclose_wh[:, :, 0]
+    ch = enclose_wh[:, :, 1]
 
     c2 = cw**2 + ch**2 + eps
 
@@ -142,10 +142,10 @@ def diou(pred: Tensor, target: Tensor, eps: float = 1e-7) -> Tensor:
     right = ((b2_y1 + b2_y2) - (b1_y1 + b1_y2)) ** 2 / 4
     rho2 = left + right
 
-    # DIoU
-    dious = ious - rho2 / c2
-    loss = 1 - dious
-    return loss
+    # DIoU [-1,1]
+    dious = ious - rho2[:, None] / c2
+    # loss = 1 - dious
+    return dious
 
 
 def ciou(pred: Tensor, target: Tensor, eps: float = 1e-7) -> Tensor:
@@ -165,26 +165,26 @@ def ciou(pred: Tensor, target: Tensor, eps: float = 1e-7) -> Tensor:
         Tensor: Loss tensor.
     """
     # overlap
-    lt = torch.max(pred[:, :2], target[:, :2])
-    rb = torch.min(pred[:, 2:], target[:, 2:])
+    lt = torch.max(pred[:, None, :2], target[:, :2])
+    rb = torch.min(pred[:, None, 2:], target[:, 2:])
     wh = (rb - lt).clamp(min=0)
-    overlap = wh[:, 0] * wh[:, 1]
+    overlap = wh[:, :, 0] * wh[:, :, 1]
 
     # union
     ap = (pred[:, 2] - pred[:, 0]) * (pred[:, 3] - pred[:, 1])
     ag = (target[:, 2] - target[:, 0]) * (target[:, 3] - target[:, 1])
-    union = ap + ag - overlap + eps
+    union = ap[:, None] + ag - overlap + eps
 
     # IoU
     ious = overlap / union
 
     # enclose area
-    enclose_x1y1 = torch.min(pred[:, :2], target[:, :2])
-    enclose_x2y2 = torch.max(pred[:, 2:], target[:, 2:])
+    enclose_x1y1 = torch.min(pred[:, None, :2], target[:, :2])
+    enclose_x2y2 = torch.max(pred[:, None, 2:], target[:, 2:])
     enclose_wh = (enclose_x2y2 - enclose_x1y1).clamp(min=0)
 
-    cw = enclose_wh[:, 0]
-    ch = enclose_wh[:, 1]
+    cw = enclose_wh[:, :, 0]
+    ch = enclose_wh[:, :, 1]
 
     c2 = cw**2 + ch**2 + eps
 
@@ -204,12 +204,13 @@ def ciou(pred: Tensor, target: Tensor, eps: float = 1e-7) -> Tensor:
     v = factor * torch.pow(torch.atan(w2 / h2) - torch.atan(w1 / h1), 2)
 
     with torch.no_grad():
-        alpha = (ious > 0.5).float() * v / (1 - ious + v)
+        alpha = (ious > 0.5).float() * v[:, None] / (1 - ious + v[:, None])
 
-    # CIoU
-    cious = ious - (rho2 / c2 + alpha * v)
-    loss = 1 - cious.clamp(min=-1.0, max=1.0)
-    return loss
+    # CIoU [-1,1]
+    cious = ious - (rho2[:, None] / c2 + alpha * v[:, None])
+    cious = cious.clamp(min=-1.0, max=1.0)
+    # loss = 1 -cious
+    return cious
 
 
 def eiou(
@@ -235,14 +236,14 @@ def eiou(
     tx1, ty1, tx2, ty2 = target[:, 0], target[:, 1], target[:, 2], target[:, 3]
 
     # extent top left
-    ex1 = torch.min(px1, tx1)
-    ey1 = torch.min(py1, ty1)
+    ex1 = torch.min(px1[:, None], tx1)
+    ey1 = torch.min(py1[:, None], ty1)
 
     # intersection coordinates
-    ix1 = torch.max(px1, tx1)
-    iy1 = torch.max(py1, ty1)
-    ix2 = torch.min(px2, tx2)
-    iy2 = torch.min(py2, ty2)
+    ix1 = torch.max(px1[:, None], tx1)
+    iy1 = torch.max(py1[:, None], ty1)
+    ix2 = torch.min(px2[:, None], tx2)
+    iy2 = torch.min(py2[:, None], ty2)
 
     # extra
     xmin = torch.min(ix1, ix2)
@@ -267,9 +268,12 @@ def eiou(
     loss = 0.5 * smooth_sign * (ious**2) / smooth_point + (1 - smooth_sign) * (
         ious - 0.5 * smooth_point
     )
-    return loss
+    # eiou [-1, 1]
+    eiou = 1 - loss
+    return eiou
 
 
+# FIXME: 奇怪的输出，暂时不使用
 def siou(pred, target, eps=1e-7, neg_gamma=False):
     r"""`Implementation of paper `SIoU Loss: More Powerful Learning
     for Bounding Box Regression <https://arxiv.org/abs/2205.12740>`_.
@@ -287,27 +291,27 @@ def siou(pred, target, eps=1e-7, neg_gamma=False):
         Tensor: Loss tensor.
     """
     # overlap
-    lt = torch.max(pred[:, :2], target[:, :2])
-    rb = torch.min(pred[:, 2:], target[:, 2:])
+    lt = torch.max(pred[:, None, :2], target[:, :2])
+    rb = torch.min(pred[:, None, 2:], target[:, 2:])
     wh = (rb - lt).clamp(min=0)
-    overlap = wh[:, 0] * wh[:, 1]
+    overlap = wh[:, :, 0] * wh[:, :, 1]
 
     # union
     ap = (pred[:, 2] - pred[:, 0]) * (pred[:, 3] - pred[:, 1])
     ag = (target[:, 2] - target[:, 0]) * (target[:, 3] - target[:, 1])
-    union = ap + ag - overlap + eps
+    union = ap[:, None] + ag - overlap + eps
 
     # IoU
     ious = overlap / union
 
     # enclose area
-    enclose_x1y1 = torch.min(pred[:, :2], target[:, :2])
-    enclose_x2y2 = torch.max(pred[:, 2:], target[:, 2:])
+    enclose_x1y1 = torch.min(pred[:, None, :2], target[:, :2])
+    enclose_x2y2 = torch.max(pred[:, None, 2:], target[:, 2:])
     # modified clamp threshold zero to eps to avoid NaN
     enclose_wh = (enclose_x2y2 - enclose_x1y1).clamp(min=eps)
 
-    cw = enclose_wh[:, 0]
-    ch = enclose_wh[:, 1]
+    cw = enclose_wh[:, :, 0]
+    ch = enclose_wh[:, :, 1]
 
     b1_x1, b1_y1 = pred[:, 0], pred[:, 1]
     b1_x2, b1_y2 = pred[:, 2], pred[:, 3]
@@ -318,8 +322,10 @@ def siou(pred, target, eps=1e-7, neg_gamma=False):
     w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
 
     # angle cost
-    s_cw = (b2_x1 + b2_x2 - b1_x1 - b1_x2) * 0.5 + eps
-    s_ch = (b2_y1 + b2_y2 - b1_y1 - b1_y2) * 0.5 + eps
+    # _s_cw = ((b2_x1 + b2_x2) - (b1_x1 + b1_x2)) * 0.5 + eps
+    # _s_ch = ((b2_y1 + b2_y2) - (b1_y1 + b1_y2)) * 0.5 + eps
+    s_cw = ((b2_x1 + b2_x2)[:, None] - (b1_x1 + b1_x2)) * 0.5 + eps
+    s_ch = ((b2_y1 + b2_y2)[:, None] - (b1_y1 + b1_y2)) * 0.5 + eps
 
     sigma = torch.pow(s_cw**2 + s_ch**2, 0.5)
 
@@ -339,13 +345,15 @@ def siou(pred, target, eps=1e-7, neg_gamma=False):
     distance_cost = 2 - torch.exp(gamma * rho_x) - torch.exp(gamma * rho_y)
 
     # shape cost
-    omiga_w = torch.abs(w1 - w2) / torch.max(w1, w2)
-    omiga_h = torch.abs(h1 - h2) / torch.max(h1, h2)
+    omiga_w = torch.abs(w1[:, None] - w2) / torch.max(w1[:, None], w2)
+    omiga_h = torch.abs(h1[:, None] - h2) / torch.max(h1[:, None], h2)
     shape_cost = torch.pow(1 - torch.exp(-1 * omiga_w), 4) + torch.pow(
         1 - torch.exp(-1 * omiga_h), 4
     )
 
-    # SIoU
+    # SIoU [-1,1]
     sious = ious - 0.5 * (distance_cost + shape_cost)
     loss = 1 - sious.clamp(min=-1.0, max=1.0)
+    # sious = sious.clamp(min=-1.0, max=1.0)
+
     return loss

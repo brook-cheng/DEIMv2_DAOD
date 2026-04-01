@@ -121,7 +121,7 @@ def visual_mal_loss(p, q, y, gamma=1.5, mal_alpha=None, beta=0.5, use_new_loss=F
 
     # 创建网格
     p_range = torch.linspace(0.01, 0.99, 100)  # 预测概率
-    q_range = torch.linspace(0.01, 0.99, 100)  # 目标 IoU
+    q_range = torch.linspace(0.01, 1.99, 200)  # 目标 IoU
     P, Q = torch.meshgrid(p_range, q_range, indexing="ij")
 
     # 计算 loss
@@ -358,22 +358,22 @@ if __name__ == "__main__":
     # === 示例 1: 单个参数设置可视化 ===
     print("\n1. 可视化单个参数设置...")
     visual_mal_loss(
-        p=None, q=None, y=1, gamma=1.5, mal_alpha=None, beta=0.5, use_new_loss=False
+        p=None, q=None, y=1, gamma=0.5, mal_alpha=None, beta=0.5, use_new_loss=False
     )
     visual_mal_loss(
-        p=None, q=None, y=1, gamma=1.5, mal_alpha=None, beta=0.5, use_new_loss=True
+        p=None, q=None, y=1, gamma=0.5, mal_alpha=None, beta=0.5, use_new_loss=True
     )
     visual_mal_loss(
-        p=None, q=None, y=1, gamma=1.5, mal_alpha=None, beta=1, use_new_loss=False
+        p=None, q=None, y=1, gamma=0.5, mal_alpha=None, beta=1, use_new_loss=False
     )
     visual_mal_loss(
-        p=None, q=None, y=1, gamma=1.5, mal_alpha=None, beta=1, use_new_loss=True
+        p=None, q=None, y=1, gamma=0.5, mal_alpha=None, beta=1, use_new_loss=True
     )
     visual_mal_loss(
-        p=None, q=None, y=1, gamma=1.5, mal_alpha=None, beta=1.5, use_new_loss=False
+        p=None, q=None, y=1, gamma=0.5, mal_alpha=None, beta=1.5, use_new_loss=False
     )
     visual_mal_loss(
-        p=None, q=None, y=1, gamma=1.5, mal_alpha=None, beta=1.5, use_new_loss=True
+        p=None, q=None, y=1, gamma=0.5, mal_alpha=None, beta=1.5, use_new_loss=True
     )
 
     # # === 示例 2: 参数对比 ===

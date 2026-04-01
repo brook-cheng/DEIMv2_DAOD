@@ -15,7 +15,15 @@ import torchvision
 import copy
 
 from .dfine_utils import bbox2distance
-from .box_ops import box_cxcywh_to_xyxy, box_iou, generalized_box_iou
+from .box_ops import (
+    box_cxcywh_to_xyxy,
+    box_iou,
+    generalized_box_iou,
+    diou,
+    ciou,
+    eiou,
+    siou,
+)
 from ..misc.dist_utils import get_world_size, is_dist_available_and_initialized
 from ..core import register
 
@@ -44,6 +52,9 @@ class DEIMCriterion(nn.Module):
         share_matched_indices=False,
         mal_alpha=None,
         use_uni_set=True,
+        mal_beta=None,
+        mal_iou_type=None,
+        local_iou_type=None,
     ):
         """Create the criterion.
         Parameters:
@@ -69,6 +80,9 @@ class DEIMCriterion(nn.Module):
         self.num_pos, self.num_neg = None, None
         self.mal_alpha = mal_alpha
         self.use_uni_set = use_uni_set
+        self.mal_beta = mal_beta
+        self.mal_iou_type = mal_iou_type
+        self.local_iou_type = local_iou_type
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
@@ -133,9 +147,7 @@ class DEIMCriterion(nn.Module):
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
         return {"loss_vfl": loss}
 
-    def loss_labels_mal(
-        self, outputs, targets, indices, num_boxes, values=None, beta=0.5
-    ):
+    def loss_labels_mal(self, outputs, targets, indices, num_boxes, values=None):
         assert "pred_boxes" in outputs
         idx = self._get_src_permutation_idx(indices)
         if values is None:
@@ -143,9 +155,33 @@ class DEIMCriterion(nn.Module):
             target_boxes = torch.cat(
                 [t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0
             )
-            ious, _ = box_iou(
-                box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
-            )
+            if self.mal_iou_type == None or self.mal_iou_type == "iou":
+                ious, _ = box_iou(
+                    box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
+                )
+            elif self.local_iou_type == "giou":
+                gious = generalized_box_iou(
+                    box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
+                )
+                ious = gious + 1
+            elif self.mal_iou_type == "dious":
+                dious = diou(
+                    box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
+                )
+                ious = dious + 1
+            elif self.mal_iou_type == "ciou":
+                cious = ciou(
+                    box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
+                )
+                ious = cious + 1
+            elif self.mal_iou_type == "eiou":
+                eious = eiou(
+                    box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
+                )
+                ious = eious + 1
+            else:
+                raise ValueError(f"{self.mal_iou_type} is not supported")
+
             ious = torch.diag(ious).detach()
         else:
             ious = values
@@ -185,8 +221,8 @@ class DEIMCriterion(nn.Module):
         )
 
         # FIXME:震荡问题
-        if beta != None:
-            loss = loss + beta * (1 - pred_score) * (1 - target_score)
+        if self.mal_beta != None:
+            loss = loss + self.mal_beta * (1 - pred_score) * (1 - target_score)
 
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
         return {"loss_mal": loss}
@@ -250,13 +286,39 @@ class DEIMCriterion(nn.Module):
             target_corners, weight_right, weight_left = (
                 self.fgl_targets_dn if "is_dn" in outputs else self.fgl_targets
             )
-
-            ious = torch.diag(
-                box_iou(
+            if self.local_iou_type == None or self.local_iou_type == "iou":
+                box_ious, _ = box_iou(
                     box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
                     box_cxcywh_to_xyxy(target_boxes),
-                )[0]
-            )
+                )
+                ious = torch.diag(box_ious)
+            elif self.local_iou_type == "giou":
+                gious = generalized_box_iou(
+                    box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
+                    box_cxcywh_to_xyxy(target_boxes),
+                )
+                ious = torch.diag(gious)
+            elif self.local_iou_type == "diou":
+                dious = diou(
+                    box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
+                    box_cxcywh_to_xyxy(target_boxes),
+                )
+                ious = torch.diag(dious)
+            elif self.local_iou_type == "ciou":
+                cious = ciou(
+                    box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
+                    box_cxcywh_to_xyxy(target_boxes),
+                )
+                ious = torch.diag(cious)
+            elif self.local_iou_type == "eiou":
+                eious = eiou(
+                    box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
+                    box_cxcywh_to_xyxy(target_boxes),
+                )
+                ious = torch.diag(eious)
+            else:
+                raise ValueError(f"undefined iou type:{self.local_iou_type}")
+
             weight_targets = ious.unsqueeze(-1).repeat(1, 1, 4).reshape(-1).detach()
             # FIXME:不收敛的问题
             losses["loss_fgl"] = self.unimodal_distribution_focal_loss(

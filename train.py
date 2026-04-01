@@ -56,7 +56,7 @@ def init_comet_experiment(cfg: YAMLConfig) -> None:
         import comet_ml
 
         api_key = os.getenv("COMET_API_KEY")
-        project_name = os.getenv("COMET_PROJECT_NAME", "deimv2-training")
+        project_name = os.getenv("COMET_PROJECT_NAME", "deimv2-training-dev")
 
         if api_key:
             # comet_ml.init(api_key=api_key, project_name=project_name)
@@ -157,8 +157,8 @@ def main(
     if args.resume or args.tuning:
         if "HGNetv2" in cfg.yaml_cfg:
             cfg.yaml_cfg["HGNetv2"]["pretrained"] = False
-    # if not args.test_only:
-    #     init_comet_experiment(cfg)
+    if not args.test_only:
+        init_comet_experiment(cfg)
     print_training_config(cfg)
 
     solver = TASKS[cfg.yaml_cfg["task"]](cfg)

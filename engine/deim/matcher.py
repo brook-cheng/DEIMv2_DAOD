@@ -115,10 +115,9 @@ class HungarianMatcher(nn.Module):
             ]  # shape = [batch_size * num_queries, gt num within a batch]
 
             # # Compute iou
-            # bbox_iou, _ = box_iou(
-            #     box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox)
-            # )
-            bbox_iou = ciou(box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox))
+            bbox_iou, _ = box_iou(
+                box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox)
+            )
 
             # Final cost matrix
             C = (-1) * (class_score * torch.pow(bbox_iou, self.iou_order_alpha))
