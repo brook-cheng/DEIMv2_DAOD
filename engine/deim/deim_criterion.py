@@ -155,7 +155,7 @@ class DEIMCriterion(nn.Module):
             target_boxes = torch.cat(
                 [t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0
             )
-            if self.mal_iou_type == None or self.mal_iou_type == "iou":
+            if self.local_iou_type == None or self.local_iou_type == "iou":
                 ious, _ = box_iou(
                     box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
                 )
@@ -163,24 +163,24 @@ class DEIMCriterion(nn.Module):
                 gious = generalized_box_iou(
                     box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
                 )
-                ious = gious + 1
-            elif self.mal_iou_type == "dious":
+                ious = (1 + gious) * 0.5
+            elif self.local_iou_type == "dious":
                 dious = diou(
                     box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
                 )
-                ious = dious + 1
-            elif self.mal_iou_type == "ciou":
+                ious = (1 + dious) * 0.5
+            elif self.local_iou_type == "ciou":
                 cious = ciou(
                     box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
                 )
-                ious = cious + 1
-            elif self.mal_iou_type == "eiou":
+                ious = (1 + cious) * 0.5
+            elif self.local_iou_type == "eiou":
                 eious = eiou(
                     box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
                 )
-                ious = eious + 1
+                ious = (1 + eious) * 0.5
             else:
-                raise ValueError(f"{self.mal_iou_type} is not supported")
+                raise ValueError(f"{self.local_iou_type} is not supported")
 
             ious = torch.diag(ious).detach()
         else:
@@ -297,24 +297,28 @@ class DEIMCriterion(nn.Module):
                     box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
                     box_cxcywh_to_xyxy(target_boxes),
                 )
+                gious = (1 + gious) * 0.5
                 ious = torch.diag(gious)
             elif self.local_iou_type == "diou":
                 dious = diou(
                     box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
                     box_cxcywh_to_xyxy(target_boxes),
                 )
+                dious = (1 + dious) * 0.5
                 ious = torch.diag(dious)
             elif self.local_iou_type == "ciou":
                 cious = ciou(
                     box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
                     box_cxcywh_to_xyxy(target_boxes),
                 )
+                cious = (1 + cious) * 0.5
                 ious = torch.diag(cious)
             elif self.local_iou_type == "eiou":
                 eious = eiou(
                     box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
                     box_cxcywh_to_xyxy(target_boxes),
                 )
+                eious = (1 + eious) * 0.5
                 ious = torch.diag(eious)
             else:
                 raise ValueError(f"undefined iou type:{self.local_iou_type}")

@@ -16,7 +16,7 @@ os.environ.update(
         "NCCL_DEBUG": "INFO",
         "MKL_THREADING_LAYER": "INTEL",
         "MKL_SERVICE_FORCE_INTEL": "1",
-        "CUDA_VISIBLE_DEVICES": "0,1",
+        # "CUDA_VISIBLE_DEVICES": "0,1",
         # "PYTORCH_NVML_BASED_CUDA_CHECK": "1",
         "CUDA_LAUNCH_BLOCKING": "1",
         "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:512,garbage_collection_threshold:0.5",
@@ -192,7 +192,7 @@ if __name__ == "__main__":
         "-d",
         "--device",
         type=str,
-        default="cuda:0",
+        default=None,
         help="device",
     )
     parser.add_argument("--seed", type=int, default=0, help="exp reproducibility")
@@ -222,12 +222,12 @@ if __name__ == "__main__":
     parser.add_argument("--local-rank", type=int, help="local rank id")
     args = parser.parse_args()
 
+    # args.config = "./configs/custom/deimv2_dinov3_x_freeze_test_giou.yml"
     # model test part
-    args.config = "./configs/custom/deimv2_dinov3_x_coco128_freeze.yml"
-    args.test_only = False
+    # args.test_only = False
     # args.resume = (
     #     "./outputs/deimv2_dinov3_x_custom/best_stg2_freeze_1109_e186_mAP67.pth"
     # )
-    args.device = "cuda:0"
+    # args.device = "cuda:1"
 
     main(args)

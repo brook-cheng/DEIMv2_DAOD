@@ -43,7 +43,7 @@ def box_iou(pred: Tensor, target: Tensor, eps: float = 1e-7):
     return iou, union
 
 
-def generalized_box_iou(pred, target):
+def generalized_box_iou(pred, target, eps: float = 1e-7):
     """
     Generalized IoU from https://giou.stanford.edu/
 
@@ -62,7 +62,7 @@ def generalized_box_iou(pred, target):
     rb = torch.max(pred[:, None, 2:], target[:, 2:])
 
     wh = (rb - lt).clamp(min=0)  # [N,M,2]
-    area = wh[:, :, 0] * wh[:, :, 1]
+    area = wh[:, :, 0] * wh[:, :, 1] + eps
     # [-1,1]
     return iou - (area - union) / area
 
