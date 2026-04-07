@@ -75,9 +75,9 @@ def mal_loss_new(p, q, y, gamma=1.5, mal_alpha=None, beta=0.5):
 
     # 标准 BCE 形式
     ones_tensor = torch.ones_like(p)
-    loss = -(
-        q.pow(gamma) * torch.log(p) + (1 - q.pow(gamma)) * torch.log(1 - p)
-    ) + beta * (ones_tensor - p) * (ones_tensor - q)
+    loss = -(q.pow(gamma) * torch.log(p) + (1 - q.pow(gamma)) * torch.log(1 - p))
+    penalty = beta * (p - q.pow(gamma)).pow(2)
+    loss = loss + penalty
     loss = loss * w
 
     return loss
@@ -121,7 +121,7 @@ def visual_mal_loss(p, q, y, gamma=1.5, mal_alpha=None, beta=0.5, use_new_loss=F
 
     # 创建网格
     p_range = torch.linspace(0.01, 0.99, 100)  # 预测概率
-    q_range = torch.linspace(0.01, 1.99, 200)  # 目标 IoU
+    q_range = torch.linspace(0.01, 0.99, 100)  # 目标 IoU
     P, Q = torch.meshgrid(p_range, q_range, indexing="ij")
 
     # 计算 loss
@@ -357,24 +357,29 @@ if __name__ == "__main__":
 
     # === 示例 1: 单个参数设置可视化 ===
     print("\n1. 可视化单个参数设置...")
-    visual_mal_loss(
-        p=None, q=None, y=1, gamma=0.5, mal_alpha=None, beta=0.5, use_new_loss=False
-    )
-    visual_mal_loss(
-        p=None, q=None, y=1, gamma=0.5, mal_alpha=None, beta=0.5, use_new_loss=True
-    )
-    visual_mal_loss(
-        p=None, q=None, y=1, gamma=0.5, mal_alpha=None, beta=1, use_new_loss=False
-    )
-    visual_mal_loss(
-        p=None, q=None, y=1, gamma=0.5, mal_alpha=None, beta=1, use_new_loss=True
-    )
-    visual_mal_loss(
-        p=None, q=None, y=1, gamma=0.5, mal_alpha=None, beta=1.5, use_new_loss=False
-    )
-    visual_mal_loss(
-        p=None, q=None, y=1, gamma=0.5, mal_alpha=None, beta=1.5, use_new_loss=True
-    )
+    gamma_list = [0.5, 1, 1.5, 2.0]
+    for gamma in gamma_list:
+        visual_mal_loss(
+            p=None,
+            q=None,
+            y=1,
+            gamma=gamma,
+            mal_alpha=None,
+            beta=None,
+            use_new_loss=False,
+        )
+    beta_list = [0.5, 1.0, 1.5, 2.0]
+    for beta in beta_list:
+        for gamama in gamma_list:
+            visual_mal_loss(
+                p=None,
+                q=None,
+                y=1,
+                gamma=gamama,
+                mal_alpha=None,
+                beta=beta,
+                use_new_loss=True,
+            )
 
     # # === 示例 2: 参数对比 ===
     # print("\n2. 对比不同参数设置...")

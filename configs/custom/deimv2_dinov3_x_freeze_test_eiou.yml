@@ -96,7 +96,6 @@ DEIMCriterion:
   losses: ['mal', 'boxes', 'local']
   gamma: 1.5 # 值越小iou损失对mal损失影响越小，mal_iou_type!='iou'时，gamma应当设置较小值[0,0.5]，否则可设置[0,2]
   # mal_alpha: 1.5 # 负样本预测错误损失权重
-  # mal_beta: 0.5 # mal损失(0,0)趋向惩罚权重
   mal_iou_type: 'ciou' # mal损失iou类型: iou,giou,diou,ciou,eiou
   local_iou_type: 'ciou' # local损失iou类型: iou,giou,diou,ciou,eiou
 

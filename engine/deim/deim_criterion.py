@@ -52,7 +52,6 @@ class DEIMCriterion(nn.Module):
         share_matched_indices=False,
         mal_alpha=None,
         use_uni_set=True,
-        mal_beta=None,
         mal_iou_type=None,
         local_iou_type=None,
     ):
@@ -80,7 +79,6 @@ class DEIMCriterion(nn.Module):
         self.num_pos, self.num_neg = None, None
         self.mal_alpha = mal_alpha
         self.use_uni_set = use_uni_set
-        self.mal_beta = mal_beta
         self.mal_iou_type = mal_iou_type
         self.local_iou_type = local_iou_type
 
@@ -220,10 +218,6 @@ class DEIMCriterion(nn.Module):
             src_logits, target_score, weight=weight, reduction="none"
         )
 
-        # FIXME:震荡问题
-        if self.mal_beta != None:
-            loss = loss + self.mal_beta * (1 - pred_score) * (1 - target_score)
-
         loss = loss.mean(1).sum() * src_logits.shape[1] / num_boxes
         return {"loss_mal": loss}
 
@@ -324,7 +318,7 @@ class DEIMCriterion(nn.Module):
                 raise ValueError(f"undefined iou type:{self.local_iou_type}")
 
             weight_targets = ious.unsqueeze(-1).repeat(1, 1, 4).reshape(-1).detach()
-            # FIXME:不收敛的问题
+
             losses["loss_fgl"] = self.unimodal_distribution_focal_loss(
                 pred_corners,
                 target_corners,
