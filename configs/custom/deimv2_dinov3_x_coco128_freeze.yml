@@ -14,7 +14,17 @@ eval_spatial_size: [640, 640] # h w
 checkpoint_freq: 5    # save freq
 
 DEIM:
-  backbone: DINOv3STAs
+  backbone: DINOv3STAsResAtten
+
+DINOv3STAsResAtten:
+  name: dinov3_vits16plus
+  weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
+  # interaction_indexes: [5,8,11]   # only need the [1/8, 1/16, 1/32]
+  interaction_indexes: []   # only need the [1/8, 1/16, 1/32]
+  finetune: False
+  conv_inplane: 64
+  hidden_dim: 256
+  use_sta: True
 
 DINOv3STAs:
   name: dinov3_vits16plus

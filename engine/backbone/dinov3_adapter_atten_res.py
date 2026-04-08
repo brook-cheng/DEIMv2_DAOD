@@ -201,9 +201,9 @@ class DINOv3STAsResAtten(nn.Module):
         # attention residuals
         self.atten_res = nn.ModuleList(
             [
-                BlockAttnRes(hidden_dim),
-                BlockAttnRes(hidden_dim),
-                BlockAttnRes(hidden_dim),
+                BlockAttnRes(embed_dim),
+                BlockAttnRes(embed_dim),
+                BlockAttnRes(embed_dim),
             ]
         )
 
@@ -219,6 +219,11 @@ class DINOv3STAsResAtten(nn.Module):
             all_layers = self.dinov3.get_intermediate_layers(
                 x, n=self.interaction_indexes, return_class_token=True
             )
+        elif len(self.interaction_indexes) == 0:
+            self.interaction_indexes = range(self.dinov3.n_blocks)
+            all_layers = self.dinov3.get_intermediate_layers(
+                x, n=self.interaction_indexes, return_class_token=True
+            )
         else:
             all_layers = self.dinov3(x)
 
@@ -226,15 +231,27 @@ class DINOv3STAsResAtten(nn.Module):
             all_layers = [all_layers[0], all_layers[0], all_layers[0]]
 
         sem_feats = []
-        num_scales = len(all_layers) - 2
-        for i, sem_feat in enumerate(all_layers):
-            feat, _ = sem_feat
-            sem_feat = (
-                feat.transpose(1, 2).view(bs, -1, H_c, W_c).contiguous()
-            )  # [B, D, H, W]
+        num_scales = len(self.atten_res) - 2
+
+        for i, atten_res in enumerate(self.atten_res):
+            tmp_sem_feats = []
             resize_H, resize_W = int(H_c * 2 ** (num_scales - i)), int(
                 W_c * 2 ** (num_scales - i)
             )
+            for j, tmp_sem_feat in enumerate(all_layers):
+                feat, _ = tmp_sem_feat
+                tmp_sem_feat = (
+                    feat.transpose(1, 2).view(bs, -1, H_c, W_c).contiguous()
+                )  # [B, D, H, W]
+
+                # tmp_sem_feat = F.interpolate(
+                #     tmp_sem_feat,
+                #     size=[resize_H, resize_W],
+                #     mode="bilinear",
+                #     align_corners=False,
+                # )
+                tmp_sem_feats.append(tmp_sem_feat)
+            sem_feat = atten_res(tmp_sem_feats)
             sem_feat = F.interpolate(
                 sem_feat,
                 size=[resize_H, resize_W],
@@ -242,6 +259,22 @@ class DINOv3STAsResAtten(nn.Module):
                 align_corners=False,
             )
             sem_feats.append(sem_feat)
+
+        # for i, sem_feat in enumerate(all_layers):
+        #     feat, _ = sem_feat
+        #     sem_feat = (
+        #         feat.transpose(1, 2).view(bs, -1, H_c, W_c).contiguous()
+        #     )  # [B, D, H, W]
+        #     resize_H, resize_W = int(H_c * 2 ** (num_scales - i)), int(
+        #         W_c * 2 ** (num_scales - i)
+        #     )
+        #     sem_feat = F.interpolate(
+        #         sem_feat,
+        #         size=[resize_H, resize_W],
+        #         mode="bilinear",
+        #         align_corners=False,
+        #     )
+        #     sem_feats.append(sem_feat)
 
         # fusion
         fused_feats = []

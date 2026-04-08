@@ -157,8 +157,8 @@ def main(
     if args.resume or args.tuning:
         if "HGNetv2" in cfg.yaml_cfg:
             cfg.yaml_cfg["HGNetv2"]["pretrained"] = False
-    if not args.test_only:
-        init_comet_experiment(cfg)
+    # if not args.test_only:
+    #     init_comet_experiment(cfg)
     print_training_config(cfg)
 
     solver = TASKS[cfg.yaml_cfg["task"]](cfg)
@@ -222,7 +222,7 @@ if __name__ == "__main__":
     parser.add_argument("--local-rank", type=int, help="local rank id")
     args = parser.parse_args()
 
-    # args.config = "./configs/custom/deimv2_dinov3_x_freeze_test_giou.yml"
+    args.config = "./configs/custom/deimv2_dinov3_x_coco128_freeze.yml"
     # model test part
     # args.test_only = False
     # args.resume = (

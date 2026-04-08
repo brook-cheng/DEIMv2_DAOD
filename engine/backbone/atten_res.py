@@ -32,29 +32,32 @@ class BlockAttnRes(nn.Module):
         Inter-block attention: attend over block representations sum.
 
         Args:
-            blocks: A list of N tensors, each of shape [B, T, D],
+            blocks: A list of N tensors, each of shape [blocks_num,batch_nums, hiden_dem,H,W],
                     representing completed block representations from previous blocks.
 
         Returns:
             h: A tensor of shape [B, T, D], the attention-weighted aggregation.
         """
-
-        # V: [num_blocks, B, T, D]
+        B, D, H, W = blocks[0].shape
+        # V: [N, B, D, H, W]->[N, B, D, H*W]->[N, B, H*W, D]
         V = torch.stack(list(blocks), dim=0)
+        V = V.view(len(blocks), B, D, -1).permute(0, 1, 3, 2)
 
         # [num_candidates, B, T, D]
         K = self.norm(V)
         # proj.weight shape: [1, D] → squeeze to [D]
         query = self.proj.weight.squeeze(dim=0)  # [D]
         # This computes w^T · K[n,b,t,:] for each (n, b, t)
-        # [num_blocks, B, T]
+        # [N, B, T]
         logits = torch.einsum("d, n b t d -> n b t", query, K)
 
-        # [num_blocks, B, T]
+        # [N, B, T]
         attn_weights = F.softmax(logits, dim=0)
 
         # einsum: n b t, n b t d -> b t d
         # h: [B, T, D]
         h = torch.einsum("n b t, n b t d -> b t d", attn_weights, V)
+
+        h = h.view(B, H, W, D).permute(0, 3, 1, 2)  # [B, D, H, W]
 
         return h
