@@ -222,7 +222,7 @@ if __name__ == "__main__":
     parser.add_argument("--local-rank", type=int, help="local rank id")
     args = parser.parse_args()
 
-    args.config = "./configs/custom/deimv2_dinov3_x_coco128_freeze.yml"
+    # args.config = "./configs/custom/deimv2_dinov3_x_coco128_freeze.yml"
     # model test part
     # args.test_only = False
     # args.resume = (
