@@ -25,6 +25,49 @@ from collections import OrderedDict
 
 from tools.analysis.vis_feature import save_pca_features
 from .atten_res import BlockAttnRes
+from ..ultralytics.blocks import C3k2
+from ..ultralytics.conv import Conv
+
+
+class C3K2Module(nn.Module):
+    def __init__(self, inplanes=16):
+        super().__init__()
+        # 1/4
+        self.stem = nn.Sequential(
+            *[
+                Conv(3, inplanes, k=3, s=2, p=1, act=nn.GELU()),
+                Conv(inplanes, inplanes, k=3, s=2, p=1, act=nn.GELU()),
+                C3k2(inplanes, inplanes, n=1),
+            ]
+        )
+        # 1/8
+        self.c3k2_1 = nn.Sequential(
+            *[
+                Conv(inplanes, inplanes, k=3, s=2, p=1, act=nn.GELU()),
+                C3k2(inplanes, inplanes * 2, n=1),
+            ]
+        )
+        # 1/16
+        self.c3k2_2 = nn.Sequential(
+            *[
+                Conv(inplanes * 2, inplanes * 2, k=3, s=2, p=1, act=nn.GELU()),
+                C3k2(inplanes * 2, inplanes * 4, n=1),
+            ]
+        )
+        # 1/32
+        self.c3k2_3 = nn.Sequential(
+            *[
+                Conv(inplanes * 4, inplanes * 4, k=3, s=2, p=1, act=nn.GELU()),
+                C3k2(inplanes * 4, inplanes * 4, n=1),
+            ]
+        )
+
+    def forward(self, x):
+        c1 = self.stem(x)
+        c2 = self.c3k2_1(c1)  # 1/8
+        c3 = self.c3k2_2(c2)  # 1/16
+        c4 = self.c3k2_3(c3)  # 1/32
+        return c2, c3, c4
 
 
 class SpatialPriorModulev2(nn.Module):
@@ -105,7 +148,7 @@ class DINOv3STAsResAtten(nn.Module):
         embed_dim=192,
         num_heads=3,
         patch_size=16,
-        use_sta=True,
+        adapter_type="c3k2",
         conv_inplane=16,
         hidden_dim=None,
     ):
@@ -153,10 +196,13 @@ class DINOv3STAsResAtten(nn.Module):
             self.dinov3.requires_grad_(False)
 
         # init the feature pyramid
-        self.use_sta = use_sta
-        if use_sta:
+        self.adapter_type = adapter_type
+        if adapter_type == "sta":
             print(f"Using Lite Spatial Prior Module with inplanes={conv_inplane}")
             self.sta = SpatialPriorModulev2(inplanes=conv_inplane)
+        elif adapter_type == "c3k2":
+            print(f"Using C3K2 Module with inplanes={conv_inplane}")
+            self.sta = C3K2Module(inplanes=conv_inplane)
         else:
             conv_inplane = 0
 
@@ -278,7 +324,7 @@ class DINOv3STAsResAtten(nn.Module):
 
         # fusion
         fused_feats = []
-        if self.use_sta:
+        if self.adapter_type in ["sta", "c3k2"]:
             detail_feats = self.sta(x)
             for sem_feat, detail_feat in zip(sem_feats, detail_feats):
                 fused_feats.append(torch.cat([sem_feat, detail_feat], dim=1))
