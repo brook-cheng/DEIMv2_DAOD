@@ -24,7 +24,7 @@ DINOv3STAsResAtten:
   finetune: False
   conv_inplane: 64
   hidden_dim: 256
-  use_sta: True
+  adapter_type: 'sta'  # 'sta' or 'c3k2'
 
 DINOv3STAs:
   name: dinov3_vits16plus
