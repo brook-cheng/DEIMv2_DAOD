@@ -1,5 +1,5 @@
 __include__: [
- './dataset_custom_detection_train.yml',
+  './dataset_custom_detection_train.yml',
   '../runtime.yml',
   '../base/dataloader.yml',
   './deimv2_common.yml',
@@ -7,27 +7,38 @@ __include__: [
   # '../base/optimizer.yml',
 
 
-output_dir: ./outputs/deimv2_dinov3_h_coco
+output_dir: ./outputs/vitl16_freeze_test_eiou_attenRes
 
 use_focal_loss: True
 eval_spatial_size: [640, 640] # h w
 checkpoint_freq: 5    # save freq
+
 DEIM:
-  backbone: DINOv3STAs
+  backbone: DINOv3STAsResAtten
+
+DINOv3STAsResAtten:
+  name: dinov3_vitl16
+  weights_path: /home/cx/cx_dir/third/deimv2_daod/ckpts/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth
+  # interaction_indexes: [5,8,11]   # only need the [1/8, 1/16, 1/32]
+  interaction_indexes: []   # only need the [1/8, 1/16, 1/32]
+  finetune: False
+  conv_inplane: 128 # hidden_dim/4
+  hidden_dim: 512 # embed_dim*2/3
+  adapter_type: 'sta'  # 'sta' or 'c3k2'
 
 DINOv3STAs:
-  name: dinov3_vith16plus
-  weights_path: /home/cx/cx_dir/third/deimv2_daod/ckpts/dinov3_vith16plus_pretrain_lvd1689m-7c1da9a5.pth
-  interaction_indexes: [15,23,31]   # only need the [1/8, 1/16, 1/32]
+  name: dinov3_vitl16
+  weights_path: /home/cx/cx_dir/third/deimv2_daod/ckpts/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth
+  interaction_indexes: [17,20,23]    # only need the [1/8, 1/16, 1/32]
   finetune: False
-  conv_inplane: 160 # hidden_dim/4
-  hidden_dim: 640 # embed_dim*2/3
+  conv_inplane: 128 # hidden_dim/4
+  hidden_dim: 512 # embed_dim*2/3
 
 HybridEncoder:
-  in_channels: [640, 640, 640]
+  in_channels: [512, 512, 512]
   # intra
-  hidden_dim: 640
-  dim_feedforward: 2560 # hidden_dim*4
+  hidden_dim: 512
+  dim_feedforward: 2048 # hidden_dim*4
 
   # cross
   expansion: 1.25
@@ -36,43 +47,20 @@ HybridEncoder:
 DEIMTransformer:
   num_layers: 6
   eval_idx: -1
-  num_levels: 3
-  feat_strides: [8, 16, 32]
-  feat_channels: [640, 640, 640]
+  feat_channels: [512, 512, 512]
   # reg_scale: 8
-  hidden_dim: 640
-  dim_feedforward: 2560 # hidden_dim*4 或 hidden_dim*8
-
+  hidden_dim: 512
+  dim_feedforward: 4096
 
 # optimizer:
 use_amp: True
 use_ema: True
-ema:
+ema: # added EMA settings
   type: ModelEMA
-  decay: 0.9999
-  warmups: 1000
+  decay: 0.9998 # adjusted by 1 - (1 - decay) * 2
+  warmups: 500 # halved
   start: 0
 clip_max_norm: 0.1
-# optimizer:
-#   type: AdamW
-#   params:
-#     -
-#       # except norm/bn/bias in self.dinov3
-#       params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
-#       lr: 0.00001
-#     -
-#       # including norm/bn/bias in self.dinov3
-#       params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
-#       lr: 0.00001
-#       weight_decay: 0.
-#     -
-#       # including norm/bn/bias except for the self.dinov3
-#       params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
-#       weight_decay: 0.
-
-#   lr: 0.0005
-#   betas: [0.9, 0.999]
-#   weight_decay: 0.000125
 
 optimizer:
   type: AdamW
@@ -80,45 +68,22 @@ optimizer:
     -
       # except norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
-      lr: 0.0000025
+      lr: 0.00001
     -
       # including norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
-      lr: 0.0000025
+      lr: 0.00001
       weight_decay: 0.
     -
       # including norm/bn/bias except for the self.dinov3
       params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
       weight_decay: 0.
 
-  lr: 0.000125
+  lr: 0.0005
   betas: [0.9, 0.999]
   weight_decay: 0.000125
 
-# optimizer:
-#   type: SGD
-#   params:
-#     -
-#       # except norm/bn/bias in self.dinov3
-#       params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
-#       lr: 0.00001
-#     -
-#       # including norm/bn/bias in self.dinov3
-#       params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
-#       lr: 0.00001
-#       weight_decay: 0.
-#     -
-#       # including norm/bn/bias except for the self.dinov3
-#       params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
-#       weight_decay: 0.
-
-#   lr: 0.0005
-#   momentum : 0.937
-#   weight_decay: 0.0005
-
-
-## DEIM LR-Scheduler
-epoches: 81 # 72 + 2n  # Increase to search for the optimal ema
+epoches: 160 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
 
 lr_scheduler:
   type: MultiStepLR
@@ -127,16 +92,27 @@ lr_scheduler:
 
 lr_warmup_scheduler:
   type: LinearWarmup
-  warmup_duration: 500
+  warmup_duration: 250  # halved
 
 lrsheduler: flatcosine
 lr_gamma: 0.5
-warmup_iter: 10 # warmup end epoch
-flat_epoch: 50    # flat end epoch: flat_epochs + warmup_iters
-no_aug_epoch: 4 # cos end epoch: total - no_aug_epoch
+warmup_iter: 16
+flat_epoch: 96    # epoch // 2 + warmup_iter
+no_aug_epoch: 8
+
+# loss
+DEIMCriterion:
+  weight_dict: {loss_mal: 1, loss_bbox: 5, loss_giou: 2, loss_fgl: 0.15, loss_ddf: 1.5}
+  losses: ['mal', 'boxes', 'local']
+  gamma: 1.5 # 值越小iou损失对mal损失影响越小，mal_iou_type!='iou'时，gamma应当设置较小值[0,0.5]，否则可设置[0,2]
+  # mal_alpha: 1.5 # 负样本预测错误损失权重
+  mal_iou_type: 'giou' # mal损失iou类型: iou,giou,diou,ciou,eiou
+  local_iou_type: 'giou' # local损失iou类型: iou,giou,diou,ciou,eiou
+
 
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
   dataset:
     transforms:
       ops:
@@ -154,18 +130,19 @@ train_dataloader:
         - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
       policy:
         epoch: [4, 29, 50]   # list
-  total_batch_size: 2 # total batch size equals to gpu_nums*batch_size
+
   collate_fn:
+    base_size: 640
     mixup_epochs: [4, 29]
     stop_epoch: 50
     copyblend_epochs: [4, 50]
     base_size_repeat: 3
 
 val_dataloader:
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
   dataset:
     transforms:
       ops:
         - {type: Resize, size: [640, 640], }
         - {type: ConvertPILImage, dtype: 'float32', scale: True}
         - {type: Normalize, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}
-  total_batch_size: 1 # total batch size equals to gpu_nums*batch_size

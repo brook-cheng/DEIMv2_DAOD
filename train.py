@@ -19,6 +19,7 @@ os.environ.update(
         # "CUDA_VISIBLE_DEVICES": "0,1",
         # "PYTORCH_NVML_BASED_CUDA_CHECK": "1",
         "CUDA_LAUNCH_BLOCKING": "1",
+        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
         "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:512,garbage_collection_threshold:0.5",
         "COMET_API_KEY": "EoSgIYtwa6a5rKElgh9KD59xS",
     }
@@ -222,7 +223,7 @@ if __name__ == "__main__":
     parser.add_argument("--local-rank", type=int, help="local rank id")
     args = parser.parse_args()
 
-    # args.config = "./configs/custom/deimv2_dinov3_x_freeze_test_iou_attenRes.yml"
+    # args.config = "./configs/custom/xx_deimv2_dinov3_vith16p_custom_freeze.yml"
     # model test part
     # args.test_only = False
     # args.resume = (
