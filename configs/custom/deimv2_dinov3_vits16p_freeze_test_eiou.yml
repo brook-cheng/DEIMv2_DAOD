@@ -1,5 +1,5 @@
 __include__: [
-  './dataset_custom_detection_train.yml',
+  './dataset_dlzdt_detection_train.yml',
   '../runtime.yml',
   '../base/dataloader.yml',
   './deimv2_common.yml',
@@ -7,14 +7,24 @@ __include__: [
   # '../base/optimizer.yml',
 
 
-output_dir: ./outputs/x_freeze_test_eiou
+output_dir: ./outputs/dlzdt_vits16p_freeze
+comet_project_name: 'deimv2_dlzdt'
 
 use_focal_loss: True
 eval_spatial_size: [640, 640] # h w
 checkpoint_freq: 5    # save freq
 
 DEIM:
-  backbone: DINOv3STAs
+  backbone: DINOv3STAsResAtten
+DINOv3STAsResAtten:
+  name: dinov3_vits16plus
+  weights_path: /home/cx/cx_dir/third/deimv2_daod/ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
+  # interaction_indexes: [5,8,11]   # only need the [1/8, 1/16, 1/32]
+  interaction_indexes: []   # only need the [1/8, 1/16, 1/32]
+  finetune: False
+  conv_inplane: 64
+  hidden_dim: 256
+  adapter_type: 'sta'  # 'sta' or 'c3k2'
 
 DINOv3STAs:
   name: dinov3_vits16plus
@@ -96,8 +106,8 @@ DEIMCriterion:
   losses: ['mal', 'boxes', 'local']
   gamma: 1.5 # 值越小iou损失对mal损失影响越小，mal_iou_type!='iou'时，gamma应当设置较小值[0,0.5]，否则可设置[0,2]
   # mal_alpha: 1.5 # 负样本预测错误损失权重
-  mal_iou_type: 'ciou' # mal损失iou类型: iou,giou,diou,ciou,eiou
-  local_iou_type: 'ciou' # local损失iou类型: iou,giou,diou,ciou,eiou
+  mal_iou_type: 'eiou' # mal损失iou类型: iou,giou,diou,ciou,eiou
+  local_iou_type: 'eiou' # local损失iou类型: iou,giou,diou,ciou,eiou
 
 
 ## Dense O2O: Mosaic + Mixup + CopyBlend
