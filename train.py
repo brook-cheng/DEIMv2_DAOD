@@ -68,12 +68,12 @@ def init_comet_experiment(cfg: YAMLConfig) -> None:
             comet_ml.login(api_key=api_key, project_name=project_name)
 
             experiment = comet_ml.Experiment()
-            experiment_name = (
+
+            experiment.set_name(
                 os.path.basename(cfg.output_dir)
                 + "_"
                 + datetime.datetime.now().strftime("%m%d%H%M")
             )
-            experiment.set_name(experiment_name)
             experiment.log_parameters(cfg.yaml_cfg)
 
             cfg._comet_experiment = experiment
