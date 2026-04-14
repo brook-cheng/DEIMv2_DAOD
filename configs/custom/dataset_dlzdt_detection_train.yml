@@ -1,0 +1,43 @@
+task: detection
+
+evaluator:
+  type: CocoEvaluator
+  iou_types: ['bbox', ]
+
+num_classes: 3 # your dataset classes, deafault 0: background
+remap_mscoco_category: False
+
+train_dataloader:
+  type: DataLoader
+  dataset:
+    type: CocoDetection
+    img_folder: /home/cx/cx_dir/data/deimv2_train_data/dlzdt_dataset_20260331_hbb/images/train
+    ann_file: /home/cx/cx_dir/data/deimv2_train_data/dlzdt_dataset_20260331_hbb/coco_annotations/instances_train.json
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: True
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
+  num_workers: 4
+  drop_last: True
+  collate_fn:
+    type: BatchImageCollateFunction
+
+
+val_dataloader:
+  type: DataLoader
+  dataset:
+    type: CocoDetection
+    img_folder: /home/cx/cx_dir/data/deimv2_train_data/dlzdt_dataset_20260331_hbb/images/val
+    ann_file: /home/cx/cx_dir/data/deimv2_train_data/dlzdt_dataset_20260331_hbb/coco_annotations/instances_val.json
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: False
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
+  num_workers: 4
+  drop_last: False
+  collate_fn:
+    type: BatchImageCollateFunction

@@ -1,5 +1,5 @@
 __include__: [
-  './dataset_custom_detection_test.yml',
+  './dataset_dlzdt_detection_train.yml',
   '../runtime.yml',
   '../base/dataloader.yml',
   './deimv2_common.yml',
@@ -7,11 +7,12 @@ __include__: [
   # '../base/optimizer.yml',
 
 
-output_dir: ./outputs/vith16p_freeze_test_eiou_attenRes
+output_dir: ./outputs/dlzdt_vith16p_freeze
+comet_project_name: 'deimv2_dlzdt_vith16p_freeze'
 
 use_focal_loss: True
 eval_spatial_size: [640, 640] # h w
-checkpoint_freq: 5    # save freq
+checkpoint_freq: 10    # save freq
 
 DEIM:
   backbone: DINOv3STAsResAtten

@@ -10,6 +10,7 @@ Copyright (c) 2023 lyuwenyu. All Rights Reserved.
 """
 
 import os
+import datetime
 
 os.environ.update(
     {
@@ -57,13 +58,22 @@ def init_comet_experiment(cfg: YAMLConfig) -> None:
         import comet_ml
 
         api_key = os.getenv("COMET_API_KEY")
-        project_name = os.getenv("COMET_PROJECT_NAME", "deimv2-training-dev")
+        if "comet_project_name" in cfg.yaml_cfg:
+            project_name = cfg.yaml_cfg["comet_project_name"]
+        else:
+            project_name = "deimv2-training-project"
 
         if api_key:
             # comet_ml.init(api_key=api_key, project_name=project_name)
             comet_ml.login(api_key=api_key, project_name=project_name)
 
             experiment = comet_ml.Experiment()
+            experiment_name = (
+                os.path.basename(cfg.output_dir)
+                + "_"
+                + datetime.datetime.now().strftime("%m%d%H%M")
+            )
+            experiment.set_name(experiment_name)
             experiment.log_parameters(cfg.yaml_cfg)
 
             cfg._comet_experiment = experiment
@@ -223,7 +233,7 @@ if __name__ == "__main__":
     parser.add_argument("--local-rank", type=int, help="local rank id")
     args = parser.parse_args()
 
-    # args.config = "./configs/custom/xx_deimv2_dinov3_vith16p_custom_freeze.yml"
+    # args.config = "./configs/custom/deimv2_dinov3_vitl16_freeze_test_eiou_attenRes.yml"
     # model test part
     # args.test_only = False
     # args.resume = (
