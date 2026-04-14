@@ -1,5 +1,5 @@
 __include__: [
-  './dataset_custom_detection_train.yml',
+  './dataset_custom_detection_test.yml',
   '../runtime.yml',
   '../base/dataloader.yml',
   './deimv2_common.yml',
