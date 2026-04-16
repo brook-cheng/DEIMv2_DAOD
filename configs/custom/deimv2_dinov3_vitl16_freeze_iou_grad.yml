@@ -1,5 +1,5 @@
 __include__: [
-  './dataset_custom_detection_train.yml',
+  './dataset_hook_detection_train.yml',
   '../runtime.yml',
   '../base/dataloader.yml',
   './deimv2_common.yml',
@@ -7,7 +7,8 @@ __include__: [
   # '../base/optimizer.yml',
 
 
-output_dir: ./outputs/vitl16_freeze_test_eiou_attenRes
+output_dir: ./outputs/vitl16_freeze_iou_grad
+comet_project_name: 'deimv2-training-dev'
 
 use_focal_loss: True
 eval_spatial_size: [640, 640] # h w

@@ -233,7 +233,7 @@ if __name__ == "__main__":
     parser.add_argument("--local-rank", type=int, help="local rank id")
     args = parser.parse_args()
 
-    # args.config = "./configs/custom/deimv2_dinov3_vitl16_freeze_test_eiou_attenRes.yml"
+    # args.config = "./configs/custom/deimv2_dinov3_vitl16_freeze_iou_grad.yml"
     # model test part
     # args.test_only = False
     # args.resume = (

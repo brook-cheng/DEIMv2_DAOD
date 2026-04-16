@@ -68,20 +68,21 @@ optimizer:
     -
       # except norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
-      lr: 0.00001
+      lr: 0.0000025
     -
       # including norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
-      lr: 0.00001
+      lr: 0.0000025
       weight_decay: 0.
     -
       # including norm/bn/bias except for the self.dinov3
       params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
       weight_decay: 0.
 
-  lr: 0.0005
+  lr: 0.000125
   betas: [0.9, 0.999]
   weight_decay: 0.000125
+
 
 epoches: 160 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
 
