@@ -11,11 +11,37 @@ from torchvision import transforms
 import numpy as np
 from PIL import Image
 import time
+import logging
 from tqdm import tqdm
 
-
-from deim_wapper.deimv2_det import DEIMv2Det
+sys.path.append(os.path.join(ROOT_DIR, "deim_wapper"))
+from deimv2_det import DEIMv2Det
 from deim_wapper.deimv2_model_config import DEIMV2_VITL16P_CFG
+
+
+def setup_logger(log_file="./test/benchmark.txt"):
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+
+    logger = logging.getLogger("benchmark")
+    logger.setLevel(logging.INFO)
+
+    if logger.handlers:
+        logger.handlers.clear()
+
+    file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+
+    formatter = logging.Formatter("%(message)s")
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger
 
 
 def benchmark_model(
@@ -23,9 +49,11 @@ def benchmark_model(
     img_dir,
     score_threshold=0.5,
     num_warmup=10,
-    num_test=-1,
+    num_test=100,
     device="cuda:1",
+    log_file="./test/benchmark.txt",
 ):
+    logger = setup_logger(log_file)
 
     img_list = [
         os.path.join(img_dir, f)
@@ -34,13 +62,13 @@ def benchmark_model(
     ]
 
     if not img_list:
-        print(f"No images found in {img_dir}")
+        logger.info(f"No images found in {img_dir}")
         return
 
-    print(f"Found {len(img_list)} images for testing")
-    print(f"Warmup iterations: {num_warmup}")
-
-    print("-" * 80)
+    logger.info(f"Found {len(img_list)} images for testing")
+    logger.info(f"Warmup iterations: {num_warmup}")
+    logger.info(f"Test iterations: {num_test}")
+    logger.info("-" * 80)
 
     total_inference_time = 0
     total_preprocess_time = 0
@@ -54,7 +82,7 @@ def benchmark_model(
         torch.cuda.set_device(device)
         torch.cuda.empty_cache()
 
-    print("\n=== Warmup Phase ===")
+    logger.info("\n=== Warmup Phase ===")
     for i in tqdm(range(num_warmup), desc="Warmup"):
         img_path = img_list[i % len(img_list)]
         image = Image.open(img_path).convert("RGB")
@@ -68,9 +96,8 @@ def benchmark_model(
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
 
-    print("\n=== Testing Phase ===")
-    test_count = min(num_test, len(img_list)) if num_test > 0 else len(img_list)
-    print(f"Test iterations: {test_count}")
+    logger.info("\n=== Testing Phase ===")
+    test_count = min(num_test, len(img_list))
     for i in tqdm(range(test_count), desc="Testing"):
         img_path = img_list[i % len(img_list)]
         image = Image.open(img_path).convert("RGB")
@@ -128,23 +155,23 @@ def benchmark_model(
         torch.std(torch.tensor(inference_times)).item() if inference_times else 0
     )
 
-    print("\n" + "=" * 80)
-    print("Performance Benchmark Results")
-    print("=" * 80)
-    print(f"Device: {device}")
-    print(f"Image Size: {model.imgsz}")
-    print(f"Number of Test Images: {test_count}")
-    print(f"Score Threshold: {score_threshold}")
-    print("-" * 80)
-    print(f"Average Preprocessing Time:  {avg_preprocess_time * 1000:.2f} ms")
-    print(f"Average Model Inference Time: {avg_inference_time * 1000:.2f} ms")
-    print(f"Average Postprocessing Time: {avg_postprocess_time * 1000:.2f} ms")
-    print(f"Average Total Time:          {avg_total_time * 1000:.2f} ms")
-    print("-" * 80)
-    print(f"Inference FPS:        {fps:.2f}")
-    print(f"Total FPS (with I/O): {total_fps:.2f}")
-    print(f"Inference Time Std:   {std_inference_time * 1000:.2f} ms")
-    print("-" * 80)
+    logger.info("\n" + "=" * 80)
+    logger.info("Performance Benchmark Results")
+    logger.info("=" * 80)
+    logger.info(f"Device: {device}")
+    logger.info(f"Image Size: {model.imgsz}")
+    logger.info(f"Number of Test Images: {test_count}")
+    logger.info(f"Score Threshold: {score_threshold}")
+    logger.info("-" * 80)
+    logger.info(f"Average Preprocessing Time:  {avg_preprocess_time * 1000:.2f} ms")
+    logger.info(f"Average Model Inference Time: {avg_inference_time * 1000:.2f} ms")
+    logger.info(f"Average Postprocessing Time: {avg_postprocess_time * 1000:.2f} ms")
+    logger.info(f"Average Total Time:          {avg_total_time * 1000:.2f} ms")
+    logger.info("-" * 80)
+    logger.info(f"Inference FPS:        {fps:.2f}")
+    logger.info(f"Total FPS (with I/O): {total_fps:.2f}")
+    logger.info(f"Inference Time Std:   {std_inference_time * 1000:.2f} ms")
+    logger.info("-" * 80)
 
     if torch.cuda.is_available():
         peak_allocated = max(memory_allocated) if memory_allocated else 0
@@ -152,11 +179,11 @@ def benchmark_model(
         current_allocated = torch.cuda.memory_allocated() / 1024**2
         current_reserved = torch.cuda.memory_reserved() / 1024**2
 
-        print(f"Peak Memory Allocated:   {peak_allocated:.2f} MB")
-        print(f"Peak Memory Reserved:    {peak_reserved:.2f} MB")
-        print(f"Current Memory Allocated: {current_allocated:.2f} MB")
-        print(f"Current Memory Reserved:  {current_reserved:.2f} MB")
-        print("-" * 80)
+        logger.info(f"Peak Memory Allocated:   {peak_allocated:.2f} MB")
+        logger.info(f"Peak Memory Reserved:    {peak_reserved:.2f} MB")
+        logger.info(f"Current Memory Allocated: {current_allocated:.2f} MB")
+        logger.info(f"Current Memory Reserved:  {current_reserved:.2f} MB")
+        logger.info("-" * 80)
 
         try:
             from thop import profile, clever_format
@@ -167,16 +194,17 @@ def benchmark_model(
                 model.dimv2, inputs=(dummy_input, orig_target_sizes), verbose=False
             )
             flops_str, params_str = clever_format([flops, params], "%.3f")
-            print(f"Model Parameters: {params_str}")
-            print(f"FLOPs: {flops_str}")
-            print("-" * 80)
+            logger.info(f"Model Parameters: {params_str}")
+            logger.info(f"FLOPs: {flops_str}")
+            logger.info("-" * 80)
         except ImportError:
-            print("thop not installed. Install with: pip install thop")
-            print("-" * 80)
+            logger.info("thop not installed. Install with: pip install thop")
+            logger.info("-" * 80)
 
-    print("=" * 80)
-    print("Benchmark completed successfully!")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("Benchmark completed successfully!")
+    logger.info(f"Log file saved to: {os.path.abspath(log_file)}")
+    logger.info("=" * 80)
 
 
 def __test():
@@ -198,8 +226,9 @@ def __test():
         img_dir=img_dir,
         score_threshold=0.5,
         num_warmup=10,
-        num_test=-1,
+        num_test=100,
         device="cuda:1",
+        log_file="./test/benchmark.txt",
     )
 
 
