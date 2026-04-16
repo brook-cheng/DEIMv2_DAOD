@@ -8,7 +8,7 @@ def deimv2_outputs_to_coco_annotations(
     img_dir,
     outputs_dict,
     labels_map,
-    output_json_path="./test/predictions.json",
+    output_json_path="./test/deimv2_predictions.json",
     year=2025,
     description="DEIMv2 Predictions",
     skip_background=True,
@@ -245,3 +245,146 @@ def show_coco_annotations_on_image(
         return output_path
     else:
         return image
+
+
+def ultralytics_val_to_coco(
+    img_dir,
+    input_json_path,
+    output_json_path="./test/ultralytics_val_coco.json",
+    year=2025,
+    description="Ultralytics Validation Results",
+    category_name_map=None,
+):
+    """
+    将 Ultralytics 验证输出转换为 COCO 标注格式
+
+    Args:
+        img_dir: 图像目录路径，该目录下所有图片都会被包含在 images 字段中
+        input_json_path: Ultralytics 验证输出的 JSON 文件路径
+        output_json_path: 输出的 COCO 格式 JSON 文件路径
+        year: 年份信息
+        description: 描述信息
+        category_name_map: 类别 ID 到名称的映射字典，如 {1: "bh_guagoutou"}
+                          如果为 None，则使用默认类别名称
+    """
+    os.makedirs(os.path.dirname(output_json_path), exist_ok=True)
+
+    with open(input_json_path, "r", encoding="utf-8") as f:
+        ultralytics_data = json.load(f)
+
+    supported_extensions = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp")
+    all_image_files = []
+    for filename in sorted(os.listdir(img_dir)):
+        if filename.lower().endswith(supported_extensions):
+            all_image_files.append(filename)
+
+    print(f"Found {len(all_image_files)} images in {img_dir}")
+
+    images_dict = {}
+    for img_idx, filename in enumerate(all_image_files):
+        img_path = os.path.join(img_dir, filename)
+        try:
+            image = Image.open(img_path)
+            img_width, img_height = image.size
+        except Exception as e:
+            img_width, img_height = 0, 0
+            print(f"Error reading image {img_path}: {e}")
+
+        images_dict[filename] = {
+            "license": 0,
+            "url": None,
+            "file_name": filename,
+            "height": img_height,
+            "width": img_width,
+            "date_captured": None,
+            "id": img_idx,
+        }
+
+    predictions_by_image = {}
+    category_ids = set()
+
+    for pred in ultralytics_data:
+        file_name = pred["file_name"]
+        category_id = pred["category_id"]
+        bbox = pred["bbox"]
+        score = pred.get("score", 1.0)
+
+        category_ids.add(category_id)
+
+        if file_name not in predictions_by_image:
+            predictions_by_image[file_name] = []
+
+        predictions_by_image[file_name].append(
+            {"category_id": category_id, "bbox": bbox, "score": score}
+        )
+
+    annotations = []
+    annotation_id = 0
+
+    for img_filename, preds in predictions_by_image.items():
+        if img_filename not in images_dict:
+            print(
+                f"Warning: Image '{img_filename}' in predictions but not found in {img_dir}, skipping"
+            )
+            continue
+
+        image_id = images_dict[img_filename]["id"]
+
+        for pred in preds:
+            category_id = pred["category_id"]
+            x_min, y_min, width, height = pred["bbox"]
+            area = width * height
+            score = pred["score"]
+
+            annotations.append(
+                {
+                    "id": annotation_id,
+                    "image_id": image_id,
+                    "category_id": category_id,
+                    "bbox": [float(x_min), float(y_min), float(width), float(height)],
+                    "area": float(area),
+                    "iscrowd": 0,
+                    "ignore": 0,
+                    "segmentation": [],
+                    "score": float(score),
+                }
+            )
+            annotation_id += 1
+
+    if category_name_map is None:
+        category_name_map = {
+            cat_id: f"class_{cat_id}" for cat_id in sorted(category_ids)
+        }
+
+    categories = []
+    for cat_id in sorted(category_ids):
+        cat_name = category_name_map.get(cat_id, f"class_{cat_id}")
+        categories.append({"id": cat_id, "name": cat_name, "supercategory": ""})
+
+    images = list(images_dict.values())
+
+    coco_format = {
+        "info": {
+            "year": year,
+            "version": "1.0",
+            "description": description,
+            "contributor": "Ultralytics",
+            "url": "",
+            "date_created": datetime.now().strftime("%Y-%m-%d"),
+        },
+        "licenses": [{"id": 1, "url": "", "name": "Unknown"}],
+        "categories": categories,
+        "images": images,
+        "annotations": annotations,
+    }
+
+    with open(output_json_path, "w", encoding="utf-8") as f:
+        json.dump(coco_format, f, indent=4, ensure_ascii=False)
+
+    print(f"COCO annotations saved to: {output_json_path}")
+    print(f"Total images in directory: {len(images)}")
+    print(f"Images with predictions: {len(predictions_by_image)}")
+    print(f"Total annotations: {len(annotations)}")
+    print(f"Categories: {len(categories)}")
+
+    return coco_format

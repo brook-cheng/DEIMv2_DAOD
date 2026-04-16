@@ -1,0 +1,38 @@
+[
+    {
+        "image_id": "10kV\u4e1c\u5cb3\u7ebf\u5de5\u4e1a\u56ed\u5206\u652f\u7ebf#003-\u6746\u53f7\u724c",
+        "file_name": "10kV\u4e1c\u5cb3\u7ebf\u5de5\u4e1a\u56ed\u5206\u652f\u7ebf#003-\u6746\u53f7\u724c.JPG",
+        "category_id": 1,
+        "bbox": [
+            2050.445,
+            954.962,
+            241.074,
+            243.699
+        ],
+        "score": 0.62447
+    },
+    {
+        "image_id": "10kV\u4e5d\u5cf0\u4e5d\u7ebf#063-\u5de6\u4fa7\u8bbe\u5907-\u9694\u79bb\u5f00\u5173",
+        "file_name": "10kV\u4e5d\u5cf0\u4e5d\u7ebf#063-\u5de6\u4fa7\u8bbe\u5907-\u9694\u79bb\u5f00\u5173.JPG",
+        "category_id": 1,
+        "bbox": [
+            2704.197,
+            1190.785,
+            566.809,
+            474.126
+        ],
+        "score": 0.51794
+    },
+    {
+        "image_id": "10kV\u4e5d\u5cf0\u4e5d\u7ebf#063-\u5de6\u4fa7\u8bbe\u5907-\u9694\u79bb\u5f00\u5173",
+        "file_name": "10kV\u4e5d\u5cf0\u4e5d\u7ebf#063-\u5de6\u4fa7\u8bbe\u5907-\u9694\u79bb\u5f00\u5173.JPG",
+        "category_id": 1,
+        "bbox": [
+            1594.235,
+            1115.924,
+            484.003,
+            720.213
+        ],
+        "score": 0.51337
+    }
+]
