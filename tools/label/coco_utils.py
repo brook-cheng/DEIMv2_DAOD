@@ -17,7 +17,7 @@ def deimv2_outputs_to_coco_annotations(
     将 DEIMv2 模型预测结果转换为 COCO 标注格式并保存
 
     Args:
-        img_dir: 图像目录路径
+        img_dir: 图像目录路径，该目录下所有图片都会被包含在 images 字段中
         outputs_dict: 模型预测结果字典，格式为:
             {
                 "image_name.jpg": {
@@ -48,21 +48,23 @@ def deimv2_outputs_to_coco_annotations(
         )
         category_id_mapping[int(label_id)] = coco_category_id
 
+    supported_extensions = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp")
+    all_image_files = []
+    for filename in sorted(os.listdir(img_dir)):
+        if filename.lower().endswith(supported_extensions):
+            all_image_files.append(filename)
+
+    print(f"Found {len(all_image_files)} images in {img_dir}")
+
     images = []
-    annotations = []
-    annotation_id = 0
-
-    for img_idx, (img_name, pred_result) in enumerate(outputs_dict.items()):
+    for img_idx, img_name in enumerate(all_image_files):
         img_path = os.path.join(img_dir, img_name)
-
-        if not os.path.exists(img_path):
-            print(f"Warning: Image not found: {img_path}")
-            continue
 
         try:
             image = Image.open(img_path)
             img_width, img_height = image.size
         except Exception as e:
+            img_width, img_height = 0, 0
             print(f"Error reading image {img_path}: {e}")
             continue
 
@@ -77,6 +79,18 @@ def deimv2_outputs_to_coco_annotations(
                 "id": img_idx,
             }
         )
+
+    annotations = []
+    annotation_id = 0
+
+    images_with_predictions = 0
+
+    for img_idx, img_name in enumerate(all_image_files):
+        if img_name not in outputs_dict:
+            continue
+
+        images_with_predictions += 1
+        pred_result = outputs_dict[img_name]
 
         labels = pred_result["labels"]
         boxes = pred_result["boxes"]
@@ -130,7 +144,8 @@ def deimv2_outputs_to_coco_annotations(
         json.dump(coco_format, f, indent=4, ensure_ascii=False)
 
     print(f"COCO annotations saved to: {output_json_path}")
-    print(f"Total images: {len(images)}")
+    print(f"Total images in directory: {len(images)}")
+    print(f"Images with predictions: {images_with_predictions}")
     print(f"Total annotations: {len(annotations)}")
     print(f"Categories: {len(categories)}")
     if skip_background:
