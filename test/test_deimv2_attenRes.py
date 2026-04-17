@@ -30,7 +30,7 @@ def test_and_export(
     num_visualize=10,
     output_dir="./test/outputs",
     labels_map=None,
-    device="cuda:1",
+    device="cuda:0",
 ):
     """
     测试模型并导出 COCO 格式标注和可视化结果
@@ -118,39 +118,22 @@ def test_and_export(
 
         print(f"Randomly selected {visualize_count} images for visualization")
 
-        for idx, img_name in enumerate(tqdm(selected_images, desc="Visualization")):
-            img_path = os.path.join(img_dir, img_name)
+        selected_img_names = selected_images
 
-            try:
-                img_idx = list(outputs_dict.keys()).index(img_name)
+        saved_paths = show_coco_annotations_on_image(
+            img_dir=img_dir,
+            coco_annotations=coco_data,
+            img_names=selected_img_names,
+            labels_map=categories_map,
+            score_threshold=score_threshold,
+            output_path=output_dir,
+        )
 
-                img_annotations = [
-                    ann
-                    for ann in coco_data["annotations"]
-                    if ann["image_id"] == img_idx
-                ]
-
-                coco_annotations_for_img = {
-                    "annotations": img_annotations,
-                    "categories": coco_data["categories"],
-                }
-
-                base_name = os.path.splitext(img_name)[0]
-                output_path = os.path.join(output_dir, f"{base_name}_vis.jpg")
-
-                show_coco_annotations_on_image(
-                    img_path=img_path,
-                    coco_annotations=coco_annotations_for_img,
-                    labels_map=categories_map,
-                    score_threshold=score_threshold,
-                    output_path=output_path,
-                )
-
-            except Exception as e:
-                print(f"Error visualizing {img_name}: {e}")
-                continue
-
-        print(f"\nVisualizations saved to: {output_dir}")
+        if saved_paths:
+            print(f"\nVisualizations saved to: {output_dir}")
+            print(f"Total visualized: {len(saved_paths)} images")
+        else:
+            print("\nNo visualizations generated")
     else:
         print("No predictions to visualize")
 
@@ -168,7 +151,8 @@ if __name__ == "__main__":
     img_dir = (
         "/home/cx/cx_dir/data/deimv2_train_data/dlzdt_dataset_20260331_hbb/images/val"
     )
-    model_weight = "outputs/dlzdt_vitl16_freeze_extend/best_stg2.pth"
+    model_weight = "./test/outputs/dlzdt_vitl16_freeze_extend/best_stg2.pth"
+
     num_classes = 3
     imgsz = (640, 640)
     max_det = 20
@@ -188,5 +172,5 @@ if __name__ == "__main__":
         num_visualize=num_visualize,
         output_dir=output_dir,
         labels_map=labels_map,
-        device="cuda:1",
+        device="cuda:0",
     )

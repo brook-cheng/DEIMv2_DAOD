@@ -2,6 +2,7 @@ import os
 import json
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
+from typing import Dict, List, Optional, Union
 
 
 def deimv2_outputs_to_coco_annotations(
@@ -157,54 +158,60 @@ def deimv2_outputs_to_coco_annotations(
 
 
 def show_coco_annotations_on_image(
-    img_path,
-    coco_annotations,
-    labels_map=None,
-    score_threshold=0.5,
-    output_path=None,
+    img_dir: str,
+    coco_annotations: Union[Dict, str],
+    img_idxes: Optional[List[int]] = None,
+    img_names: Optional[List[str]] = None,
+    labels_map: Optional[Dict] = None,
+    score_threshold: float = 0.5,
+    output_path: Optional[str] = None,
 ):
     """
     在图像上显示 COCO 格式的标注结果
 
     Args:
-        img_path: 图像路径
-        coco_annotations: COCO 格式的标注数据（字典）或单个图像的 annotations 列表
-        labels_map: 类别映射字典，如 {1: "dlzdt", 2: "null"}
-        score_threshold: 置信度阈值
-        output_path: 输出图像路径，如果为 None 则返回 PIL Image 对象
+        img_dir: 被标注图片所在文件夹路径
+        coco_annotations: COCO 标注的 JSON 文件路径或从 JSON 文件中获取的字典数据
+        img_idxes: 需要绘制的图像序号列表（基于 images 列表的索引）
+        img_names: 需要绘制的图像名称列表
+                  - 为 None 时，只从 img_idxes 中获取需要绘制的对象
+                  - img_idxes 和 img_names 都为空时，绘制 coco_annotations 中所有对象
+        labels_map: 类别映射字典，如 {1: "dlzdt", 2: "null"}。如果为 None，则从 coco_annotations 中提取
+        score_threshold: 置信度阈值，只显示分数高于此阈值的标注
+        output_path: 输出图像路径或目录
+                    - 如果为 None，返回单个 PIL Image 对象（仅当只处理一张图时）
+                    - 如果指定为文件路径且只处理一张图，保存到该路径
+                    - 如果指定为目录路径或处理多张图，保存到 output_path/{filename}_annotated.jpg
+
+    Returns:
+        如果只处理一张图且 output_path 为 None，返回 PIL Image 对象
+        否则返回保存的文件路径列表
     """
     import matplotlib.pyplot as plt
     import numpy as np
 
-    image = Image.open(img_path).convert("RGB")
-    draw = ImageDraw.Draw(image)
-
-    img_width, img_height = image.size
-    reference_size = 640
-    scale_factor = max(img_width, img_height) / reference_size
-
-    line_width = max(2, int(2 * scale_factor))
-    font_size = max(12, int(15 * scale_factor))
-
-    try:
-        font = ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size
-        )
-    except:
-        font = ImageFont.load_default()
-
-    if isinstance(coco_annotations, dict):
-        if "annotations" in coco_annotations:
-            annotations = coco_annotations["annotations"]
-        else:
-            annotations = coco_annotations
+    if isinstance(coco_annotations, str):
+        with open(coco_annotations, "r", encoding="utf-8") as f:
+            coco_data = json.load(f)
     else:
-        annotations = coco_annotations
+        coco_data = coco_annotations
+
+    if (
+        not isinstance(coco_data, dict)
+        or "images" not in coco_data
+        or "annotations" not in coco_data
+    ):
+        raise ValueError(
+            "coco_annotations must be a valid COCO format dictionary or path to COCO JSON file"
+        )
+
+    images_info = coco_data["images"]
+    annotations = coco_data["annotations"]
 
     if labels_map is None:
         labels_map = {}
-        if isinstance(coco_annotations, dict) and "categories" in coco_annotations:
-            for cat in coco_annotations["categories"]:
+        if "categories" in coco_data:
+            for cat in coco_data["categories"]:
                 labels_map[cat["id"]] = cat["name"]
 
     num_classes = len(labels_map) if labels_map else 10
@@ -218,48 +225,142 @@ def show_coco_annotations_on_image(
         else {}
     )
 
-    filtered_annotations = []
-    for ann in annotations:
-        score = ann.get("score", 1.0)
-        if score >= score_threshold:
-            filtered_annotations.append(ann)
+    supported_extensions = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp")
 
-    for ann in filtered_annotations:
-        category_id = ann["category_id"]
-        bbox = ann["bbox"]
-        score = ann.get("score", 1.0)
+    if img_idxes is None and img_names is None:
+        target_images = images_info
+    else:
+        target_images = []
 
-        x_min, y_min, width, height = bbox
-        x_max = x_min + width
-        y_max = y_min + height
+        if img_idxes is not None:
+            for idx in img_idxes:
+                if 0 <= idx < len(images_info):
+                    target_images.append(images_info[idx])
+                else:
+                    print(
+                        f"Warning: Image index {idx} is out of range (0-{len(images_info)-1}), skipping"
+                    )
 
-        color = color_map.get(category_id, (255, 0, 0)) if color_map else (255, 0, 0)
+        if img_names is not None:
+            image_name_set = {img["file_name"] for img in target_images}
+            for name in img_names:
+                if name not in image_name_set:
+                    matched_img = None
+                    for img in images_info:
+                        if img["file_name"] == name:
+                            matched_img = img
+                            break
 
-        draw.rectangle([x_min, y_min, x_max, y_max], outline=color, width=line_width)
+                    if matched_img:
+                        target_images.append(matched_img)
+                        image_name_set.add(name)
+                    else:
+                        print(
+                            f"Warning: Image '{name}' not found in COCO annotations, skipping"
+                        )
 
-        label_name = labels_map.get(category_id, f"class_{category_id}")
-        text = f"{label_name}: {score:.2f}"
+    if not target_images:
+        raise ValueError("No images selected for visualization")
 
-        text_bbox = draw.textbbox((x_min, y_min), text, font=font)
-        text_height = text_bbox[3] - text_bbox[1]
+    print(f"Processing {len(target_images)} images...")
 
-        if y_min - text_height - 5 >= 0:
-            text_y = y_min - text_height - 5
+    saved_paths = []
+
+    for img_info in target_images:
+        img_id = img_info["id"]
+        img_filename = img_info["file_name"]
+        img_path = os.path.join(img_dir, img_filename)
+
+        if not os.path.exists(img_path):
+            print(f"Warning: Image file not found: {img_path}, skipping")
+            continue
+
+        try:
+            image = Image.open(img_path).convert("RGB")
+        except Exception as e:
+            print(f"Error reading image {img_path}: {e}, skipping")
+            continue
+
+        draw = ImageDraw.Draw(image)
+        img_width, img_height = image.size
+        reference_size = 640
+        scale_factor = max(img_width, img_height) / reference_size
+
+        line_width = max(2, int(2 * scale_factor))
+        font_size = max(12, int(15 * scale_factor))
+
+        try:
+            font = ImageFont.truetype(
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size
+            )
+        except:
+            font = ImageFont.load_default()
+
+        img_annotations = [ann for ann in annotations if ann["image_id"] == img_id]
+
+        filtered_annotations = []
+        for ann in img_annotations:
+            score = ann.get("score", 1.0)
+            if score >= score_threshold:
+                filtered_annotations.append(ann)
+
+        for ann in filtered_annotations:
+            category_id = ann["category_id"]
+            bbox = ann["bbox"]
+            score = ann.get("score", 1.0)
+
+            x_min, y_min, width, height = bbox
+            x_max = x_min + width
+            y_max = y_min + height
+
+            color = (
+                color_map.get(category_id, (255, 0, 0)) if color_map else (255, 0, 0)
+            )
+
+            draw.rectangle(
+                [x_min, y_min, x_max, y_max], outline=color, width=line_width
+            )
+
+            label_name = labels_map.get(category_id, f"class_{category_id}")
+            text = f"{label_name}: {score:.2f}"
+
+            text_bbox = draw.textbbox((x_min, y_min), text, font=font)
+            text_height = text_bbox[3] - text_bbox[1]
+
+            if y_min - text_height - 5 >= 0:
+                text_y = y_min - text_height - 5
+            else:
+                text_y = y_min
+
+            draw.rectangle(
+                [text_bbox[0], text_y, text_bbox[2], text_y + text_height], fill=color
+            )
+            draw.text((x_min, text_y), text, fill="white", font=font)
+
+        if output_path:
+            if os.path.isdir(output_path) or len(target_images) > 1:
+                os.makedirs(output_path, exist_ok=True)
+                base_name = os.path.splitext(img_filename)[0]
+                save_path = os.path.join(output_path, f"{base_name}_annotated.jpg")
+            else:
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                save_path = output_path
+
+            image.save(save_path)
+            print(f"Visualization saved to: {save_path}")
+            saved_paths.append(save_path)
         else:
-            text_y = y_min
-
-        draw.rectangle(
-            [text_bbox[0], text_y, text_bbox[2], text_y + text_height], fill=color
-        )
-        draw.text((x_min, text_y), text, fill="white", font=font)
+            if len(target_images) == 1:
+                return image
+            else:
+                print(
+                    f"Note: Multiple images processed but no output_path specified. Use output_path to save results."
+                )
 
     if output_path:
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        image.save(output_path)
-        print(f"Visualization saved to: {output_path}")
-        return output_path
+        return saved_paths
     else:
-        return image
+        return None
 
 
 def ultralytics_val_to_coco(
