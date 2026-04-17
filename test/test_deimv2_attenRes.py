@@ -174,7 +174,7 @@ if __name__ == "__main__":
     max_det = 20
     score_threshold = 0.5
     num_visualize = 10
-    output_dir = "./test/outputs"
+    output_dir = "./test/data/outputs/deimv2_attenRes/"
 
     labels_map = {0: "background", 1: "dlzdt", 2: "null"}
 
