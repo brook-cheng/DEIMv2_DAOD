@@ -1,3 +1,7 @@
+"""
+使用deimv2模型进行预测,绘制结果并将结果转换为coco格式
+"""
+
 import os
 import sys
 import random
@@ -13,7 +17,7 @@ from tqdm import tqdm
 import torch
 
 from deim_wapper.deimv2_det import DEIMv2Det
-from deim_wapper.deimv2_model_config import DEIMV2_VITL16P_CFG
+from deim_wapper.deimv2_model_config import DEIMV2_VITL16P_CFG, DEIMV2_VITH16P_CFG
 from tools.label.coco_utils import (
     deimv2_outputs_to_coco_annotations,
     show_coco_annotations_on_image,
@@ -29,6 +33,7 @@ def test_and_export(
     score_threshold=0.5,
     num_visualize=10,
     output_dir="./test/outputs",
+    output_json_path="predict_annotations.json",
     labels_map=None,
     device="cuda:0",
 ):
@@ -67,7 +72,7 @@ def test_and_export(
     print("=" * 80)
 
     model = DEIMv2Det(
-        model_weight, num_classes, imgsz, max_det, DEIMV2_VITL16P_CFG, device
+        model_weight, num_classes, imgsz, max_det, DEIMV2_VITH16P_CFG, device
     )
 
     img_list = [
@@ -100,12 +105,11 @@ def test_and_export(
     print(f"\nInference completed for {len(outputs_dict)} images")
 
     print("\n=== Exporting COCO Annotations ===")
-    output_json = os.path.join(output_dir, "predict_annotations.json")
     coco_data = deimv2_outputs_to_coco_annotations(
         img_dir=img_dir,
         outputs_dict=outputs_dict,
         labels_map=labels_map,
-        output_json_path=output_json,
+        output_json_path=output_json_path,
         skip_background=True,
     )
 
@@ -113,7 +117,11 @@ def test_and_export(
 
     print("\n=== Generating Visualizations ===")
     if len(outputs_dict) > 0:
-        visualize_count = min(num_visualize, len(outputs_dict))
+        visualize_count = (
+            min(num_visualize, len(outputs_dict))
+            if num_visualize > 0
+            else len(outputs_dict)
+        )
         selected_images = random.sample(list(outputs_dict.keys()), visualize_count)
 
         print(f"Randomly selected {visualize_count} images for visualization")
@@ -140,7 +148,7 @@ def test_and_export(
     print("\n" + "=" * 80)
     print("Testing and Export Completed Successfully!")
     print("=" * 80)
-    print(f"COCO annotations: {output_json}")
+    print(f"COCO annotations: {output_json_path}")
     print(f"Visualizations: {output_dir} (*.jpg)")
     print(f"Total images processed: {len(outputs_dict)}")
     print(f"Total annotations: {len(coco_data['annotations'])}")
@@ -151,14 +159,15 @@ if __name__ == "__main__":
     img_dir = (
         "/home/cx/cx_dir/data/deimv2_train_data/dlzdt_dataset_20260331_hbb/images/val"
     )
-    model_weight = "./test/outputs/dlzdt_vitl16_freeze_extend/best_stg2.pth"
+    model_weight = "./outputs/dlzdt_vith16p_freeze/best_stg2.pth"
 
     num_classes = 3
     imgsz = (640, 640)
     max_det = 20
-    score_threshold = 0.5
+    score_threshold = 0.0
     num_visualize = 10
     output_dir = "./test/data/outputs/deimv2_attenRes/"
+    output_json_path = "./test/data/inputs/deimv2_hp_pred_coco.json"
 
     labels_map = {0: "background", 1: "dlzdt", 2: "null"}
 
@@ -171,6 +180,7 @@ if __name__ == "__main__":
         score_threshold=score_threshold,
         num_visualize=num_visualize,
         output_dir=output_dir,
+        output_json_path=output_json_path,
         labels_map=labels_map,
-        device="cuda:0",
+        device="cuda:1",
     )

@@ -310,8 +310,16 @@ def evaluate(
             print(f"AR @ IoU=0.50 (small)= {stats_dict['AR_small']:.4f}")
             print(f"AR @ IoU=0.50 (medium)= {stats_dict['AR_medium']:.4f}")
             print(f"AR @ IoU=0.50 (large) = {stats_dict['AR_large']:.4f}")
+            print("-" * 50)
+            metrics_dict = coco_evaluator.coco_eval["bbox"].extended_metrics
+            print(metrics_dict)
+            print("-" * 50)
 
             if comet_exp is not None:
+                comet_exp.log_metric("recall", metrics_dict["recall"], epoch=comet_step)
+                comet_exp.log_metric(
+                    "precision", metrics_dict["precision"], epoch=comet_step
+                )
                 comet_exp.log_metric(
                     "AR_0.5:95", stats_dict["AR_all"], epoch=comet_step
                 )

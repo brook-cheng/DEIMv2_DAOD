@@ -3,6 +3,8 @@ import json
 from PIL import Image, ImageDraw, ImageFont
 from datetime import datetime
 from typing import Dict, List, Optional, Union
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 def deimv2_outputs_to_coco_annotations(
@@ -77,12 +79,12 @@ def deimv2_outputs_to_coco_annotations(
                 "height": img_height,
                 "width": img_width,
                 "date_captured": None,
-                "id": img_idx,
+                "id": img_idx + 1,
             }
         )
 
     annotations = []
-    annotation_id = 0
+    annotation_id = 1
 
     images_with_predictions = 0
 
@@ -114,7 +116,7 @@ def deimv2_outputs_to_coco_annotations(
             annotations.append(
                 {
                     "id": annotation_id,
-                    "image_id": img_idx,
+                    "image_id": img_idx + 1,
                     "category_id": coco_category_id,
                     "bbox": [float(x_min), float(y_min), float(width), float(height)],
                     "area": float(area),
@@ -165,6 +167,8 @@ def show_coco_annotations_on_image(
     labels_map: Optional[Dict] = None,
     score_threshold: float = 0.5,
     output_path: Optional[str] = None,
+    save_flags: bool = True,
+    mask_flag: bool = False,
 ):
     """
     在图像上显示 COCO 格式的标注结果
@@ -182,6 +186,11 @@ def show_coco_annotations_on_image(
                     - 如果为 None，返回单个 PIL Image 对象（仅当只处理一张图时）
                     - 如果指定为文件路径且只处理一张图，保存到该路径
                     - 如果指定为目录路径或处理多张图，保存到 output_path/{filename}_annotated.jpg
+        save_flags: 是否保存标注结果到文件（仅当 output_path 不为 None 时有效）
+        mask_flag: 是否绘制分割掩码
+                   - False: 在原始图像上绘制边界框和标签
+                   - True: 生成 mask 图像，mask 值为类别 ID，方便多模型对比
+
 
     Returns:
         如果只处理一张图且 output_path 为 None，返回 PIL Image 对象
@@ -225,8 +234,6 @@ def show_coco_annotations_on_image(
         else {}
     )
 
-    supported_extensions = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp")
-
     if img_idxes is None and img_names is None:
         target_images = images_info
     else:
@@ -265,7 +272,7 @@ def show_coco_annotations_on_image(
     print(f"Processing {len(target_images)} images...")
 
     saved_paths = []
-
+    text_fill_color = "white" if not mask_flag else "black"
     for img_info in target_images:
         img_id = img_info["id"]
         img_filename = img_info["file_name"]
@@ -281,14 +288,12 @@ def show_coco_annotations_on_image(
             print(f"Error reading image {img_path}: {e}, skipping")
             continue
 
-        draw = ImageDraw.Draw(image)
         img_width, img_height = image.size
         reference_size = 640
         scale_factor = max(img_width, img_height) / reference_size
 
         line_width = max(2, int(2 * scale_factor))
-        font_size = max(12, int(15 * scale_factor))
-
+        font_size = max(12, int(9 * scale_factor))
         try:
             font = ImageFont.truetype(
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size
@@ -303,19 +308,28 @@ def show_coco_annotations_on_image(
             score = ann.get("score", 1.0)
             if score >= score_threshold:
                 filtered_annotations.append(ann)
-
+        if mask_flag:
+            image = Image.new("L", (img_width, img_height), 0)
+            draw = ImageDraw.Draw(image)
+        else:
+            draw = ImageDraw.Draw(image)
         for ann in filtered_annotations:
             category_id = ann["category_id"]
             bbox = ann["bbox"]
             score = ann.get("score", 1.0)
 
             x_min, y_min, width, height = bbox
-            x_max = x_min + width
-            y_max = y_min + height
+            x_max = x_min + max(1, width)
+            y_max = y_min + max(1, height)
 
-            color = (
-                color_map.get(category_id, (255, 0, 0)) if color_map else (255, 0, 0)
-            )
+            if mask_flag:
+                color = category_id
+            else:
+                color = (
+                    color_map.get(category_id, (255, 0, 0))
+                    if color_map
+                    else (255, 0, 0)
+                )
 
             draw.rectangle(
                 [x_min, y_min, x_max, y_max], outline=color, width=line_width
@@ -325,17 +339,19 @@ def show_coco_annotations_on_image(
             text = f"{label_name}: {score:.2f}"
 
             text_bbox = draw.textbbox((x_min, y_min), text, font=font)
-            text_height = text_bbox[3] - text_bbox[1]
+            text_height = text_bbox[3] - text_bbox[1] + line_width
 
-            if y_min - text_height - 5 >= 0:
-                text_y = y_min - text_height - 5
+            if y_min - text_height >= 0:
+                text_y = y_min - text_height
             else:
                 text_y = y_min
 
             draw.rectangle(
-                [text_bbox[0], text_y, text_bbox[2], text_y + text_height], fill=color
+                [text_bbox[0], text_y, text_bbox[2], text_y + text_height],
+                fill=color,
             )
-            draw.text((x_min, text_y), text, fill="white", font=font)
+
+            draw.text((x_min, text_y), text, fill=text_fill_color, font=font)
 
         if output_path:
             if os.path.isdir(output_path) or len(target_images) > 1:
@@ -346,9 +362,10 @@ def show_coco_annotations_on_image(
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
                 save_path = output_path
 
-            image.save(save_path)
-            print(f"Visualization saved to: {save_path}")
-            saved_paths.append(save_path)
+            if save_flags:
+                image.save(save_path)
+                print(f"Visualization saved to: {save_path}")
+                saved_paths.append(save_path)
         else:
             if len(target_images) == 1:
                 return image
@@ -357,8 +374,10 @@ def show_coco_annotations_on_image(
                     f"Note: Multiple images processed but no output_path specified. Use output_path to save results."
                 )
 
-    if output_path:
+    if saved_paths:
         return saved_paths
+    elif len(target_images) == 1 and not output_path:
+        return image
     else:
         return None
 
@@ -413,7 +432,7 @@ def ultralytics_val_to_coco(
             "height": img_height,
             "width": img_width,
             "date_captured": None,
-            "id": img_idx,
+            "id": img_idx + 1,
         }
 
     predictions_by_image = {}
@@ -435,7 +454,7 @@ def ultralytics_val_to_coco(
         )
 
     annotations = []
-    annotation_id = 0
+    annotation_id = 1
 
     for img_filename, preds in predictions_by_image.items():
         if img_filename not in images_dict:

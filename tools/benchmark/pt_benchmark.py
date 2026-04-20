@@ -212,7 +212,7 @@ def __test():
         "/home/cx/cx_dir/data/deimv2_train_data/dlzdt_dataset_20260331_hbb/images/val"
     )
 
-    model_weight = "outputs/dlzdt_vitl16_freeze_extend/best_stg2.pth"
+    model_weight = "outputs/dlzdt_vith16p_freeze/best_stg2.pth"
     num_classes = 3
     imgsz = (640, 640)
     max_det = 20
@@ -228,7 +228,7 @@ def __test():
         num_warmup=10,
         num_test=100,
         device="cuda:1",
-        log_file="./test/benchmark.txt",
+        log_file="./test/benchmark_hp.txt",
     )
 
 

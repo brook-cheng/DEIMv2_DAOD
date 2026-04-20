@@ -52,7 +52,7 @@ DEIMTransformer:
   feat_channels: [640, 640, 640]
   # reg_scale: 8
   hidden_dim: 640
-  dim_feedforward: 2560 # hidden_dim*4 或 hidden_dim*8
+  dim_feedforward: 5120 # hidden_dim*8
 
 # optimizer:
 use_amp: True
@@ -70,11 +70,11 @@ optimizer:
     -
       # except norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
-      lr: 0.0000025
+      lr: 0.00000125
     -
       # including norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
-      lr: 0.0000025
+      lr: 0.00000125
       weight_decay: 0.
     -
       # including norm/bn/bias except for the self.dinov3
@@ -86,7 +86,7 @@ optimizer:
   weight_decay: 0.000125
 
 
-epoches: 100 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+epoches: 160 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
 
 lr_scheduler:
   type: MultiStepLR
@@ -99,8 +99,8 @@ lr_warmup_scheduler:
 
 lrsheduler: flatcosine
 lr_gamma: 0.5
-warmup_iter: 10
-flat_epoch: 60    # epoch // 2 + warmup_iter
+warmup_iter: 16
+flat_epoch: 96    # epoch // 2 + warmup_iter
 no_aug_epoch: 8
 
 # loss
