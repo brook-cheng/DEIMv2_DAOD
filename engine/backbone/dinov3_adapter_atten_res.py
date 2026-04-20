@@ -157,7 +157,7 @@ class DINOv3STAsResAtten(nn.Module):
             self.dinov3 = DinoVisionTransformer(name=name)
             if weights_path is not None and os.path.exists(weights_path):
                 print(f"Loading ckpt from {weights_path}...")
-                weights = torch.load(weights_path, weights_only=True)
+                weights = torch.load(weights_path, weights_only=True, map_location="cpu")
                 dinov3_weight = OrderedDict()
                 if "model" in weights:
                     model_weight = weights["model"]
@@ -183,7 +183,7 @@ class DINOv3STAsResAtten(nn.Module):
             )
             if weights_path is not None and os.path.exists(weights_path):
                 print(f"Loading ckpt from {weights_path}...")
-                self.dinov3._model.load_state_dict(torch.load(weights_path))
+                self.dinov3._model.load_state_dict(torch.load(weights_path, map_location="cpu"))
             else:
                 print("Training ViT-Tiny from scratch...")
 

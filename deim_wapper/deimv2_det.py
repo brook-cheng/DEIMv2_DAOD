@@ -71,7 +71,9 @@ class DEIMv2Det:
         self.imgsz = imgsz
         self.device = device
         self.dimv2 = DEIMv2(self.config, device)
-        self.model_weight = torch.load(model_weight, weights_only=True)["ema"]["module"]
+        self.model_weight = torch.load(
+            model_weight, weights_only=True, map_location="cpu"
+        )["ema"]["module"]
         self.dimv2.load_state_dict(self.model_weight)
         self.dimv2.eval()
         self.transform = transforms.Compose(

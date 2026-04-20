@@ -1,5 +1,5 @@
 DEIMV2_X_CFG = {
-    "DINOv3STAs": {
+    "DINOv3STAsResAtten": {
         "name": "dinov3_vits16plus",
         "weights_path": "",
         "embed_dim": 256,

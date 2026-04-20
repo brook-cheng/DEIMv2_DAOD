@@ -15,8 +15,12 @@ import logging
 from tqdm import tqdm
 
 sys.path.append(os.path.join(ROOT_DIR, "deim_wapper"))
-from deimv2_det import DEIMv2Det
-from deim_wapper.deimv2_model_config import DEIMV2_VITL16P_CFG
+from deim_wapper.deimv2_det import DEIMv2Det
+from deim_wapper.deimv2_model_config import (
+    DEIMV2_VITL16P_CFG,
+    DEIMV2_X_CFG,
+    DEIMV2_VITH16P_CFG,
+)
 
 
 def setup_logger(log_file="./test/benchmark.txt"):
@@ -50,7 +54,7 @@ def benchmark_model(
     score_threshold=0.5,
     num_warmup=10,
     num_test=100,
-    device="cuda:1",
+    device="cuda:0",
     log_file="./test/benchmark.txt",
 ):
     logger = setup_logger(log_file)
@@ -208,18 +212,14 @@ def benchmark_model(
 
 
 def __test():
-    img_dir = (
-        "/home/cx/cx_dir/data/deimv2_train_data/dlzdt_dataset_20260331_hbb/images/val"
-    )
+    img_dir = "/mnt/d/project_data/model_test/deimv2_train_data/2026_3_31_hbb/dlzdt_dataset_20260331_hbb/images/val"
 
-    model_weight = "outputs/dlzdt_vith16p_freeze/best_stg2.pth"
+    model_weight = "./outputs/best_stg2_l.pth"
     num_classes = 3
     imgsz = (640, 640)
     max_det = 20
     config = DEIMV2_VITL16P_CFG
-    model = DEIMv2Det(
-        model_weight, num_classes, imgsz, max_det, DEIMV2_VITL16P_CFG, "cuda:1"
-    )
+    model = DEIMv2Det(model_weight, num_classes, imgsz, max_det, config, "cuda:0")
 
     benchmark_model(
         model=model,
@@ -227,8 +227,8 @@ def __test():
         score_threshold=0.5,
         num_warmup=10,
         num_test=100,
-        device="cuda:1",
-        log_file="./test/benchmark_hp.txt",
+        device="cuda:0",
+        log_file="./test/outputs/benchmark_l.txt",
     )
 
 
