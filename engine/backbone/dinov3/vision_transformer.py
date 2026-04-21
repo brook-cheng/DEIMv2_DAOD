@@ -142,7 +142,7 @@ configs = {
         "pos_embed_rope_base": 100,
         "pos_embed_rope_normalize_coords": "separate",
         "pos_embed_rope_rescale_coords": 2,
-        "pos_embed_rope_dtype": "fp32",
+        "pos_embed_rope_dtype": "fp16",
         "embed_dim": 1280,
         "depth": 32,
         "num_heads": 20,

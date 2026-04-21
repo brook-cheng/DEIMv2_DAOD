@@ -208,7 +208,7 @@ DEIMV2_VITH16P_CFG = {
         "query_select_method": "default",
         "activation": "silu",
         "mlp_act": "silu",
-        "dim_feedforward": 2560,
+        "dim_feedforward": 5120,
         "eval_spatial_size": [640, 640],
     },
     "PostProcessor": {"num_classes": 3, "num_top_queries": 50},
