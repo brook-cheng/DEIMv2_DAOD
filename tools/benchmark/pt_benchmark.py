@@ -228,7 +228,7 @@ def __test():
         num_warmup=10,
         num_test=100,
         device="cuda:0",
-        log_file="./test/outputs/benchmark_l.txt",
+        log_file="./test/data/outputs/benchmark_l.txt",
     )
 
 

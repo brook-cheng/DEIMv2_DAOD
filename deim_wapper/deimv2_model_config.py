@@ -7,6 +7,7 @@ DEIMV2_X_CFG = {
         "num_heads": None,
         "conv_inplane": 64,
         "hidden_dim": 256,
+        "adapter_type": "sta",
     },
     "HybridEncoder": {
         "in_channels": [256, 256, 256],

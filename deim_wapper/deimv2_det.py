@@ -64,7 +64,10 @@ class DEIMv2Det:
         device="cpu",
     ):
         self.config = config
-        self.config["DINOv3STAsResAtten"].update({"weights_path": model_weight})
+        if "DINOv3STAsResAtten" in self.config:
+            self.config["DINOv3STAsResAtten"].update({"weights_path": model_weight})
+        elif "DINOv3STAs" in self.config:
+            self.config["DINOv3STAs"].update({"weights_path": model_weight})
         self.config["DEIMTransformer"].update({"num_classes": num_classes})
         self.config["DEIMTransformer"].update({"num_queries": max_det})
         self.config["PostProcessor"].update({"num_classes": num_classes})
