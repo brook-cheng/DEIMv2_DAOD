@@ -142,6 +142,7 @@ class TransformerDecoder(nn.Module):
         eval_idx=-1,
         layer_scale=2,
         act="relu",
+        num_reg_dist=4,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -158,7 +159,10 @@ class TransformerDecoder(nn.Module):
             ]
         )
         self.lqe_layers = nn.ModuleList(
-            [copy.deepcopy(LQE(4, 64, 2, reg_max, act=act)) for _ in range(num_layers)]
+            [
+                copy.deepcopy(LQE(num_reg_dist, 64, 2, reg_max, act=act))
+                for _ in range(num_layers)
+            ]
         )
 
     def value_op(
@@ -318,6 +322,7 @@ class DEIMTransformer(nn.Module):
         use_gateway=True,
         share_bbox_head=False,
         share_score_head=False,
+        box_mode="hbb",
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -338,6 +343,14 @@ class DEIMTransformer(nn.Module):
         self.eval_spatial_size = eval_spatial_size
         self.aux_loss = aux_loss
         self.reg_max = reg_max
+
+        self.box_mode = box_mode
+        if self.box_mode == "obb":
+            self._num_box_dof = 5  # (cx,cy,w,h,θ)
+            self.num_reg_dist = 6  # (α,β,γ,δ,ε,η) external rectangle, vertex bias
+        elif self.box_mode == "hbb":
+            self._num_box_dof = 4  # (cx,cy,w,h)
+            self.num_reg_dist = 4  # (α,β,γ,δ)
 
         assert query_select_method in ("default", "one2many", "agnostic"), ""
         assert cross_attn_method in ("default", "discrete"), ""
@@ -389,6 +402,7 @@ class DEIMTransformer(nn.Module):
             eval_idx,
             layer_scale,
             act=activation,
+            num_reg_dist=self.num_reg_dist,
         )
         # denoising
         self.num_denoising = num_denoising
@@ -409,12 +423,18 @@ class DEIMTransformer(nn.Module):
             self.enc_score_head = nn.Linear(hidden_dim, 1)
         else:
             self.enc_score_head = nn.Linear(hidden_dim, num_classes)
-        self.enc_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3, act=mlp_act)
+        self.enc_bbox_head = MLP(
+            hidden_dim, hidden_dim, self._num_box_dof, 3, act=mlp_act
+        )
 
-        self.query_pos_head = MLP(4, hidden_dim, hidden_dim, 3, act=mlp_act)
+        self.query_pos_head = MLP(
+            self._num_box_dof, hidden_dim, hidden_dim, 3, act=mlp_act
+        )
 
         # decoder head
-        self.pre_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3, act=mlp_act)
+        self.pre_bbox_head = MLP(
+            hidden_dim, hidden_dim, self._num_box_dof, 3, act=mlp_act
+        )
         self.integral = Integral(self.reg_max)
 
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
@@ -432,7 +452,11 @@ class DEIMTransformer(nn.Module):
 
         # Share the same bbox head for all layers
         dec_bbox_head = MLP(
-            hidden_dim, hidden_dim, 4 * (self.reg_max + 1), 3, act=mlp_act
+            hidden_dim,
+            hidden_dim,
+            self.num_reg_dist * (self.reg_max + 1),
+            3,
+            act=mlp_act,
         )
         self.dec_bbox_head = nn.ModuleList(
             [
@@ -440,7 +464,13 @@ class DEIMTransformer(nn.Module):
                 for _ in range(self.eval_idx + 1)
             ]
             + [
-                MLP(scaled_dim, scaled_dim, 4 * (self.reg_max + 1), 3, act=mlp_act)
+                MLP(
+                    scaled_dim,
+                    scaled_dim,
+                    self.num_reg_dist * (self.reg_max + 1),
+                    3,
+                    act=mlp_act,
+                )
                 for _ in range(num_layers - self.eval_idx - 1)
             ]
         )
@@ -581,20 +611,47 @@ class DEIMTransformer(nn.Module):
                 spatial_shapes.append([int(eval_h / s), int(eval_w / s)])
 
         anchors = []
-        for lvl, (h, w) in enumerate(spatial_shapes):
-            grid_y, grid_x = torch.meshgrid(
-                torch.arange(h), torch.arange(w), indexing="ij"
-            )
-            grid_xy = torch.stack([grid_x, grid_y], dim=-1)
-            grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor([w, h], dtype=dtype)
-            wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
-            lvl_anchors = torch.concat([grid_xy, wh], dim=-1).reshape(-1, h * w, 4)
-            anchors.append(lvl_anchors)
+        if self.box_mode == "hbb":
+            for lvl, (h, w) in enumerate(spatial_shapes):
+                grid_y, grid_x = torch.meshgrid(
+                    torch.arange(h), torch.arange(w), indexing="ij"
+                )
+                grid_xy = torch.stack([grid_x, grid_y], dim=-1)
+                grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor(
+                    [w, h], dtype=dtype
+                )
+                wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
+                lvl_anchors = torch.concat([grid_xy, wh], dim=-1).reshape(
+                    -1, h * w, self._num_box_dof
+                )
+                anchors.append(lvl_anchors)
+        elif self.box_mode == "obb":
+            for lvl, (h, w) in enumerate(spatial_shapes):
+                grid_y, grid_x = torch.meshgrid(
+                    torch.arange(h), torch.arange(w), indexing="ij"
+                )
+                grid_xy = torch.stack([grid_x, grid_y], dim=-1)
+                grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor(
+                    [w, h], dtype=dtype
+                )
+                wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
+                theta = 0.5 * torch.ones(
+                    *grid_xy.shape[:-1], 1, dtype=grid_xy.dtype, device=grid_xy.device
+                )
+                lvl_anchors = torch.concat([grid_xy, wh, theta], dim=-1).reshape(
+                    -1, h * w, self._num_box_dof
+                )
+                anchors.append(lvl_anchors)
 
         anchors = torch.concat(anchors, dim=1).to(device)
-        valid_mask = ((anchors > self.eps) * (anchors < 1 - self.eps)).all(
-            -1, keepdim=True
-        )
+        if self.box_mode == "hbb":
+            valid_mask = ((anchors > self.eps) * (anchors < 1 - self.eps)).all(
+                -1, keepdim=True
+            )
+        elif self.box_mode == "obb":
+            valid_mask = (
+                (anchors[..., :4] > self.eps) * (anchors[..., :4] < 1 - self.eps)
+            ).all(-1, keepdim=True)
         anchors = torch.log(anchors / (1 - anchors))
         anchors = torch.where(valid_mask, anchors, torch.inf)
 
