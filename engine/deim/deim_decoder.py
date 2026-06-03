@@ -27,7 +27,7 @@ from .utils import (
 )
 
 from .dfine_decoder import MSDeformableAttention, LQE, Integral
-from .dfine_utils import weighting_function, distance2bbox
+from .dfine_utils import weighting_function, distance2bbox, distance2bbox_obb
 from .deim_utils import RMSNorm, SwiGLUFFN, Gate, MLP
 
 __all__ = ["DEIMTransformer"]
@@ -143,6 +143,7 @@ class TransformerDecoder(nn.Module):
         layer_scale=2,
         act="relu",
         num_reg_dist=4,
+        box_mode="hbb",
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -151,6 +152,7 @@ class TransformerDecoder(nn.Module):
         self.num_head = num_head
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
         self.up, self.reg_scale, self.reg_max = up, reg_scale, reg_max
+        self.box_mode = box_mode
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
             + [
@@ -257,9 +259,14 @@ class TransformerDecoder(nn.Module):
 
             # Refine bounding box corners using FDR, integrating previous layer's corrections
             pred_corners = bbox_head[i](output + output_detach) + pred_corners_undetach
-            inter_ref_bbox = distance2bbox(
-                ref_points_initial, integral(pred_corners, project), reg_scale
-            )
+            if self.box_mode == "hbb":
+                inter_ref_bbox = distance2bbox(
+                    ref_points_initial, integral(pred_corners, project), reg_scale
+                )
+            elif self.box_mode == "obb":
+                inter_ref_bbox = distance2bbox_obb(
+                    ref_points_initial, integral(pred_corners, project), reg_scale
+                )
 
             if self.training or i == self.eval_idx:
                 scores = score_head[i](output)
@@ -389,6 +396,7 @@ class DEIMTransformer(nn.Module):
             cross_attn_method=cross_attn_method,
             layer_scale=layer_scale,
             use_gateway=use_gateway,
+            box_mode=self.box_mode,
         )
         self.decoder = TransformerDecoder(
             hidden_dim,

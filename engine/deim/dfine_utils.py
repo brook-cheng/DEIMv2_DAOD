@@ -3,7 +3,7 @@ Copyright (c) 2024 The D-FINE Authors. All Rights Reserved.
 """
 
 import torch
-from .box_ops import box_xyxy_to_cxcywh
+from .box_ops import box_xyxy_to_cxcywh, box_cxcywh_to_xyxy
 from .obb_geometry import oriented_box_to_external_rect, external_rect_to_oriented_box
 
 
@@ -185,3 +185,88 @@ def bbox2distance(points, bbox, reg_max, reg_scale, up, eps=0.1):
     if reg_max is not None:
         four_lens = four_lens.clamp(min=0, max=reg_max - eps)
     return four_lens.reshape(-1).detach(), weight_right.detach(), weight_left.detach()
+
+
+def distance2bbox_obb(points, distance, reg_scale):
+    """
+    Decodes 6-distribution DDF output to 5-dof OBB.
+
+    Args:
+        points: (B,N,5) or (N,5) — ref points (cx,cy,w,h,θ).
+        distance: (B,N,6) — (α,β,γ,δ,ε,η) from Integral.
+        reg_scale: curvature of Weighting Function.
+
+    Returns:
+        (B,N,5) or (N,5) — (cx,cy,w,h,θ).
+    """
+    ext_rect_xyxy, vertex_offsets = oriented_box_to_external_rect(points)
+    ext_rect_cxcywh = box_xyxy_to_cxcywh(ext_rect_xyxy)
+
+    # (α,β,γ,δ)
+    ext_adj_cxcywh = distance2bbox(ext_rect_cxcywh, distance[..., :4], reg_scale)
+    ext_adjust_xyxy = box_cxcywh_to_xyxy(ext_adj_cxcywh)
+
+    # (ε,η)
+    vertex_offsets_adj = (
+        vertex_offsets + distance[..., 4:] * ext_adj_cxcywh[..., 2:] / reg_scale
+    )
+
+    return external_rect_to_oriented_box(ext_adjust_xyxy, vertex_offsets_adj)
+
+
+def bbox2distance_obb(points, bbox, reg_max, reg_scale, up, eps=0.1):
+    """
+    Converts GT OBB to 6-distribution FGL targets.
+
+    Args:
+        points: (N,5) ref points (cx,cy,w,h,θ).
+        bbox: (N,5) GT OBB (cx,cy,w,h,θ).
+        ...
+    Returns:
+        six_lens, weight_right, weight_left
+    """
+
+    ext_rect_xyxy_pred, vertex_offsets_pred = oriented_box_to_external_rect(points)
+    ext_rect_xyxy_gt, vertex_offsets_gt = oriented_box_to_external_rect(bbox)
+    ext_rect_cxcywh_pred = box_xyxy_to_cxcywh(ext_rect_xyxy_pred)
+    reg_scale = abs(reg_scale)
+
+    pred_ext_rect_w_scaled = ext_rect_cxcywh_pred[..., 2] / reg_scale + 1e-16
+    pred_ext_rect_h_sceled = ext_rect_cxcywh_pred[..., 3] / reg_scale + 1e-16
+    half_reg_scale = 0.5 * reg_scale
+
+    # 下面的计算与distance2bbox_obb中的互逆
+    ext_left = (
+        ext_rect_cxcywh_pred[..., 0] - ext_rect_xyxy_gt[..., 0]
+    ) / pred_ext_rect_w_scaled - half_reg_scale
+    ext_top = (
+        ext_rect_cxcywh_pred[..., 1] - ext_rect_xyxy_gt[..., 1]
+    ) / pred_ext_rect_h_sceled - half_reg_scale
+    ext_right = (
+        ext_rect_xyxy_gt[..., 2] - ext_rect_cxcywh_pred[..., 0]
+    ) / pred_ext_rect_w_scaled - half_reg_scale
+    ext_bottom = (
+        ext_rect_xyxy_gt[..., 3] - ext_rect_cxcywh_pred[..., 1]
+    ) / pred_ext_rect_h_sceled - half_reg_scale
+
+    two_lens = (vertex_offsets_gt - vertex_offsets_pred) / (
+        ext_rect_cxcywh_pred[..., 2:] / reg_scale + 1e-16
+    )
+
+    six_lens = torch.stack(
+        [
+            ext_left,
+            ext_top,
+            ext_right,
+            ext_bottom,
+            two_lens[..., 0],
+            two_lens[..., 1],
+        ],
+        dim=-1,
+    )
+
+    six_lens, weight_right, weight_left = translate_gt(six_lens, reg_max, reg_scale, up)
+    if reg_max is not None:
+        six_lens = six_lens.clamp(min=0, max=reg_max - eps)
+
+    return six_lens.reshape(-1).detach(), weight_right.detach(), weight_left.detach()
