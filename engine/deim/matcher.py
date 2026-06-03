@@ -11,8 +11,11 @@ import torch.nn.functional as F
 
 from scipy.optimize import linear_sum_assignment
 from typing import Dict
+import math
 
 from .box_ops import box_cxcywh_to_xyxy, generalized_box_iou, box_iou, ciou
+from .obb_ops import batch_probiou
+from .chamfer_cost import chamfer_cost_obb
 
 from ..core import register
 import numpy as np
@@ -40,6 +43,8 @@ class HungarianMatcher(nn.Module):
         change_matcher=False,
         iou_order_alpha=1.0,
         matcher_change_epoch=10000,
+        box_mode="hbb",
+        angle_factor=math.pi,
     ):
         """Creates the matcher
 
@@ -47,15 +52,23 @@ class HungarianMatcher(nn.Module):
             cost_class: This is the relative weight of the classification error in the matching cost
             cost_bbox: This is the relative weight of the L1 error of the bounding box coordinates in the matching cost
             cost_giou: This is the relative weight of the giou loss of the bounding box in the matching cost
+            cost_chamber: This is the relative weight of the chamfer loss of the oriented box in the matching cost
+            cost_kld: This is the relative weight of the KLD loss of the oriented box in the matching cost
+            cost_probiou: This is the relative weight of the probiou loss of the oriented box in the matching cost
         """
+
         super().__init__()
         self.cost_class = weight_dict["cost_class"]
         self.cost_bbox = weight_dict["cost_bbox"]
         self.cost_giou = weight_dict["cost_giou"]
+        self.cost_chamfer = weight_dict.get("cost_chamfer", 0)
+        self.cost_kld = weight_dict.get("cost_kld", 0)
+        self.cost_probiou = weight_dict.get("cost_probiou", 0)
 
         self.change_matcher = change_matcher
         self.iou_order_alpha = iou_order_alpha
         self.matcher_change_epoch = matcher_change_epoch
+
         if self.change_matcher:
             print(
                 f"Using the new matching cost with iou_order_alpha = {iou_order_alpha} at epoch {matcher_change_epoch}"
@@ -64,10 +77,18 @@ class HungarianMatcher(nn.Module):
         self.use_focal_loss = use_focal_loss
         self.alpha = alpha
         self.gamma = gamma
+        self.box_mode = box_mode
+        self.angle_factor = angle_factor
 
-        assert (
-            self.cost_class != 0 or self.cost_bbox != 0 or self.cost_giou != 0
-        ), "all costs cant be 0"
+        if self.box_mode == "hbb":
+            assert self.cost_class != 0 or self.cost_bbox != 0 or self.cost_giou != 0
+        else:
+            assert (
+                self.cost_class != 0
+                or self.cost_bbox != 0
+                or self.cost_kld != 0
+                or self.cost_chamfer != 0
+            )
 
     @torch.no_grad()
     def forward(
@@ -115,9 +136,16 @@ class HungarianMatcher(nn.Module):
             ]  # shape = [batch_size * num_queries, gt num within a batch]
 
             # # Compute iou
-            bbox_iou, _ = box_iou(
-                box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox)
-            )
+            if self.box_mode == "obb":
+                bbox_iou = batch_probiou(
+                    out_bbox,
+                    tgt_bbox,
+                    eps=1e-8,
+                )
+            elif self.box_mode == "hbb":
+                bbox_iou, _ = box_iou(
+                    box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox)
+                )
 
             # Final cost matrix
             C = (-1) * (class_score * torch.pow(bbox_iou, self.iou_order_alpha))
@@ -140,21 +168,33 @@ class HungarianMatcher(nn.Module):
                 cost_class = pos_cost_class - neg_cost_class
             else:
                 cost_class = -out_prob[:, tgt_ids]
+            if self.box_mode == "obb":
+                # θ 维度除以 angle_factor(π)，使 5 个维度量纲一致
+                factor = tgt_bbox.new_tensor([1, 1, 1, 1, 1.0 / self.angle_factor])
+                cost_bbox = torch.cdist(out_bbox * factor, tgt_bbox * factor, p=1)
+                cost_kld = -batch_probiou(out_bbox, tgt_bbox, eps=1e-8)
+                C = (
+                    self.cost_bbox * cost_bbox
+                    + self.cost_class * cost_class
+                    + self.cost_kld * cost_kld
+                )
+                if self.cost_chamfer > 0:
+                    C += self.cost_chamfer * chamfer_cost_obb(out_bbox, tgt_bbox)
+            elif self.box_mode == "hbb":
+                # Compute the L1 cost between boxes
+                cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
 
-            # Compute the L1 cost between boxes
-            cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
+                # Compute the giou cost betwen boxes
+                cost_giou = -generalized_box_iou(
+                    box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox)
+                )
 
-            # Compute the giou cost betwen boxes
-            cost_giou = -generalized_box_iou(
-                box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox)
-            )
-
-            # Final cost matrix 3 * self.cost_bbox + 2 * self.cost_class + self.cost_giou
-            C = (
-                self.cost_bbox * cost_bbox
-                + self.cost_class * cost_class
-                + self.cost_giou * cost_giou
-            )
+                # Final cost matrix 3 * self.cost_bbox + 2 * self.cost_class + self.cost_giou
+                C = (
+                    self.cost_bbox * cost_bbox
+                    + self.cost_class * cost_class
+                    + self.cost_giou * cost_giou
+                )
 
         C = C.view(bs, num_queries, -1).cpu()
 
