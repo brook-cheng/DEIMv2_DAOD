@@ -14,7 +14,7 @@ import torchvision
 
 import copy
 
-from .dfine_utils import bbox2distance
+from .dfine_utils import bbox2distance,bbox2distance_obb
 from .box_ops import (
     box_cxcywh_to_xyxy,
     box_iou,
@@ -24,6 +24,7 @@ from .box_ops import (
     eiou,
     siou,
 )
+from .obb_ops import probiou,kld_loss
 from ..misc.dist_utils import get_world_size, is_dist_available_and_initialized
 from ..core import register
 
@@ -54,6 +55,7 @@ class DEIMCriterion(nn.Module):
         use_uni_set=True,
         mal_iou_type=None,
         local_iou_type=None,
+        box_mode='hbb',
     ):
         """Create the criterion.
         Parameters:
@@ -81,6 +83,8 @@ class DEIMCriterion(nn.Module):
         self.use_uni_set = use_uni_set
         self.mal_iou_type = mal_iou_type
         self.local_iou_type = local_iou_type
+        self.box_mode = box_mode
+        self.num_reg_dist= 4 if self.box_mode == "hbb" else 6
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
@@ -112,10 +116,13 @@ class DEIMCriterion(nn.Module):
             target_boxes = torch.cat(
                 [t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0
             )
-            ious, _ = box_iou(
-                box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
-            )
-            ious = torch.diag(ious).detach()
+            if self.box_mode=='hbb':
+                ious, _ = box_iou(
+                    box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
+                )
+                ious = torch.diag(ious).detach()
+            elif self.box_mode=='obb':
+                ious = probiou(target_boxes,src_boxes).squeeze(-1).detach()
         else:
             ious = values
 
@@ -153,34 +160,36 @@ class DEIMCriterion(nn.Module):
             target_boxes = torch.cat(
                 [t["boxes"][i] for t, (_, i) in zip(targets, indices)], dim=0
             )
-            if self.local_iou_type == None or self.local_iou_type == "iou":
-                ious, _ = box_iou(
-                    box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
-                )
-            elif self.local_iou_type == "giou":
-                gious = generalized_box_iou(
-                    box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
-                )
-                ious = (1 + gious) * 0.5
-            elif self.local_iou_type == "dious":
-                dious = diou(
-                    box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
-                )
-                ious = (1 + dious) * 0.5
-            elif self.local_iou_type == "ciou":
-                cious = ciou(
-                    box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
-                )
-                ious = (1 + cious) * 0.5
-            elif self.local_iou_type == "eiou":
-                eious = eiou(
-                    box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
-                )
-                ious = (1 + eious) * 0.5
-            else:
-                raise ValueError(f"{self.local_iou_type} is not supported")
-
-            ious = torch.diag(ious).detach()
+            if self.box_mode=='hbb':
+                if self.local_iou_type == None or self.local_iou_type == "iou":
+                    ious, _ = box_iou(
+                        box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
+                    )
+                elif self.local_iou_type == "giou":
+                    gious = generalized_box_iou(
+                        box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
+                    )
+                    ious = (1 + gious) * 0.5
+                elif self.local_iou_type == "dious":
+                    dious = diou(
+                        box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
+                    )
+                    ious = (1 + dious) * 0.5
+                elif self.local_iou_type == "ciou":
+                    cious = ciou(
+                        box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
+                    )
+                    ious = (1 + cious) * 0.5
+                elif self.local_iou_type == "eiou":
+                    eious = eiou(
+                        box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
+                    )
+                    ious = (1 + eious) * 0.5
+                else:
+                    raise ValueError(f"{self.local_iou_type} is not supported")
+                ious = torch.diag(ious).detach()
+            elif self.box_mode=='obb':
+                ious = probiou(target_boxes,src_boxes).squeeze(-1).detach()
         else:
             ious = values
 
@@ -235,14 +244,17 @@ class DEIMCriterion(nn.Module):
         losses = {}
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction="none")
         losses["loss_bbox"] = loss_bbox.sum() / num_boxes
-
-        loss_giou = 1 - torch.diag(
-            generalized_box_iou(
-                box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
+        if self.box_mode=='hbb':
+            loss_giou = 1 - torch.diag(
+                generalized_box_iou(
+                    box_cxcywh_to_xyxy(src_boxes), box_cxcywh_to_xyxy(target_boxes)
+                )
             )
-        )
-        loss_giou = loss_giou if boxes_weight is None else loss_giou * boxes_weight
-        losses["loss_giou"] = loss_giou.sum() / num_boxes
+            loss_giou = loss_giou if boxes_weight is None else loss_giou * boxes_weight
+            losses["loss_giou"] = loss_giou.sum() / num_boxes
+        elif self.box_mode=='obb':
+            loss_kld=kld_loss(src_boxes,target_boxes,reduction='none')
+            losses["loss_kld"] = loss_kld.sum() / num_boxes
 
         return losses
 
@@ -261,63 +273,84 @@ class DEIMCriterion(nn.Module):
             ref_points = outputs["ref_points"][idx].detach()
             with torch.no_grad():
                 if self.fgl_targets_dn is None and "is_dn" in outputs:
-                    self.fgl_targets_dn = bbox2distance(
-                        ref_points,
-                        box_cxcywh_to_xyxy(target_boxes),
-                        self.reg_max,
-                        outputs["reg_scale"],
-                        outputs["up"],
-                    )
+                    if self.box_mode=='hbb':
+                        self.fgl_targets_dn = bbox2distance(
+                            ref_points,
+                            box_cxcywh_to_xyxy(target_boxes),
+                            self.reg_max,
+                            outputs["reg_scale"],
+                            outputs["up"],
+                        )
+                    elif self.box_mode=='obb':
+                        self.fgl_targets_dn = bbox2distance_obb(
+                            ref_points,
+                            target_boxes,
+                            self.reg_max,
+                            outputs["reg_scale"],
+                            outputs["up"],
+                        )
                 if self.fgl_targets is None and "is_dn" not in outputs:
-                    self.fgl_targets = bbox2distance(
-                        ref_points,
-                        box_cxcywh_to_xyxy(target_boxes),
-                        self.reg_max,
-                        outputs["reg_scale"],
-                        outputs["up"],
-                    )
+                    if self.box_mode=='hbb':
+                        self.fgl_targets = bbox2distance(
+                            ref_points,
+                            box_cxcywh_to_xyxy(target_boxes),
+                            self.reg_max,
+                            outputs["reg_scale"],
+                            outputs["up"],
+                        )
+                    elif self.box_mode=='obb':
+                        self.fgl_targets = bbox2distance_obb(
+                            ref_points,
+                            target_boxes,
+                            self.reg_max,
+                            outputs["reg_scale"],
+                            outputs["up"],
+                        )
 
             target_corners, weight_right, weight_left = (
                 self.fgl_targets_dn if "is_dn" in outputs else self.fgl_targets
             )
-            if self.local_iou_type == None or self.local_iou_type == "iou":
-                box_ious, _ = box_iou(
-                    box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
-                    box_cxcywh_to_xyxy(target_boxes),
-                )
-                ious = torch.diag(box_ious)
-            elif self.local_iou_type == "giou":
-                gious = generalized_box_iou(
-                    box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
-                    box_cxcywh_to_xyxy(target_boxes),
-                )
-                gious = (1 + gious) * 0.5
-                ious = torch.diag(gious)
-            elif self.local_iou_type == "diou":
-                dious = diou(
-                    box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
-                    box_cxcywh_to_xyxy(target_boxes),
-                )
-                dious = (1 + dious) * 0.5
-                ious = torch.diag(dious)
-            elif self.local_iou_type == "ciou":
-                cious = ciou(
-                    box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
-                    box_cxcywh_to_xyxy(target_boxes),
-                )
-                cious = (1 + cious) * 0.5
-                ious = torch.diag(cious)
-            elif self.local_iou_type == "eiou":
-                eious = eiou(
-                    box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
-                    box_cxcywh_to_xyxy(target_boxes),
-                )
-                eious = (1 + eious) * 0.5
-                ious = torch.diag(eious)
-            else:
-                raise ValueError(f"undefined iou type:{self.local_iou_type}")
+            if self.box_mode=='hbb':
+                if self.local_iou_type == None or self.local_iou_type == "iou":
+                    box_ious, _ = box_iou(
+                        box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
+                        box_cxcywh_to_xyxy(target_boxes),
+                    )
+                    ious = torch.diag(box_ious)
+                elif self.local_iou_type == "giou":
+                    gious = generalized_box_iou(
+                        box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
+                        box_cxcywh_to_xyxy(target_boxes),
+                    )
+                    gious = (1 + gious) * 0.5
+                    ious = torch.diag(gious)
+                elif self.local_iou_type == "diou":
+                    dious = diou(
+                        box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
+                        box_cxcywh_to_xyxy(target_boxes),
+                    )
+                    dious = (1 + dious) * 0.5
+                    ious = torch.diag(dious)
+                elif self.local_iou_type == "ciou":
+                    cious = ciou(
+                        box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
+                        box_cxcywh_to_xyxy(target_boxes),
+                    )
+                    cious = (1 + cious) * 0.5
+                    ious = torch.diag(cious)
+                elif self.local_iou_type == "eiou":
+                    eious = eiou(
+                        box_cxcywh_to_xyxy(outputs["pred_boxes"][idx]),
+                        box_cxcywh_to_xyxy(target_boxes),
+                    )
+                    eious = (1 + eious) * 0.5
+                    ious = torch.diag(eious)
+                else:
+                    raise ValueError(f"undefined iou type:{self.local_iou_type}")
+            elif self.box_mode=='obb':
+                ious = probiou(target_boxes,outputs["pred_boxes"][idx]).squeeze(-1).detach()
 
-            weight_targets = ious.unsqueeze(-1).repeat(1, 1, 4).reshape(-1).detach()
+            weight_targets = ious.unsqueeze(-1).repeat(1, 1, self.num_reg_dist).reshape(-1).detach()
 
             losses["loss_fgl"] = self.unimodal_distribution_focal_loss(
                 pred_corners,
@@ -328,6 +361,7 @@ class DEIMCriterion(nn.Module):
                 avg_factor=num_boxes,
             )
 
+            # 只有在模型蒸馏时才会执行下面的代码
             if "teacher_corners" in outputs:
                 pred_corners = outputs["pred_corners"].reshape(-1, (self.reg_max + 1))
                 target_corners = outputs["teacher_corners"].reshape(
@@ -340,14 +374,14 @@ class DEIMCriterion(nn.Module):
 
                     mask = torch.zeros_like(weight_targets_local, dtype=torch.bool)
                     mask[idx] = True
-                    mask = mask.unsqueeze(-1).repeat(1, 1, 4).reshape(-1)
+                    mask = mask.unsqueeze(-1).repeat(1, 1, self.num_reg_dist).reshape(-1)
 
                     weight_targets_local[idx] = ious.reshape_as(
                         weight_targets_local[idx]
                     ).to(weight_targets_local.dtype)
                     weight_targets_local = (
                         weight_targets_local.unsqueeze(-1)
-                        .repeat(1, 1, 4)
+                        .repeat(1, 1, self.num_reg_dist)
                         .reshape(-1)
                         .detach()
                     )
@@ -375,7 +409,7 @@ class DEIMCriterion(nn.Module):
                     loss_match_local2 = (
                         loss_match_local[~mask].mean() if (~mask).any() else 0
                     )
-                    # FIXME:不收敛的问题
+
                     losses["loss_ddf"] = (
                         loss_match_local1 * self.num_pos
                         + loss_match_local2 * self.num_neg
