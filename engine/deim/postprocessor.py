@@ -34,7 +34,8 @@ class PostProcessor(nn.Module):
         num_classes=80,
         use_focal_loss=True,
         num_top_queries=300,
-        remap_mscoco_category=False
+        remap_mscoco_category=False,
+        box_mode='hbb'
     ) -> None:
         super().__init__()
         self.use_focal_loss = use_focal_loss
@@ -42,6 +43,7 @@ class PostProcessor(nn.Module):
         self.num_classes = int(num_classes)
         self.remap_mscoco_category = remap_mscoco_category
         self.deploy_mode = False
+        self.box_mode = box_mode
 
     def extra_repr(self) -> str:
         return f'use_focal_loss={self.use_focal_loss}, num_classes={self.num_classes}, num_top_queries={self.num_top_queries}'
@@ -51,8 +53,15 @@ class PostProcessor(nn.Module):
         logits, boxes = outputs['pred_logits'], outputs['pred_boxes']
         # orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
 
-        bbox_pred = torchvision.ops.box_convert(boxes, in_fmt='cxcywh', out_fmt='xyxy')
-        bbox_pred *= orig_target_sizes.repeat(1, 2).unsqueeze(1)
+        if self.box_mode=='hbb':
+            bbox_pred = torchvision.ops.box_convert(boxes, in_fmt='cxcywh', out_fmt='xyxy')
+            bbox_pred *= orig_target_sizes.repeat(1, 2).unsqueeze(1)
+        elif self.box_mode=='obb':
+            # OBB: 保留 cxcywhθ，逐维缩放到像素
+            img_w = orig_target_sizes[:, 0:1]
+            img_h = orig_target_sizes[:, 1:2]
+            factor = torch.cat([img_w, img_h, img_w, img_h, torch.ones_like(img_w)], dim=-1).unsqueeze(1)
+            bbox_pred = boxes * factor  # cx×W, cy×H, w×W, h×H, θ 不变(归一化到[0,π])
 
         if self.use_focal_loss:
             scores = F.sigmoid(logits)
