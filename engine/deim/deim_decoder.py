@@ -773,6 +773,7 @@ class DEIMTransformer(nn.Module):
                     num_denoising=self.num_denoising,
                     label_noise_ratio=self.label_noise_ratio,
                     box_noise_scale=1.0,
+                    box_mode=self.box_mode
                 )
             )
         else:

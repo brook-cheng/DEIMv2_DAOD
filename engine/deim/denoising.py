@@ -16,6 +16,7 @@ def get_contrastive_denoising_training_group(
     num_denoising=100,
     label_noise_ratio=0.5,
     box_noise_scale=1.0,
+    box_mode='hbb'
 ):
     """cnd"""
     if num_denoising <= 0:
@@ -27,6 +28,8 @@ def get_contrastive_denoising_training_group(
     max_gt_num = max(num_gts)
     if max_gt_num == 0:
         return None, None, None, None
+
+    _num_box_dof=5 if box_mode=='obb' else 4
     # devide groups by num_denoising
     num_group = num_denoising // max_gt_num
     num_group = 1 if num_group == 0 else num_group
@@ -36,7 +39,7 @@ def get_contrastive_denoising_training_group(
     input_query_class = torch.full(
         [bs, max_gt_num], num_classes, dtype=torch.int32, device=device
     )
-    input_query_bbox = torch.zeros([bs, max_gt_num, 4], device=device)
+    input_query_bbox = torch.zeros([bs, max_gt_num, _num_box_dof], device=device)
     pad_gt_mask = torch.zeros([bs, max_gt_num], dtype=torch.bool, device=device)
     # put gt info into the container
     for i in range(bs):
@@ -85,18 +88,25 @@ def get_contrastive_denoising_training_group(
 
     ### add boxes noise: random box bias, simulate mistake label ###
     if box_noise_scale > 0:
-        known_bbox = box_cxcywh_to_xyxy(input_query_bbox)
-        diff = torch.tile(input_query_bbox[..., 2:] * 0.5, [1, 1, 2]) * box_noise_scale
-        rand_sign = torch.randint_like(input_query_bbox, 0, 2) * 2.0 - 1.0
-        rand_part = torch.rand_like(input_query_bbox)
+        spatial_bbox=input_query_bbox[...,:4] # (x,y,w,h),不对角度加噪声
+        known_bbox = box_cxcywh_to_xyxy(spatial_bbox)
+        diff = torch.tile(spatial_bbox[..., 2:] * 0.5, [1, 1, 2]) * box_noise_scale
+        rand_sign = torch.randint_like(spatial_bbox, 0, 2) * 2.0 - 1.0
+        rand_part = torch.rand_like(spatial_bbox)
         # negative_gt will add more rand bias
         rand_part = (rand_part + 1.0) * negative_gt_mask + rand_part * (
             1 - negative_gt_mask
         )
         known_bbox += rand_sign * rand_part * diff
         known_bbox = torch.clip(known_bbox, min=0.0, max=1.0)
-        input_query_bbox = box_xyxy_to_cxcywh(known_bbox)
-        input_query_bbox[input_query_bbox < 0] *= -1
+        noise_spatial = box_xyxy_to_cxcywh(known_bbox)
+        noise_spatial[noise_spatial < 0] *= -1
+
+        if box_mode=='hbb':
+            input_query_bbox=noise_spatial
+        elif box_mode=='obb':
+            input_query_bbox=torch.cat([noise_spatial,input_query_bbox[...,4:]],dim=-1)
+
         input_query_bbox_unact = inverse_sigmoid(input_query_bbox)
 
     input_query_logits = class_embed(input_query_class)
