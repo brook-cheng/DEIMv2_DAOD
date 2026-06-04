@@ -125,6 +125,7 @@ class MSDeformableAttention(nn.Module):
 
         attention_weights = self.attention_weights(query).reshape(bs, Len_q, self.num_heads, sum(self.num_points_list))
         attention_weights = F.softmax(attention_weights, dim=-1)
+        num_points_scale = self.num_points_scale.to(dtype=query.dtype).unsqueeze(-1)
 
         if reference_points.shape[-1] == 2:
             offset_normalizer = torch.tensor(value_spatial_shapes)
@@ -133,12 +134,23 @@ class MSDeformableAttention(nn.Module):
         elif reference_points.shape[-1] == 4:
             # reference_points [8, 480, None, 1,  4]
             # sampling_offsets [8, 480, 8,    12, 2]
-            num_points_scale = self.num_points_scale.to(dtype=query.dtype).unsqueeze(-1)
             offset = sampling_offsets * num_points_scale * reference_points[:, :, None, :, 2:] * self.offset_scale
             sampling_locations = reference_points[:, :, None, :, :2] + offset
+        elif reference_points.shape[-1]==5:
+            # reference_points: (bs, Len_q, n_levels, 5) — (cx, cy, w, h, θ）
+            cosa=torch.cos(reference_points[...,4:])
+            sina=torch.sin(reference_points[...,4:])
+            # rot: (bs, Len_q, n_levels, 2, 2)
+            rot_matrix=torch.cat([cosa,-sina,sina,cosa],dim=-1).view(bs,Len_q,self.num_levels,2,2)
+            wh=reference_points[...,2:4]*0.5
+            # Rotate (w/2, h/2): (bs, Len_q, n_levels, 2)
+            rotated_points=torch.einsum('bnh i j,bnh j->bnh i',rot_matrix,wh)
+            offset=sampling_offsets * num_points_scale * rotated_points[:, :, None, :, :] * self.offset_scale
+            sampling_locations=reference_points[:,:,None,:,:2]+offset
+
         else:
             raise ValueError(
-                "Last dim of reference_points must be 2 or 4, but get {} instead.".
+                "Last dim of reference_points must be 2 , 4 or 5, but get {} instead.".
                 format(reference_points.shape[-1]))
 
         output = self.ms_deformable_attn_core(value, value_spatial_shapes, sampling_locations, attention_weights, self.num_points_list)
@@ -256,29 +268,31 @@ class Integral(nn.Module):
                        It can be adjusted based on the dataset or task requirements.
     """
 
-    def __init__(self, reg_max=32):
+    def __init__(self, reg_max=32,num_reg_dist=4):
         super(Integral, self).__init__()
         self.reg_max = reg_max
+        self.num_reg_dist = num_reg_dist
 
     def forward(self, x, project):
         shape = x.shape
         x = F.softmax(x.reshape(-1, self.reg_max + 1), dim=1)
-        x = F.linear(x, project.to(x.device)).reshape(-1, 4)
+        x = F.linear(x, project.to(x.device)).reshape(-1, self.num_reg_dist)
         return x.reshape(list(shape[:-1]) + [-1])
 
 
 class LQE(nn.Module):
-    def __init__(self, k, hidden_dim, num_layers, reg_max, act='relu'):
+    def __init__(self, k, hidden_dim, num_layers, reg_max, act='relu',num_reg_dist=4):
         super(LQE, self).__init__()
         self.k = k
         self.reg_max = reg_max
-        self.reg_conf = MLP(4 * (k + 1), hidden_dim, 1, num_layers, act=act)
+        self.num_reg_dist = num_reg_dist
+        self.reg_conf = MLP(self.num_reg_dist * (k + 1), hidden_dim, 1, num_layers, act=act)
         init.constant_(self.reg_conf.layers[-1].bias, 0)
         init.constant_(self.reg_conf.layers[-1].weight, 0)
 
     def forward(self, scores, pred_corners):
         B, L, _ = pred_corners.size()
-        prob = F.softmax(pred_corners.reshape(B, L, 4, self.reg_max+1), dim=-1)
+        prob = F.softmax(pred_corners.reshape(B, L, self.num_reg_dist, self.reg_max+1), dim=-1)
         prob_topk, _ = prob.topk(self.k, dim=-1)
         stat = torch.cat([prob_topk, prob_topk.mean(dim=-1, keepdim=True)], dim=-1)
         quality_score = self.reg_conf(stat.reshape(B, L, -1))

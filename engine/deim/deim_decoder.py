@@ -443,7 +443,7 @@ class DEIMTransformer(nn.Module):
         self.pre_bbox_head = MLP(
             hidden_dim, hidden_dim, self._num_box_dof, 3, act=mlp_act
         )
-        self.integral = Integral(self.reg_max)
+        self.integral = Integral(self.reg_max,self.num_reg_dist)
 
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
         dec_score_head = nn.Linear(hidden_dim, num_classes)
