@@ -41,10 +41,10 @@
   <a href="https://xishen0220.github.io">Xi Shen</a><sup>1†</sup>&nbsp;&nbsp;
 </div>
 
-  
+
 <p align="center">
 <i>
-1. <a href="https://intellindust-ai-lab.github.io"> Intellindust AI Lab</a> &nbsp;&nbsp; 2. Xiamen University &nbsp; <br> 
+1. <a href="https://intellindust-ai-lab.github.io"> Intellindust AI Lab</a> &nbsp;&nbsp; 2. Xiamen University &nbsp; <br>
 * Equal Contribution &nbsp;&nbsp; † Corresponding Author
 </i>
 </p>
@@ -62,8 +62,8 @@
 
 </details>
 
- 
-  
+
+
 ## 🚀 Updates
 - [x] **\[2025.11.3\]** We have uploaded our models to Hugging Face.
 - [x] **\[2025.10.28\]** Optimized the attention module in ViT-Tiny, reducing memory usage by half for the S and M models.
@@ -78,8 +78,8 @@
 * [5. 📜 Citation](#5-citation)
 * [6. 🙏 Acknowledgement](#6-acknowledgement)
 * [7. ⭐ Star History](#7-star-history)
-  
-  
+
+
 ## 1. Model Zoo
 
 | Model | Dataset | AP | #Params | GFLOPs | Latency (ms) | config | checkpoint | log |
@@ -190,7 +190,7 @@ To train on your custom dataset, you need to organize it in the COCO format. Fol
       type: CocoEvaluator
       iou_types: ['bbox', ]
 
-    num_classes: 777 # your dataset classes
+    num_classes: 777  # your dataset classes,coco begin from 1, and dota begion from 0, num_classes represent background
     remap_mscoco_category: False
 
     train_dataloader:
@@ -291,12 +291,12 @@ For example, if you want to use **DEIMv2-S** and  double the total batch size to
 
     ```yaml
     train_dataloader:
-      total_batch_size: 64 
-      dataset: 
+      total_batch_size: 64
+      dataset:
         transforms:
           ops:
             ...
-    
+
       collate_fn:
         ...
     ```
@@ -306,30 +306,30 @@ For example, if you want to use **DEIMv2-S** and  double the total batch size to
     ```yaml
     optimizer:
       type: AdamW
-    
-      params: 
+
+      params:
         -
           # except norm/bn/bias in self.dinov3
-          params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'  
+          params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
           lr: 0.00005  # doubled, linear scaling law
         -
           # including all norm/bn/bias in self.dinov3
-          params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'    
+          params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
           lr: 0.00005   # doubled, linear scaling law
           weight_decay: 0.
-        - 
+        -
           # including all norm/bn/bias except for the self.dinov3
           params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
           weight_decay: 0.
-    
+
       lr: 0.0005   # linear scaling law if needed
       betas: [0.9, 0.999]
       weight_decay: 0.0001
-   
+
     ema:  # added EMA settings
       decay: 0.9998  # adjusted by 1 - (1 - decay) * 2
       warmups: 500  # halved
-   
+
     lr_warmup_scheduler:
       warmup_duration: 250  # halved
     ```
@@ -346,11 +346,11 @@ If you'd like to train **DEIMv2-S** on COCO2017 with an input size of 320x320, f
 
     ```yaml
     eval_spatial_size: [320, 320]
-   
+
     train_dataloader:
       # Here we set the total_batch_size to 64 as an example.
-      total_batch_size: 64 
-      dataset: 
+      total_batch_size: 64
+      dataset:
         transforms:
           ops:
             #  Especially for Mosaic augmentation, it is recommended that output_size = input_size / 2.
@@ -370,7 +370,7 @@ If you'd like to train **DEIMv2-S** on COCO2017 with an input size of 320x320, f
             - {type: Resize, size: [320, 320], }
             ...
     ```
-   
+
 </details>
 
 <details>
@@ -385,7 +385,7 @@ flat_epoch: 14    # 4 + 20 // 2
 no_aug_epoch: 12  # 4n
 
 train_dataloader:
-  dataset: 
+  dataset:
     transforms:
       ops:
         ...
@@ -397,7 +397,7 @@ train_dataloader:
     mixup_epochs: [4, 14]  # [start_epoch, flat_epoch]
     stop_epoch: 20  # epoches - no_aug_epoch
     copyblend_epochs: [4, 20]  # [start_epoch, epoches - no_aug_epoch]
-  
+
 DEIMCriterion:
   matcher:
     ...
@@ -510,7 +510,7 @@ If you use `DEIMv2` or its methods in your work, please cite the following BibTe
   journal={arXiv},
   year={2025}
 }
-  
+
 ```
 </details>
 

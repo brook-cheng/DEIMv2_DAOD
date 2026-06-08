@@ -4,7 +4,7 @@ evaluator:
   type: CocoEvaluator
   iou_types: ['bbox', ]
 
-num_classes: 91 # your dataset classes, deafault 0: background
+num_classes: 91 # your dataset classes,coco begin from 1, and dota begion from 0, num_classes represent background
 remap_mscoco_category: False
 
 train_dataloader:

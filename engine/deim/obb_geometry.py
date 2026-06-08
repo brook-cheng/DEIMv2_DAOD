@@ -57,8 +57,10 @@ def xyxyxyxy_to_xywhr(xyxyxyxy: Tensor) -> Tensor:
     idx1 = sorted_idxs[..., 1]
     idx2 = sorted_idxs[..., 2]
 
-    edg1 = dists[..., idx1, :]
-    edg2 = dists[..., idx2, :]
+    _g1 = idx1.unsqueeze(-1).unsqueeze(-1).expand(*idx1.shape, 1, 2)
+    _g2 = idx2.unsqueeze(-1).unsqueeze(-1).expand(*idx2.shape, 1, 2)
+    edg1 = xyxyxyxy.gather(-2, _g1).squeeze(-2) - vec0.squeeze(-2)
+    edg2 = xyxyxyxy.gather(-2, _g2).squeeze(-2) - vec0.squeeze(-2)
 
     len1 = (edg1**2).sum(dim=-1).sqrt()
     len2 = (edg2**2).sum(dim=-1).sqrt()
@@ -69,7 +71,7 @@ def xyxyxyxy_to_xywhr(xyxyxyxy: Tensor) -> Tensor:
     w_dx = torch.where(w_mask.squeeze(-1), edg1[..., 0], edg2[..., 0])
     w_dy = torch.where(w_mask.squeeze(-1), edg1[..., 1], edg2[..., 1])
     theta = torch.atan2(w_dy, w_dx) % torch.pi
-    return torch.stack([ctr[..., 0], ctr[..., 1], w, h, theta])
+    return torch.stack([ctr[..., 0], ctr[..., 1], w, h, theta], dim=-1)
 
 
 def oriented_box_to_external_rect(obbs: Tensor) -> Tuple[Tensor, Tensor]:
