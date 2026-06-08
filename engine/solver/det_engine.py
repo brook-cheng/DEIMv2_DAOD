@@ -23,6 +23,7 @@ except ImportError:
 from ..optim import ModelEMA, Warmup
 from ..data import CocoEvaluator
 from ..misc import MetricLogger, SmoothedValue, dist_utils
+from ..eval.obb_eval import obb_evaluate
 
 
 def train_one_epoch(
@@ -227,8 +228,32 @@ def evaluate(
     data_loader,
     coco_evaluator: CocoEvaluator,
     device,
+    box_mode='hbb',
     **kwargs,
 ):
+    # OBB evaluation path
+    if box_mode == 'obb':
+        print("\n" + "=" * 60)
+        print("Validation Summary (OBB)")
+        print("=" * 60)
+        stats = obb_evaluate(
+            model, postprocessor, data_loader, device,
+            num_classes=postprocessor.num_classes)
+        print(f"AP @ IoU=0.50      = {stats.get('AP50', 0):.4f}")
+        print(f"AP @ IoU=0.75      = {stats.get('AP75', 0):.4f}")
+        print(f"mAP                = {stats['mAP']:.4f}")
+        print(f"Precision @ IoU=0.50 = {stats['precision']:.4f}")
+        print(f"Recall @ IoU=0.50    = {stats['recall']:.4f}")
+        print("-" * 50)
+        print("=" * 60 + "\n")
+
+        comet_exp = kwargs.get("comet_exp", None)
+        comet_step = kwargs.get("comet_step", None)
+        if comet_exp:
+            for k, v in stats.items():
+                comet_exp.log_metric(f"val_{k}", v, epoch=comet_step)
+        return stats, None
+
     model.eval()
     criterion.eval()
     coco_evaluator.cleanup()
