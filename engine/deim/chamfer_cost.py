@@ -1,5 +1,5 @@
 import torch
-from .obb_geometry import xywhr_to_vertices
+from .obb_geometry import xywhr_to_xyxyxyxy
 
 
 def chamfer_cost_obb(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
@@ -12,8 +12,8 @@ def chamfer_cost_obb(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor
     Returns:
         (N, M) — Chamfer distances.
     """
-    verts1 = xywhr_to_vertices(boxes1)  # (N, 4, 2)
-    verts2 = xywhr_to_vertices(boxes2)  # (M, 4, 2)
+    verts1 = xywhr_to_xyxyxyxy(boxes1)  # (N, 4, 2)
+    verts2 = xywhr_to_xyxyxyxy(boxes2)  # (M, 4, 2)
 
     diff = verts1.unsqueeze(1).unsqueeze(3) - verts2.unsqueeze(0).unsqueeze(2)
     # verts1: (N, 1, 4, 1, 2)

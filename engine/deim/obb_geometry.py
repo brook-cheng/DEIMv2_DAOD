@@ -15,43 +15,61 @@ import torch
 from torch import Tensor
 
 
-def xywhr_to_vertices(boxes: Tensor) -> Tensor:
+def xywhr_to_xyxyxyxy(xywhr: Tensor) -> Tensor:
     """Convert OBB (cx, cy, w, h, theta) to four corner vertices.
 
     Args:
-        boxes: (..., 5)  —  (cx, cy, w, h, theta)  in normalized coords.
+        xywhr: (..., 5)  —  (cx, cy, w, h, theta)  in normalized coords.
 
     Returns:
         (..., 4, 2)  —  4 corner points in clockwise order.
     """
-    cx, cy, w, h, angle = (
-        boxes[..., 0], boxes[..., 1],
-        boxes[..., 2], boxes[..., 3], boxes[..., 4],
-    )
-
+    w, h, angle = (xywhr[..., i : i + 1] for i in range(2, 5))
     cosa = torch.cos(angle)
     sina = torch.sin(angle)
 
-    v_wx = 0.5 * w * cosa
-    v_wy = 0.5 * w * sina
-    v_hx = -0.5 * h * sina
-    v_hy =  0.5 * h * cosa
+    ctr = xywhr[..., :2]
 
-    pt1_x = cx + v_wx + v_hx
-    pt1_y = cy + v_wy + v_hy
-    pt2_x = cx + v_wx - v_hx
-    pt2_y = cy + v_wy - v_hy
-    pt3_x = cx - v_wx - v_hx
-    pt3_y = cy - v_wy - v_hy
-    pt4_x = cx - v_wx + v_hx
-    pt4_y = cy - v_wy + v_hy
+    vec1 = [w / 2 * cosa, w / 2 * sina]
+    vec2 = [-h / 2 * sina, h / 2 * cosa]
+    vec1 = torch.cat(vec1, -1)
+    vec2 = torch.cat(vec2, -1)
+    pt1 = ctr + vec1 + vec2
+    pt2 = ctr + vec1 - vec2
+    pt3 = ctr - vec1 - vec2
+    pt4 = ctr - vec1 + vec2
+    return torch.stack([pt1, pt2, pt3, pt4], -2)
 
-    return torch.stack([
-        torch.stack([pt1_x, pt1_y], dim=-1),
-        torch.stack([pt2_x, pt2_y], dim=-1),
-        torch.stack([pt3_x, pt3_y], dim=-1),
-        torch.stack([pt4_x, pt4_y], dim=-1),
-    ], dim=-2)
+
+def xyxyxyxy_to_xywhr(xyxyxyxy: Tensor) -> Tensor:
+    """Convert four corner vertices to OBB (cx, cy, w, h, theta).
+
+    Args:
+        xyxyxyxy:  (..., 4, 2)  —  4 corner points in clockwise order.
+
+    Returns:
+        (..., 5)  —  (cx, cy, w, h, theta)  in normalized coords.
+    """
+    ctr = xyxyxyxy.mean(dim=-2)
+    vec0 = xyxyxyxy[..., 0:1, :]
+    dists = ((xyxyxyxy - vec0) ** 2).sum(dim=-1)
+    sorted_idxs = torch.argsort(dists, dim=-1)
+    idx1 = sorted_idxs[..., 1]
+    idx2 = sorted_idxs[..., 2]
+
+    edg1 = dists[..., idx1, :]
+    edg2 = dists[..., idx2, :]
+
+    len1 = (edg1**2).sum(dim=-1).sqrt()
+    len2 = (edg2**2).sum(dim=-1).sqrt()
+
+    w_mask = len1 >= len2
+    w = torch.where(w_mask, len1, len2)
+    h = torch.where(w_mask, len2, len1)
+    w_dx = torch.where(w_mask.squeeze(-1), edg1[..., 0], edg2[..., 0])
+    w_dy = torch.where(w_mask.squeeze(-1), edg1[..., 1], edg2[..., 1])
+    theta = torch.atan2(w_dy, w_dx) % torch.pi
+    return torch.stack([ctr[..., 0], ctr[..., 1], w, h, theta])
 
 
 def oriented_box_to_external_rect(obbs: Tensor) -> Tuple[Tensor, Tensor]:
@@ -64,7 +82,7 @@ def oriented_box_to_external_rect(obbs: Tensor) -> Tuple[Tensor, Tensor]:
         external_rect:   (..., 4)  —  (x1, y1, x2, y2).
         vertex_offsets:   (..., 2)  —  (epsilon, eta).
     """
-    vertices = xywhr_to_vertices(obbs)                  # (..., 4, 2)
+    vertices = xywhr_to_xyxyxyxy(obbs)  # (..., 4, 2)
 
     x_min = vertices[..., 0].amin(dim=-1)
     y_min = vertices[..., 1].amin(dim=-1)
@@ -74,15 +92,15 @@ def oriented_box_to_external_rect(obbs: Tensor) -> Tuple[Tensor, Tensor]:
     external_rect = torch.stack([x_min, y_min, x_max, y_max], dim=-1)
 
     # epsilon: x-distance from top-right corner to the top-edge OBB vertex
-    top_idx = vertices[..., 1].argmin(dim=-1)            # (...)
+    top_idx = vertices[..., 1].argmin(dim=-1)  # (...)
     _g = top_idx.unsqueeze(-1).unsqueeze(-1).expand(*top_idx.shape, 1, 2)
-    top_vertex = vertices.gather(-2, _g).squeeze(-2)     # (..., 2)
+    top_vertex = vertices.gather(-2, _g).squeeze(-2)  # (..., 2)
     epsilon = torch.clamp(x_max - top_vertex[..., 0], min=0)
 
     # eta: y-distance from bottom-right corner to the right-edge OBB vertex
-    right_idx = vertices[..., 0].argmax(dim=-1)           # (...)
+    right_idx = vertices[..., 0].argmax(dim=-1)  # (...)
     _g = right_idx.unsqueeze(-1).unsqueeze(-1).expand(*right_idx.shape, 1, 2)
-    right_vertex = vertices.gather(-2, _g).squeeze(-2)    # (..., 2)
+    right_vertex = vertices.gather(-2, _g).squeeze(-2)  # (..., 2)
     eta = torch.clamp(y_max - right_vertex[..., 1], min=0)
 
     vertex_offsets = torch.stack([epsilon, eta], dim=-1)
@@ -121,10 +139,10 @@ def external_rect_to_oriented_box(
     cx = (x1 + x2) / 2
     cy = (y1 + y2) / 2
 
-    v0 = torch.stack([x2 - ep, y1],      dim=-1)   # top edge
-    v1 = torch.stack([x2,      y2 - et], dim=-1)   # right edge
-    v2 = torch.stack([x1 + ep, y2],      dim=-1)   # bottom edge
-    v3 = torch.stack([x1,      y1 + et], dim=-1)   # left edge
+    v0 = torch.stack([x2 - ep, y1], dim=-1)  # top edge
+    v1 = torch.stack([x2, y2 - et], dim=-1)  # right edge
+    v2 = torch.stack([x1 + ep, y2], dim=-1)  # bottom edge
+    v3 = torch.stack([x1, y1 + et], dim=-1)  # left edge
 
     # Consecutive edges: ab = v1-v0, bc = v2-v1
     edge_ab = v1 - v0
@@ -157,8 +175,16 @@ if __name__ == "__main__":
 
     def _vertex_roundtrip_error(orig_v: Tensor, recon_v: Tensor) -> Tensor:
         """Max bidirectional nearest-neighbour distance between vertex sets."""
-        d1 = ((orig_v.unsqueeze(-2) - recon_v.unsqueeze(-3)) ** 2).sum(dim=-1).amin(dim=-1)
-        d2 = ((recon_v.unsqueeze(-2) - orig_v.unsqueeze(-3)) ** 2).sum(dim=-1).amin(dim=-1)
+        d1 = (
+            ((orig_v.unsqueeze(-2) - recon_v.unsqueeze(-3)) ** 2)
+            .sum(dim=-1)
+            .amin(dim=-1)
+        )
+        d2 = (
+            ((recon_v.unsqueeze(-2) - orig_v.unsqueeze(-3)) ** 2)
+            .sum(dim=-1)
+            .amin(dim=-1)
+        )
         return torch.max(d1.max(dim=-1).values, d2.max(dim=-1).values).max()
 
     def _check(name, obbs, tol=1e-5):
@@ -167,8 +193,8 @@ if __name__ == "__main__":
         recon = external_rect_to_oriented_box(ext, vo)
 
         # Check geometric equivalence via vertices (tolerates w<->h + angle swap)
-        orig_v = xywhr_to_vertices(obbs)
-        recon_v = xywhr_to_vertices(recon)
+        orig_v = xywhr_to_xyxyxyxy(obbs)
+        recon_v = xywhr_to_xyxyxyxy(recon)
         # Chamfer-like bidirectional max vertex error
         v_err = _vertex_roundtrip_error(orig_v, recon_v)
 
@@ -176,35 +202,50 @@ if __name__ == "__main__":
 
         if v_err < tol:
             passed += 1
-            print(f"  [PASS] {name}:  vertex_err={v_err:.2e}, param_err={param_err:.2e}")
+            print(
+                f"  [PASS] {name}:  vertex_err={v_err:.2e}, param_err={param_err:.2e}"
+            )
         else:
             failed += 1
-            print(f"  [FAIL] {name}:  vertex_err={v_err:.2e}, param_err={param_err:.2e}")
+            print(
+                f"  [FAIL] {name}:  vertex_err={v_err:.2e}, param_err={param_err:.2e}"
+            )
             print(f"         original:  {obbs[0].tolist()}")
             print(f"         recon:     {recon[0].tolist()}")
 
     print("=== Single-box tests ===")
-    _check("theta=pi/4",     torch.tensor([[0.6, 0.5, 0.4, 0.2, 0.785398]], device=device))
-    _check("theta=0",        torch.tensor([[0.4, 0.4, 0.3, 0.1, 0.0]], device=device))
-    _check("theta=pi/6",     torch.tensor([[0.5, 0.5, 0.4, 0.2, 0.523599]], device=device))
-    _check("theta=2pi/3",    torch.tensor([[0.6, 0.5, 0.4, 0.2, 2.094395]], device=device))
-    _check("theta=pi-0.01",  torch.tensor([[0.5, 0.5, 0.3, 0.15, torch.pi - 0.01]], device=device))
-    _check("square pi/4",    torch.tensor([[0.5, 0.5, 0.3, 0.3, 0.785398]], device=device))
-    _check("narrow 1.2rad",  torch.tensor([[0.5, 0.5, 0.05, 0.4, 1.2]], device=device))
-    _check("wider box 0.8",  torch.tensor([[0.5, 0.5, 0.4, 0.1, 0.8]], device=device))
-    _check("theta=pi/2",     torch.tensor([[0.5, 0.5, 0.4, 0.2, torch.pi / 2]], device=device))
+    _check("theta=pi/4", torch.tensor([[0.6, 0.5, 0.4, 0.2, 0.785398]], device=device))
+    _check("theta=0", torch.tensor([[0.4, 0.4, 0.3, 0.1, 0.0]], device=device))
+    _check("theta=pi/6", torch.tensor([[0.5, 0.5, 0.4, 0.2, 0.523599]], device=device))
+    _check("theta=2pi/3", torch.tensor([[0.6, 0.5, 0.4, 0.2, 2.094395]], device=device))
+    _check(
+        "theta=pi-0.01",
+        torch.tensor([[0.5, 0.5, 0.3, 0.15, torch.pi - 0.01]], device=device),
+    )
+    _check("square pi/4", torch.tensor([[0.5, 0.5, 0.3, 0.3, 0.785398]], device=device))
+    _check("narrow 1.2rad", torch.tensor([[0.5, 0.5, 0.05, 0.4, 1.2]], device=device))
+    _check("wider box 0.8", torch.tensor([[0.5, 0.5, 0.4, 0.1, 0.8]], device=device))
+    _check(
+        "theta=pi/2", torch.tensor([[0.5, 0.5, 0.4, 0.2, torch.pi / 2]], device=device)
+    )
     _check("theta~0 (1e-6)", torch.tensor([[0.5, 0.5, 0.3, 0.1, 1e-6]], device=device))
-    _check("theta~pi/2 (1e-6 off)", torch.tensor([[0.5, 0.5, 0.3, 0.1, torch.pi/2 - 1e-6]], device=device))
+    _check(
+        "theta~pi/2 (1e-6 off)",
+        torch.tensor([[0.5, 0.5, 0.3, 0.1, torch.pi / 2 - 1e-6]], device=device),
+    )
 
     print(f"\n=== Random batch ({2000} boxes) ===")
     N = 2000
-    obbs = torch.cat([
-        torch.rand(N, 1, device=device),
-        torch.rand(N, 1, device=device),
-        torch.rand(N, 1, device=device) * 0.5,
-        torch.rand(N, 1, device=device) * 0.5,
-        torch.rand(N, 1, device=device) * torch.pi,
-    ], dim=-1)
+    obbs = torch.cat(
+        [
+            torch.rand(N, 1, device=device),
+            torch.rand(N, 1, device=device),
+            torch.rand(N, 1, device=device) * 0.5,
+            torch.rand(N, 1, device=device) * 0.5,
+            torch.rand(N, 1, device=device) * torch.pi,
+        ],
+        dim=-1,
+    )
 
     ext_batch, vo_batch = oriented_box_to_external_rect(obbs)
     recon_batch = external_rect_to_oriented_box(ext_batch, vo_batch)
