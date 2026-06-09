@@ -169,7 +169,7 @@ class HungarianMatcher(nn.Module):
             if self.box_mode == "obb":
                 # θ 维度除以 angle_factor(π)，使 5 个维度量纲一致
                 factor = tgt_bbox.new_tensor([1, 1, 1, 1, 1.0 / self.angle_factor])
-                cost_bbox = torch.cdist(out_bbox ta factor, tgt_bbox * factor, p=1)
+                cost_bbox = torch.cdist(out_bbox * factor, tgt_bbox * factor, p=1)
                 cost_kld = -batch_probiou(out_bbox, tgt_bbox, eps=1e-8)
                 C = (
                     self.cost_bbox * cost_bbox

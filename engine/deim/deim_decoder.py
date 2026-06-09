@@ -412,6 +412,7 @@ class DEIMTransformer(nn.Module):
             layer_scale,
             act=activation,
             num_reg_dist=self.num_reg_dist,
+            box_mode=self.box_mode,
         )
         # denoising
         self.num_denoising = num_denoising

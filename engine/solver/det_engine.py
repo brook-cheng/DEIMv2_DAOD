@@ -50,6 +50,7 @@ def train_one_epoch(
     ema: ModelEMA = kwargs.get("ema", None)
     scaler: GradScaler = kwargs.get("scaler", None)
     lr_warmup_scheduler: Warmup = kwargs.get("lr_warmup_scheduler", None)
+    box_mode = criterion.box_mode
 
     comet_exp = kwargs.get("comet_exp", None)
     comet_step = kwargs.get("comet_step", None)
@@ -74,7 +75,10 @@ def train_one_epoch(
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         global_step = epoch * len(data_loader) + i
         metas = dict(
-            epoch=epoch, step=i, global_step=global_step, epoch_step=len(data_loader)
+            epoch=epoch,
+            step=i,
+            global_step=global_step,
+            epoch_step=len(data_loader),
         )
 
         if scaler is not None:
@@ -228,17 +232,21 @@ def evaluate(
     data_loader,
     coco_evaluator: CocoEvaluator,
     device,
-    box_mode='hbb',
+    box_mode="hbb",
     **kwargs,
 ):
     # OBB evaluation path
-    if box_mode == 'obb':
+    if box_mode == "obb":
         print("\n" + "=" * 60)
         print("Validation Summary (OBB)")
         print("=" * 60)
         stats = obb_evaluate(
-            model, postprocessor, data_loader, device,
-            num_classes=postprocessor.num_classes)
+            model,
+            postprocessor,
+            data_loader,
+            device,
+            num_classes=postprocessor.num_classes,
+        )
         print(f"AP @ IoU=0.50      = {stats.get('AP50', 0):.4f}")
         print(f"AP @ IoU=0.75      = {stats.get('AP75', 0):.4f}")
         print(f"mAP                = {stats['mAP']:.4f}")
