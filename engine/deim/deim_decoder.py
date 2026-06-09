@@ -162,7 +162,9 @@ class TransformerDecoder(nn.Module):
         )
         self.lqe_layers = nn.ModuleList(
             [
-                copy.deepcopy(LQE(num_reg_dist, 64, 2, reg_max, act=act))
+                copy.deepcopy(
+                    LQE(4, 64, 2, reg_max, act=act, num_reg_dist=num_reg_dist)
+                )
                 for _ in range(num_layers)
             ]
         )
