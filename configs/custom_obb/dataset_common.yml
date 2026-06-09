@@ -1,0 +1,38 @@
+task: detection
+
+num_classes: 15  # your dataset classes,coco begin from 1, and dota begion from 0, num_classes represent background
+
+train_dataloader:
+  type: DataLoader
+  dataset:
+    type: DotaDetection
+    img_folder: /path/dota/images/train
+    ann_folder: /path/dota/lables/train
+    classes_file: /path/dota/classes.txt
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: True
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
+  num_workers: 4
+  drop_last: True
+  collate_fn:
+    type: BatchImageCollateFunction
+
+
+val_dataloader:
+  type: DataLoader
+  dataset:
+    type: DotaDetection
+    img_folder: /path/dota/images/val
+    ann_folder: /path/dota/lables/val
+    classes_file: /path/dota/classes.txt
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: True
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
+  num_workers: 4
+  drop_last: True
+  collate_fn:
+    type: BatchImageCollateFunction

@@ -66,6 +66,7 @@ class DetSolver(BaseSolver):
             "epoch": -1,
         }
         # evaluate again before resume training
+        box_mode = getattr(module, "box_mode", "hbb")
         if self.last_epoch > 0:
             module = self.ema.module if self.ema else self.model
             test_stats, coco_evaluator = evaluate(
@@ -75,7 +76,9 @@ class DetSolver(BaseSolver):
                 self.val_dataloader,
                 self.evaluator,
                 self.device,
+                box_mode=box_mode,
             )
+
             for k in test_stats:
                 best_stat["epoch"] = self.last_epoch
                 best_stat[k] = test_stats[k][0]
@@ -145,6 +148,7 @@ class DetSolver(BaseSolver):
                 self.device,
                 comet_exp=comet_exp,
                 comet_step=epoch,
+                box_mode=box_mode,
             )
 
             for k in test_stats:
@@ -235,7 +239,7 @@ class DetSolver(BaseSolver):
             module = self.ema.module
         else:
             module = self.model
-
+        box_mode = getattr(module, "box_mode", "hbb")
         test_stats, coco_evaluator = evaluate(
             module,
             self.criterion,
@@ -243,6 +247,7 @@ class DetSolver(BaseSolver):
             self.val_dataloader,
             self.evaluator,
             self.device,
+            box_mode=box_mode,
         )
 
         if self.output_dir:

@@ -1,0 +1,141 @@
+__include__: [
+  '../runtime.yml',
+  '../base/dataloader.yml',
+  '../base/optimizer.yml',
+  './dataset_common.yml',
+  './deimv2_obb_common.yml'
+]
+
+#### 项目配置
+output_dir: ./outputs/deimv2_obb_sp_custom
+comet_project_name: 'deimv2_obb_sp_custom'
+eval_spatial_size: [640, 640] #  h w
+checkpoint_freq: 10    # save freq
+
+## DEIM LR-Scheduler
+epoches: 50 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+warmup_iter: 5   # 0.1 * epoches
+flat_epoch: 30    # epoch // 2 + warmup_iter
+no_aug_epoch: 8
+
+#### 设置训练数据
+## Dense O2O: Mosaic + Mixup + CopyBlend
+train_dataloader:
+  total_batch_size: 2 # total batch size equals to gpu_nums*batch_size
+  num_workers: 4
+  dataset:
+    img_folder: /mnt/d/project_data/model_test/dota128_ultralystic/images/val
+    ann_folder: /mnt/d/project_data/model_test/dota128_ultralystic/labels_dota/val
+    classes_file: /mnt/d/project_data/model_test/dota128_ultralystic/classes.txt
+    transforms:
+      ops:
+        - {type: Mosaic, output_size: 320, rotation_range: 10, translation_range: [0.1, 0.1], scaling_range: [0.5, 1.5],
+           probability: 1.0, fill_value: 0, use_cache: True, max_cached_images: 50, random_pop: True}
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: RandomZoomOut, fill: 0}
+        - {type: RandomIoUCrop, p: 0.8}
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: RandomHorizontalFlip}
+        - {type: Resize, size: [640, 640], }
+        - {type: SanitizeBoundingBoxes, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: ConvertBoxes, fmt: 'cxcywh', normalize: True}
+      # Mosaic options
+      policy:
+        epoch: [4, 29, 50]   # list
+        ops: ['Mosaic', 'RandomPhotometricDistort', 'RandomZoomOut', 'RandomIoUCrop']
+      mosaic_prob: 0.5
+
+  collate_fn:
+    base_size: 640
+    # Mixup options
+    mixup_prob: 0.5
+    mixup_epochs: [4, 29]
+    stop_epoch: 50    # epoch in [72, ~) stop `multiscales`
+    # CopyBlend options
+    copyblend_prob: 0.5
+    copyblend_epochs: [4, 50]
+    area_threshold: 100
+    num_objects: 3
+    with_expand: True
+    expand_ratios: [0.1, 0.25]
+    ema_restart_decay: 0.9999
+    base_size_repeat: 4
+
+val_dataloader:
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
+  num_workers: 2
+  dataset:
+    img_folder: /mnt/d/project_data/model_test/dota128_ultralystic/images/val
+    ann_folder: /mnt/d/project_data/model_test/dota128_ultralystic/labels_dota/val
+    classes_file: /mnt/d/project_data/model_test/dota128_ultralystic/classes.txt
+    transforms:
+      ops:
+        - {type: Resize, size: [640, 640], }
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: Normalize, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}
+
+#### 模型设置
+### backbone
+DINOv3STAsResAtten:
+  name: dinov3_vith16plus # 名称参考 engine/backbone/dinov3/vision_transformer.py
+  weights_path: /home/cx/cx_dir/third/deimv2_daod/ckpts/dinov3_vith16plus_pretrain_lvd1689m-7c1da9a5.pth
+  interaction_indexes: []   # all layers will be used
+  finetune: False
+  conv_inplane: 64 # dinov3_hidden_dim/4
+  hidden_dim: 256 # dinov3_hidden_dim*2/3
+  adapter_type: 'sta'  # 'sta' or 'c3k2'
+
+### encoder
+HybridEncoder:
+  in_channels: [256, 512, 1024] #[hidden_dim,2*hidden_dim,4*hidden_dim]或[hidden_dim,hidden_dim,hidden_dim]
+  hidden_dim: 256
+  dim_feedforward: 1024 #4*hidden_dim
+
+### decoder
+DEIMTransformer:
+  feat_channels: [256, 256, 256] #hidden_dim
+  hidden_dim: 256 #hidden_dim
+  dim_feedforward: 2048 # hidden_dim*8
+
+### optimizer
+optimizer:
+  type: AdamW
+  params:
+    -
+      # except norm/bn/bias in self.dinov3
+      params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
+      lr: 0.00001 # 模型参数量越大，值应该越小。比如：sp:1e-5, l:0.5e-5, b:2.5e-6, hp:1.25e-6
+    -
+      # including norm/bn/bias in self.dinov3
+      params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
+      lr: 0.00001
+      weight_decay: 0.
+    -
+      # including norm/bn/bias except for the self.dinov3
+      params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
+      weight_decay: 0.
+
+  lr: 0.0005  # 模型参数量越大，值应该越小。比如：sp:5e-4, l:2.5e-4, b:1.25e-5, m:1.25e-5
+  betas: [0.9, 0.999]
+  weight_decay: 0.000125
+
+### Loss
+DEIMCriterion:
+  box_mode: obb
+  weight_dict: {loss_mal: 1, loss_bbox: 5, loss_kld: 2, loss_fgl: 0.15}
+  losses: ['mal', 'boxes', 'local']
+  gamma: 1.5
+  alpha: 0.75
+  reg_max: 32
+
+  matcher:
+    type: HungarianMatcher
+    weight_dict: {loss_mal: 1, loss_bbox: 5, loss_kld: 2, loss_fgl: 0.15}
+    alpha: 0.25
+    gamma: 2.0
+    # change matcher
+    change_matcher: True
+    iou_order_alpha: 4.0
+    matcher_change_epoch: 45
+
