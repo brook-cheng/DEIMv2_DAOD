@@ -66,9 +66,13 @@ class DetSolver(BaseSolver):
             "epoch": -1,
         }
         # evaluate again before resume training
+        box_mode = getattr(
+            self.postprocessor,
+            "box_mode",
+            "hbb",
+        )
         if self.last_epoch > 0:
             module = self.ema.module if self.ema else self.model
-            box_mode = getattr(module, "box_mode", "hbb")
             test_stats, coco_evaluator = evaluate(
                 module,
                 self.criterion,
@@ -139,7 +143,6 @@ class DetSolver(BaseSolver):
                     dist_utils.save_on_master(self.state_dict(), checkpoint_path)
 
             module = self.ema.module if self.ema else self.model
-            box_mode = getattr(module, "box_mode", "hbb")
             test_stats, coco_evaluator = evaluate(
                 module,
                 self.criterion,
@@ -238,7 +241,11 @@ class DetSolver(BaseSolver):
             module = self.ema.module
         else:
             module = self.model
-        box_mode = getattr(module, "box_mode", "hbb")
+        box_mode = getattr(
+            self.postprocessor,
+            "box_mode",
+            "hbb",
+        )
         test_stats, coco_evaluator = evaluate(
             module,
             self.criterion,

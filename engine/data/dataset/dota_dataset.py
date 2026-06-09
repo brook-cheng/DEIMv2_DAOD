@@ -69,6 +69,7 @@ class DotaDataset(DetDataset):
             self._img_ann_dict[image_names[index]],
         )
         img = Image.open(image_absolute_path)
+        w, h = img.size
         cat_id_dict = self.cat2id
         boxes, labels = [], []
         with open(ann_absolute_path, "r") as f:
@@ -83,5 +84,9 @@ class DotaDataset(DetDataset):
             cat = " ".join(cat_parts)
             labels.append(cat_id_dict[cat])
 
-        target = {"boxes": torch.stack(boxes), "labels": torch.tensor(labels)}
+        target = {
+            "boxes": torch.stack(boxes),
+            "labels": torch.tensor(labels),
+            "orig_size": torch.tensor([w, h]),
+        }
         return img, target

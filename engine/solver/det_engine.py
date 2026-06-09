@@ -155,8 +155,11 @@ def train_one_epoch(
                 "loss_total": f"{loss_value:.4f}",
                 "loss_mal": f'{loss_dict_reduced.get("loss_mal", 0):.4f}',
                 "loss_bbox": f'{loss_dict_reduced.get("loss_bbox", 0):.4f}',
-                "loss_giou": f'{loss_dict_reduced.get("loss_giou", 0):.4f}',
             }
+            iou_loss_key = (
+                "loss_kld" if "loss_kld" in loss_dict_reduced else "loss_giou"
+            )
+            postfix_dict[iou_loss_key] = f"{loss_dict_reduced.get(iou_loss_key, 0):.4f}"
             if "loss_fgl" in loss_dict_reduced:
                 postfix_dict["loss_fgl"] = f'{loss_dict_reduced["loss_fgl"]:.4f}'
             if "loss_ddf" in loss_dict_reduced:
@@ -184,7 +187,7 @@ def train_one_epoch(
                 "loss_bbox", loss_dict_reduced.get("loss_bbox", 0), step=global_step
             )
             comet_exp.log_metric(
-                "loss_giou", loss_dict_reduced.get("loss_giou", 0), step=global_step
+                iou_loss_key, loss_dict_reduced.get(iou_loss_key, 0), step=global_step
             )
             if "loss_fgl" in loss_dict_reduced:
                 comet_exp.log_metric(
@@ -202,7 +205,12 @@ def train_one_epoch(
     print(f"Total Loss: {metric_logger.loss.global_avg:.4f}")
     print(f"Match Aware Loss: {metric_logger.loss_mal.global_avg:.4f}")
     print(f"BBox Loss: {metric_logger.loss_bbox.global_avg:.4f}")
-    print(f"GIoU Loss: {metric_logger.loss_giou.global_avg:.4f}")
+    iou_loss_name = "KLD Loss" if hasattr(metric_logger, "loss_kld") else "GIoU Loss"
+    iou_loss_val = getattr(
+        metric_logger, "loss_kld", getattr(metric_logger, "loss_giou", None)
+    )
+    if iou_loss_val is not None:
+        print(f"{iou_loss_name}: {iou_loss_val.global_avg:.4f}")
     print(f"Learning Rate: {metric_logger.lr.global_avg:.6f}")
     print("=" * 60 + "\n")
 
@@ -216,9 +224,14 @@ def train_one_epoch(
         comet_exp.log_metric(
             "epoch_loss_bbox", metric_logger.loss_bbox.global_avg, epoch=comet_step
         )
-        comet_exp.log_metric(
-            "epoch_loss_giou", metric_logger.loss_giou.global_avg, epoch=comet_step
-        )
+        if "loss_kld" in metric_logger.meters:
+            comet_exp.log_metric(
+                "epoch_loss_kld", metric_logger.loss_kld.global_avg, epoch=comet_step
+            )
+        elif "loss_giou" in metric_logger.meters:
+            comet_exp.log_metric(
+                "epoch_loss_giou", metric_logger.loss_giou.global_avg, epoch=comet_step
+            )
         comet_exp.log_metric("epoch_lr", metric_logger.lr.global_avg, epoch=comet_step)
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
