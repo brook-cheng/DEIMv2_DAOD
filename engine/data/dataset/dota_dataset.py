@@ -17,7 +17,8 @@ class DotaDataset(DetDataset):
         super(DotaDataset, self).__init__()
         from ...deim.obb_geometry import xyxyxyxy_to_xywhr
 
-        self._transforms = transforms
+        self.xyxyxyxy_to_xywhr = xyxyxyxy_to_xywhr
+        self.transforms = transforms
         self.img_folder = img_folder
         self.ann_folder = ann_folder
         self.classes_file = classes_file
@@ -65,7 +66,7 @@ class DotaDataset(DetDataset):
         image_absolute_path = os.path.join(self.img_folder, image_names[index])
         ann_absolute_path = os.path.join(
             self.ann_folder,
-            image_names[index].replace(os.path.splitext(image_names[index])[-1], "txt"),
+            self._img_ann_dict[image_names[index]],
         )
         img = Image.open(image_absolute_path)
         cat_id_dict = self.cat2id
@@ -76,9 +77,11 @@ class DotaDataset(DetDataset):
             parts = line.strip().split()
             pts = [float(p) for p in parts[:8]]
             xyxyxyxy = torch.tensor(pts).reshape(4, 2)
-            xywhr = xyxyxyxy_to_xywhr(xyxyxyxy)
+            xywhr = self.xyxyxyxy_to_xywhr(xyxyxyxy)
             boxes.append(xywhr)
-            labels.append(cat_id_dict[parts[8]])
+            cat_parts = parts[8 : len(parts) - 1]
+            cat = " ".join(cat_parts)
+            labels.append(cat_id_dict[cat])
 
         target = {"boxes": torch.stack(boxes), "labels": torch.tensor(labels)}
         return img, target
