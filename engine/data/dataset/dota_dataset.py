@@ -4,18 +4,19 @@ import torchvision
 
 from PIL import Image
 from ._dataset import DetDataset
-from ...deim.obb_geometry import xyxyxyxy_to_xywhr
 from ...core import register
 
 __all__ = ["DotaDataset"]
 
 
-@register
+@register()
 class DotaDataset(DetDataset):
     __inject__ = ["transforms"]
 
     def __init__(self, img_folder, ann_folder, classes_file, transforms):
-        super(DotaDataset, self).__init__(img_folder, ann_folder, transforms)
+        super(DotaDataset, self).__init__()
+        from ...deim.obb_geometry import xyxyxyxy_to_xywhr
+
         self._transforms = transforms
         self.img_folder = img_folder
         self.ann_folder = ann_folder
@@ -40,10 +41,14 @@ class DotaDataset(DetDataset):
         ann_files = [f for f in os.listdir(self.ann_folder) if f.endswith(".txt")]
 
         self._img_ann_dict = {
-            img_file: img_file.replace(os.path.splitext(img_file)[-1], "txt")
+            img_file: img_file.replace(os.path.splitext(img_file)[-1], ".txt")
             for img_file in image_files
-            if img_file.replace(os.path.splitext(img_file)[-1], "txt") in ann_files
+            if img_file.replace(os.path.splitext(img_file)[-1], ".txt") in ann_files
         }
+        if len(self._img_ann_dict) == 0:
+            raise ValueError(
+                f"Valid annotation is empty, in {self.img_folder} and {self.ann_folder}"
+            )
         return self._img_ann_dict
 
     @property

@@ -54,16 +54,14 @@ class HungarianMatcher(nn.Module):
             cost_giou: This is the relative weight of the giou loss of the bounding box in the matching cost
             cost_chamber: This is the relative weight of the chamfer loss of the oriented box in the matching cost
             cost_kld: This is the relative weight of the KLD loss of the oriented box in the matching cost
-            cost_probiou: This is the relative weight of the probiou loss of the oriented box in the matching cost
         """
 
         super().__init__()
-        self.cost_class = weight_dict["cost_class"]
-        self.cost_bbox = weight_dict["cost_bbox"]
-        self.cost_giou = weight_dict["cost_giou"]
-        self.cost_chamfer = weight_dict.get("cost_chamfer", 0)
-        self.cost_kld = weight_dict.get("cost_kld", 0)
-        self.cost_probiou = weight_dict.get("cost_probiou", 0)
+        self.cost_class = weight_dict.get("cost_class", 0)
+        self.cost_bbox = weight_dict.get("cost_bbox", 0)
+        self.cost_giou = weight_dict.get("cost_giou", 0)  # hbb
+        self.cost_chamfer = weight_dict.get("cost_chamfer", 0)  # obb
+        self.cost_kld = weight_dict.get("cost_kld", 0)  # obb
 
         self.change_matcher = change_matcher
         self.iou_order_alpha = iou_order_alpha

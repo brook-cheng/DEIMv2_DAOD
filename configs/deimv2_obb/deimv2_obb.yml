@@ -23,4 +23,4 @@ DEIMCriterion:
   matcher:
     type: HungarianMatcher
     box_mode: obb
-    weight_dict: {cost_class: 2, cost_bbox: 5, cost_kld: 2, cost_chamfer: 5}
+    weight_dict: {cost_class: 2, cost_bbox: 5,  cost_chamfer: 5,cost_kld: 2}

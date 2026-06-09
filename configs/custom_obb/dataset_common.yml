@@ -5,7 +5,7 @@ num_classes: 15  # your dataset classes,coco begin from 1, and dota begion from 
 train_dataloader:
   type: DataLoader
   dataset:
-    type: DotaDetection
+    type: DotaDataset
     img_folder: /path/dota/images/train
     ann_folder: /path/dota/lables/train
     classes_file: /path/dota/classes.txt
@@ -23,7 +23,7 @@ train_dataloader:
 val_dataloader:
   type: DataLoader
   dataset:
-    type: DotaDetection
+    type: DotaDataset
     img_folder: /path/dota/images/val
     ann_folder: /path/dota/lables/val
     classes_file: /path/dota/classes.txt
