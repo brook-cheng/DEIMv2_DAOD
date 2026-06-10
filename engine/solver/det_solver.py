@@ -83,10 +83,16 @@ class DetSolver(BaseSolver):
                 box_mode=box_mode,
             )
 
-            for k in test_stats:
-                best_stat["epoch"] = self.last_epoch
-                best_stat[k] = test_stats[k][0]
-                top1 = test_stats[k][0]
+            if box_mode == "hbb":
+                for k in test_stats:
+                    best_stat["epoch"] = self.last_epoch
+                    best_stat[k] = test_stats[k][0]
+                    top1 = test_stats[k][0]
+            else:
+                for k, v in test_stats.items():
+                    best_stat["epoch"] = self.last_epoch
+                    best_stat[k] = v
+                    top1 = v
                 print(f"best_stat: {best_stat}")
 
         best_stat_print = best_stat.copy()
@@ -155,25 +161,50 @@ class DetSolver(BaseSolver):
                 box_mode=box_mode,
             )
 
-            for k in test_stats:
-                if self.writer and dist_utils.is_main_process():
-                    for i, v in enumerate(test_stats[k]):
-                        self.writer.add_scalar(f"Test/{k}_{i}".format(k), v, epoch)
-
-                if k in best_stat:
-                    best_stat["epoch"] = (
-                        epoch if test_stats[k][0] > best_stat[k] else best_stat["epoch"]
-                    )
-                    best_stat[k] = max(best_stat[k], test_stats[k][0])
-                else:
-                    best_stat["epoch"] = epoch
-                    best_stat[k] = test_stats[k][0]
-
-                if best_stat[k] > top1:
-                    best_stat_print["epoch"] = epoch
-                    top1 = best_stat[k]
-                    if self.output_dir:
-                        if epoch >= self.train_dataloader.collate_fn.stop_epoch:
+            if box_mode == "hbb":
+                for k in test_stats:
+                    if self.writer and dist_utils.is_main_process():
+                        for i, v in enumerate(test_stats[k]):
+                            self.writer.add_scalar(f"Test/{k}_{i}".format(k), v, epoch)
+                    if k in best_stat:
+                        best_stat["epoch"] = (
+                            epoch
+                            if test_stats[k][0] > best_stat[k]
+                            else best_stat["epoch"]
+                        )
+                        best_stat[k] = max(best_stat[k], test_stats[k][0])
+                    else:
+                        best_stat["epoch"] = epoch
+                        best_stat[k] = test_stats[k][0]
+                    if best_stat[k] > top1:
+                        best_stat_print["epoch"] = epoch
+                        top1 = best_stat[k]
+                        if (
+                            self.output_dir
+                            and epoch >= self.train_dataloader.collate_fn.stop_epoch
+                        ):
+                            dist_utils.save_on_master(
+                                self.state_dict(), self.output_dir / "best_stg2.pth"
+                            )
+            else:
+                for k, v in test_stats.items():
+                    if self.writer and dist_utils.is_main_process():
+                        self.writer.add_scalar(f"Test/{k}", v, epoch)
+                    if k in best_stat:
+                        best_stat["epoch"] = (
+                            epoch if v > best_stat[k] else best_stat["epoch"]
+                        )
+                        best_stat[k] = max(best_stat[k], v)
+                    else:
+                        best_stat["epoch"] = epoch
+                        best_stat[k] = v
+                    if best_stat[k] > top1:
+                        best_stat_print["epoch"] = epoch
+                        top1 = best_stat[k]
+                        if (
+                            self.output_dir
+                            and epoch >= self.train_dataloader.collate_fn.stop_epoch
+                        ):
                             dist_utils.save_on_master(
                                 self.state_dict(), self.output_dir / "best_stg2.pth"
                             )
@@ -182,6 +213,7 @@ class DetSolver(BaseSolver):
                                 self.state_dict(), self.output_dir / "best_stg1.pth"
                             )
 
+            if box_mode == "hbb":
                 best_stat_print[k] = max(best_stat[k], top1)
                 print(f"best_stat: {best_stat_print}")  # global best
 
@@ -199,12 +231,15 @@ class DetSolver(BaseSolver):
                         )
 
                 elif epoch >= self.train_dataloader.collate_fn.stop_epoch:
-                    best_stat = {
-                        "epoch": -1,
-                    }
+                    best_stat = {"epoch": -1}
                     self.ema.decay -= 0.0001
                     self.load_resume_state(str(self.output_dir / "best_stg1.pth"))
                     print(f"Refresh EMA at epoch {epoch} with decay {self.ema.decay}")
+            else:
+                if self.writer and dist_utils.is_main_process():
+                    self.writer.add_scalar(
+                        f"Test/best_mAP", best_stat.get("mAP", 0), epoch
+                    )
 
             log_stats = {
                 **{f"train_{k}": v for k, v in train_stats.items()},
@@ -256,7 +291,7 @@ class DetSolver(BaseSolver):
             box_mode=box_mode,
         )
 
-        if self.output_dir:
+        if self.output_dir and box_mode == "hbb":
             dist_utils.save_on_master(
                 coco_evaluator.coco_eval["bbox"].eval, self.output_dir / "eval.pth"
             )
