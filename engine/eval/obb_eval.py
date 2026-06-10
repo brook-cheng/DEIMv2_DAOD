@@ -119,43 +119,62 @@ def obb_evaluate(model, postprocessor, data_loader, device,
                 else:
                     all_gts[cls_id].append(np.zeros((0, 5), dtype=np.float32))
 
-    # ── Stage 2: vstack once ──
-    stacked_dets = [np.vstack(all_dets[c]) for c in range(num_classes)]
-    stacked_gts  = [np.vstack(all_gts[c]) for c in range(num_classes)]
-
-    # ── Stage 3: precompute IoU per class ──
-    iou_cache = []
-    for cls_id in range(num_classes):
-        det = stacked_dets[cls_id]
-        gt  = stacked_gts[cls_id]
-        if len(det) > 0 and len(gt) > 0:
-            det_t = torch.tensor(det[:, :5], dtype=torch.float32)
-            gt_t  = torch.tensor(gt, dtype=torch.float32)
-            iou_cache.append(batch_probiou(det_t, gt_t).numpy())
-        else:
-            iou_cache.append(None)
-
-    # ── Stage 4: AP per IoU threshold (cheap, no IoU recompute) ──
+    # ── Stage 3: compute AP per IoU threshold (per-image TP/FP) ──
+    n_imgs = len(all_dets[0]) if all_dets else 0
     results_dict = {}
     aps_all = {}
 
     for iou_thr in iou_thrs:
         aps = []
         for cls_id in range(num_classes):
-            det = stacked_dets[cls_id]
-            gt  = stacked_gts[cls_id]
-            ious = iou_cache[cls_id]
+            all_tp, all_fp, all_scores = [], [], []
+            total_gt_cls = 0
 
-            if len(gt) == 0:
+            for img_idx in range(n_imgs):
+                det = all_dets[cls_id][img_idx]
+                gt  = all_gts[cls_id][img_idx]
+                total_gt_cls += len(gt)
+
+                if len(det) == 0 or len(gt) == 0:
+                    if len(det) > 0:
+                        all_tp.append(np.zeros(len(det), dtype=np.float32))
+                        all_fp.append(np.ones(len(det), dtype=np.float32))
+                        all_scores.append(det[:, 5])
+                    continue
+
+                det_t = torch.tensor(det[:, :5], dtype=torch.float32)
+                gt_t  = torch.tensor(gt, dtype=torch.float32)
+                ious = batch_probiou(det_t, gt_t).numpy()
+                tp, fp = _tpfp(ious, det[:, 5], iou_thr)
+                all_tp.append(tp)
+                all_fp.append(fp)
+                all_scores.append(det[:, 5])
+
+            if total_gt_cls == 0:
                 aps.append(0.0)
                 continue
 
-            scores = det[:, 5] if len(det) > 0 else np.zeros(0)
-            tp, fp = _tpfp(ious, scores, iou_thr)
-            tp_cum = np.cumsum(tp)
-            fp_cum = np.cumsum(fp)
+            tp_cat = np.concatenate(all_tp) if all_tp else np.zeros(0)
+            fp_cat = np.concatenate(all_fp) if all_fp else np.zeros(0)
+            if not all_scores:
+                aps.append(0.0)
+                continue
+            scores_cat = np.concatenate(all_scores)
+
+            sort_idx = np.argsort(-scores_cat)
+            tp_cum = np.cumsum(tp_cat[sort_idx])
+            fp_cum = np.cumsum(fp_cat[sort_idx])
+
             eps = np.finfo(np.float32).eps
-            rec = tp_cum / max(len(gt), 1)
+            rec = tp_cum / max(total_gt_cls, 1)
+            prec = tp_cum / np.maximum(tp_cum + fp_cum, eps)
+            ap = _voc_ap(rec, prec, use_07_metric=True)
+            aps.append(ap)
+
+            tp_cum = np.cumsum(tp_cat)
+            fp_cum = np.cumsum(fp_cat)
+            eps = np.finfo(np.float32).eps
+            rec = tp_cum / max(total_gt_cls, 1)
             prec = tp_cum / np.maximum(tp_cum + fp_cum, eps)
             ap = _voc_ap(rec, prec, use_07_metric=True)
             aps.append(ap)
@@ -168,18 +187,23 @@ def obb_evaluate(model, postprocessor, data_loader, device,
     results_dict['mAP'] = np.mean(list(aps_all.values())) if aps_all else 0.0
 
     # ── Stage 5: precision / recall at IoU=0.5 ──
-    all_tp = all_fp = total_gt = 0
+    all_tp_sum = all_fp_sum = total_gt = 0
     for cls_id in range(num_classes):
-        det = stacked_dets[cls_id]
-        gt  = stacked_gts[cls_id]
-        ious = iou_cache[cls_id]
-        if len(gt) > 0 and ious is not None:
-            scores = det[:, 5]
-            tp, fp = _tpfp(ious, scores, 0.5)
-            all_tp += tp.sum()
-            all_fp += fp.sum()
+        for img_idx in range(n_imgs):
+            det = all_dets[cls_id][img_idx]
+            gt  = all_gts[cls_id][img_idx]
             total_gt += len(gt)
-    results_dict['precision'] = all_tp / max(all_tp + all_fp, 1)
-    results_dict['recall'] = all_tp / max(total_gt, 1)
+            if len(det) > 0 and len(gt) > 0:
+                det_t = torch.tensor(det[:, :5], dtype=torch.float32)
+                gt_t  = torch.tensor(gt, dtype=torch.float32)
+                ious = batch_probiou(det_t, gt_t).numpy()
+                tp, fp = _tpfp(ious, det[:, 5], 0.5)
+                all_tp_sum += tp.sum()
+                all_fp_sum += fp.sum()
+            elif len(det) > 0:
+                all_fp_sum += len(det)
+    results_dict['precision'] = all_tp_sum / max(all_tp_sum + all_fp_sum, 1)
+    results_dict['recall'] = all_tp_sum / max(total_gt, 1)
 
-    return results_dict
+    # convert numpy scalars to Python native types for JSON serialization
+    return {k: float(v) for k, v in results_dict.items()}

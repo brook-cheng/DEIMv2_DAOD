@@ -18,7 +18,7 @@ import os
 import argparse
 import numpy as np
 import torch
-from .poly_iou import poly_iou
+from ..deim.obb_ops import batch_probiou
 from ..deim.obb_geometry import xywhr_to_xyxyxyxy
 
 
@@ -87,33 +87,23 @@ def _voc_ap(rec, prec, use_07_metric=True):
 
 def _poly_iou_8coord(a: list, b_list: np.ndarray) -> np.ndarray:
     """IoU between one polygon (8-coord) and a set of polygons."""
-    vert_a = np.array(a).reshape(4, 2)
-    vert_a_t = torch.tensor(vert_a, dtype=torch.float32).unsqueeze(0)  # (1, 4, 2)
+    from ..deim.obb_geometry import xyxyxyxy_to_xywhr
 
-    boxes_b = []
-    for bb in b_list:
-        v = np.array(bb).reshape(4, 2)
-        # convert to cxcywhθ for poly_iou
-        ctr = v.mean(axis=0)
-        # find edges
-        d = ((v - v[0]) ** 2).sum(axis=1)
-        idx = np.argsort(d)
-        e1 = v[idx[1]] - v[0]
-        e2 = v[idx[2]] - v[0]
-        l1, l2 = np.linalg.norm(e1), np.linalg.norm(e2)
-        if l1 >= l2:
-            w, h = l1, l2
-            theta = np.arctan2(e1[1], e1[0]) % np.pi
-        else:
-            w, h = l2, l1
-            theta = np.arctan2(e2[1], e2[0]) % np.pi
-        boxes_b.append([ctr[0], ctr[1], w, h, theta])
+    vert_a = np.array(a).reshape(1, 4, 2)
+    vert_a_t = torch.tensor(vert_a, dtype=torch.float32)
+    # use standard conversion (identical to obb_eval)
+    obb_a = xyxyxyxy_to_xywhr(vert_a_t)          # (1, 5)
 
-    if not boxes_b:
+    verts_b = np.array([np.array(bb).reshape(4, 2) for bb in b_list]) if len(b_list) > 0 \
+              else np.zeros((0, 4, 2))
+    verts_b_t = torch.tensor(verts_b, dtype=torch.float32)
+    obb_b = xyxyxyxy_to_xywhr(verts_b_t) if len(verts_b_t) > 0 \
+             else torch.zeros(0, 5)
+
+    if len(obb_b) == 0:
         return np.array([])
 
-    boxes_b_t = torch.tensor(boxes_b, dtype=torch.float32)
-    ious = poly_iou(boxes_b_t, vert_a_t.squeeze(0).unsqueeze(0)).squeeze(-1).numpy()
+    ious = batch_probiou(obb_b, obb_a).squeeze(-1).numpy()
     return ious
 
 
