@@ -254,8 +254,12 @@ class DEIMCriterion(nn.Module):
             losses["loss_giou"] = loss_giou.sum() / num_boxes
         elif self.box_mode == "obb":
             # 统一空间和角度量纲到[0,1]
-            src_boxes_l1 = src_boxes[..., 4] / torch.pi
-            target_boxes_l1 = target_boxes[..., 4] / torch.pi
+            src_boxes_l1 = torch.cat(
+                [src_boxes[..., :4], src_boxes[..., 4:] / torch.pi], dim=-1
+            )
+            target_boxes_l1 = torch.cat(
+                [target_boxes[..., :4], target_boxes[..., 4:] / torch.pi], dim=-1
+            )
             loss_bbox = F.l1_loss(src_boxes_l1, target_boxes_l1, reduction="none")
             losses["loss_bbox"] = loss_bbox.sum() / num_boxes
             loss_kld = kld_loss(src_boxes, target_boxes, reduction="none")

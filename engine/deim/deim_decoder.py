@@ -268,9 +268,18 @@ class TransformerDecoder(nn.Module):
                 )
             elif self.box_mode == "obb":
                 # ref_points_initial /theta belongs to (0,1)
-                # FIXME: 角度量纲不匹配，已在distance2bbox_obb中调整，需要测试
+                # FIXME: 角度量纲不匹配，调整量纲，需要测试
+                theta_scale = torch.ones_like(ref_points_initial)
+                theta_scale[..., 4] *= torch.pi
+                ref_points_initial_scaled = ref_points_initial * theta_scale
                 inter_ref_bbox = distance2bbox_obb(
-                    ref_points_initial, integral(pred_corners, project), reg_scale
+                    ref_points_initial_scaled,
+                    integral(pred_corners, project),
+                    reg_scale,
+                )
+                inter_ref_bbox = torch.cat(
+                    [inter_ref_bbox[..., :4], inter_ref_bbox[..., 4:] / torch.pi],
+                    dim=-1,
                 )
 
             if self.training or i == self.eval_idx:
@@ -703,6 +712,11 @@ class DEIMTransformer(nn.Module):
         enc_topk_bboxes_list, enc_topk_logits_list = [], []
         if self.training:
             enc_topk_bboxes = F.sigmoid(enc_topk_bbox_unact)
+            if self.box_mode == "obb":
+                enc_topk_bboxes = torch.cat(
+                    [enc_topk_bboxes[..., :4], enc_topk_bboxes[..., 4:] * torch.pi],
+                    dim=-1,
+                )
             enc_topk_bboxes_list.append(enc_topk_bboxes)
             enc_topk_logits_list.append(enc_topk_logits)
 
@@ -823,9 +837,15 @@ class DEIMTransformer(nn.Module):
         # 为了方便后续处理，criterion/matcher/postprocessor 中均需要theta量纲为[0，pi]
         # 这里调整输出theta的量纲
         if self.box_mode == "obb":
-            out_bboxes = out_bboxes[..., 4] * torch.pi  # 每一层的预测框
-            out_refs = out_refs[..., 4] * torch.pi  # 每一层的参考框
-            pre_bboxes = pre_bboxes[..., 4] * torch.pi  # 第一层的预测框，作为起始参考框
+            out_bboxes = torch.cat(
+                [out_bboxes[..., :4], out_bboxes[..., 4:] * torch.pi], dim=-1
+            )  # 每一层的预测框
+            out_refs = torch.cat(
+                [out_refs[..., :4], out_refs[..., 4:] * torch.pi], dim=-1
+            )  # 每一层的参考框
+            pre_bboxes = torch.cat(
+                [pre_bboxes[..., :4], pre_bboxes[..., 4:] * torch.pi], dim=-1
+            )  # 第一层的预测框，作为起始参考框
 
         if self.training and dn_meta is not None:
             # the output from the first decoder layer,before the rest layer begin FDR process, only one

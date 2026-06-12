@@ -192,12 +192,12 @@ def distance2bbox_obb(points, distance, reg_scale):
     Decodes 6-distribution DDF output to 5-dof OBB.
 
     Args:
-        points: (B,N,5) or (N,5) — ref points (cx,cy,w,h,θ),θ belongs to [0,π].
+        points: (B,N,5) or (N,5) — ref obb (cx,cy,w,h,θ),θ belongs to [0,π].
         distance: (B,N,6) — (α,β,γ,δ,ε,η) from Integral.
         reg_scale: curvature of Weighting Function.
 
     Returns:
-        (B,N,5) or (N,5) — (cx,cy,w,h,θ).
+        (B,N,5) or (N,5) — (cx,cy,w,h,θ),θ belongs to [0,π].
     """
 
     ext_rect_xyxy, vertex_offsets = oriented_box_to_external_rect(points)

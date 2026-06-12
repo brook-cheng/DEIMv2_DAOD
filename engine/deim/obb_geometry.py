@@ -80,13 +80,12 @@ def oriented_box_to_external_rect(obbs: Tensor) -> Tuple[Tensor, Tensor]:
     """OBB -> external rectangle + vertex offsets (epsilon, eta).
 
     Args:
-        obbs:  (..., 5)  —  (cx, cy, w, h, theta),θ belongs to [0,1].
+        obbs:  (..., 5)  —  (cx, cy, w, h, theta),θ belongs to [0,pi].
 
     Returns:
         external_rect:   (..., 4)  —  (x1, y1, x2, y2).
         vertex_offsets:   (..., 2)  —  (epsilon, eta).
     """
-    obbs = obbs[..., 4] * torch.pi
     vertices = xywhr_to_xyxyxyxy(obbs)  # (..., 4, 2)
 
     x_min = vertices[..., 0].amin(dim=-1)
@@ -132,7 +131,7 @@ def external_rect_to_oriented_box(
         vertex_offsets:   (..., 2)  —  (epsilon, eta).
 
     Returns:
-        (..., 5)  —  (cx, cy, w, h, theta),θ belongs to [0,1].
+        (..., 5)  —  (cx, cy, w, h, theta),θ belongs to [0,pi].
     """
 
     x1 = external_rect[..., 0]
@@ -164,7 +163,7 @@ def external_rect_to_oriented_box(
 
     w_dx = torch.where(w_is_ab, edge_ab[..., 0], edge_bc[..., 0])
     w_dy = torch.where(w_is_ab, edge_ab[..., 1], edge_bc[..., 1])
-    # 量纲转换(0,pi)->(0,1)，与decoder中的一致
+
     theta = torch.atan2(w_dy, w_dx) % torch.pi
 
     return torch.stack([cx, cy, w_len, h_len, theta], dim=-1)
