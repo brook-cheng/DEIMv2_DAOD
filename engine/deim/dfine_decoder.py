@@ -166,8 +166,8 @@ class MSDeformableAttention(nn.Module):
             sampling_locations = reference_points[:, :, None, :, :2] + offset
         elif reference_points.shape[-1] == 5:
             # reference_points: (bs, Len_q, n_levels, 5) — (cx, cy, w, h, θ）
-            cosa = torch.cos(reference_points[..., 4:])
-            sina = torch.sin(reference_points[..., 4:])
+            cosa = torch.cos(reference_points[..., 4:] * torch.pi)
+            sina = torch.sin(reference_points[..., 4:] * torch.pi)
             # rot: (bs, Len_q, n_levels, 2, 2)
             rot_matrix = torch.cat([cosa, -sina, sina, cosa], dim=-1).view(
                 bs, Len_q, -1, 2, 2

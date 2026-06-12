@@ -20,3 +20,12 @@ from ._transforms import (
 )
 from .container import Compose
 from .mosaic import Mosaic
+from .obb_transforms import (
+    OBBFlip,
+    OBBZoomOut,
+    OBBResize,
+    OBBConvertBoxes,
+    OBBSanitize,
+    OBBMosaic,
+    OBBIoUCrop,
+)

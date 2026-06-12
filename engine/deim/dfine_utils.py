@@ -192,13 +192,14 @@ def distance2bbox_obb(points, distance, reg_scale):
     Decodes 6-distribution DDF output to 5-dof OBB.
 
     Args:
-        points: (B,N,5) or (N,5) — ref points (cx,cy,w,h,θ).
+        points: (B,N,5) or (N,5) — ref points (cx,cy,w,h,θ),θ belongs to [0,π].
         distance: (B,N,6) — (α,β,γ,δ,ε,η) from Integral.
         reg_scale: curvature of Weighting Function.
 
     Returns:
         (B,N,5) or (N,5) — (cx,cy,w,h,θ).
     """
+
     ext_rect_xyxy, vertex_offsets = oriented_box_to_external_rect(points)
     ext_rect_cxcywh = box_xyxy_to_cxcywh(ext_rect_xyxy)
 
@@ -219,7 +220,7 @@ def bbox2distance_obb(points, bbox, reg_max, reg_scale, up, eps=0.1):
     Converts GT OBB to 6-distribution FGL targets.
 
     Args:
-        points: (N,5) ref points (cx,cy,w,h,θ).
+        points: (N,5) ref points (cx,cy,w,h,θ),θ belongs to [0,π].
         bbox: (N,5) GT OBB (cx,cy,w,h,θ).
         ...
     Returns:

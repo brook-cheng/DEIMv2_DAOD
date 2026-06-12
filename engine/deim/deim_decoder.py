@@ -252,7 +252,7 @@ class TransformerDecoder(nn.Module):
             )
 
             if i == 0:
-                # Initial bounding box predictions with inverse sigmoid refinement
+                # Initial bounding box predictions with inverse sigmoid refinement，theta belongs to (0,1)
                 pre_bboxes = F.sigmoid(
                     pre_bbox_head(output) + inverse_sigmoid(ref_points_detach)
                 )
@@ -260,12 +260,15 @@ class TransformerDecoder(nn.Module):
                 ref_points_initial = pre_bboxes.detach()
 
             # Refine bounding box corners using FDR, integrating previous layer's corrections
+            # hbb:(α,β,γ,δ) obb:(α,β,γ,δ,ε,η)
             pred_corners = bbox_head[i](output + output_detach) + pred_corners_undetach
             if self.box_mode == "hbb":
                 inter_ref_bbox = distance2bbox(
                     ref_points_initial, integral(pred_corners, project), reg_scale
                 )
             elif self.box_mode == "obb":
+                # ref_points_initial /theta belongs to (0,1)
+                # FIXME: 角度量纲不匹配，已在distance2bbox_obb中调整，需要测试
                 inter_ref_bbox = distance2bbox_obb(
                     ref_points_initial, integral(pred_corners, project), reg_scale
                 )
@@ -490,9 +493,6 @@ class DEIMTransformer(nn.Module):
             anchors, valid_mask = self._generate_anchors()
             self.register_buffer("anchors", anchors)
             self.register_buffer("valid_mask", valid_mask)
-        # init encoder output anchors and valid_mask
-        if self.eval_spatial_size:
-            self.anchors, self.valid_mask = self._generate_anchors()
 
         self._reset_parameters(feat_channels)
 
@@ -774,7 +774,7 @@ class DEIMTransformer(nn.Module):
                     self.denoising_class_embed,
                     num_denoising=self.num_denoising,
                     label_noise_ratio=self.label_noise_ratio,
-                    box_noise_scale=1.0,
+                    box_noise_scale=self.box_noise_scale,
                     box_mode=self.box_mode,
                 )
             )
@@ -798,7 +798,7 @@ class DEIMTransformer(nn.Module):
         # decoder
         # out_bboxes: (decoder_layer_num,bs,num_queries+num_denoising*2,4), bbox predictions after every FDR layer;
         # out_logits: (decoder_layer_num,bs,num_queries+num_denoising*2,num_classes), final logits prediction related with corners;
-        # out_corners: (decoder_layer_num,bs,num_queries+num_denoising*2,4 * (reg_max + 1)), distribute bins after every FDR layer;
+        # out_corners: (decoder_layer_num,bs,num_queries+num_denoising*2,4 * (reg_max + 1)), FDR value of every decoder layer;
         # out_refs: (decoder_layer_num,bs,num_queries+num_denoising*2,4), basic reference points before every FDR layer;
         # pre_bboxes: (bs,num_queries+num_denoising*2,4), init bbox prediction after first decoder layer;
         # pre_logits: (bs,num_queries+num_denoising*2,num_classes), init logits prediction after first decoder layer;
@@ -819,6 +819,13 @@ class DEIMTransformer(nn.Module):
                 dn_meta=dn_meta,
             )
         )
+
+        # 为了方便后续处理，criterion/matcher/postprocessor 中均需要theta量纲为[0，pi]
+        # 这里调整输出theta的量纲
+        if self.box_mode == "obb":
+            out_bboxes = out_bboxes[..., 4] * torch.pi  # 每一层的预测框
+            out_refs = out_refs[..., 4] * torch.pi  # 每一层的参考框
+            pre_bboxes = pre_bboxes[..., 4] * torch.pi  # 第一层的预测框，作为起始参考框
 
         if self.training and dn_meta is not None:
             # the output from the first decoder layer,before the rest layer begin FDR process, only one

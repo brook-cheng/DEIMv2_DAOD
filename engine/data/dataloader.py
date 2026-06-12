@@ -26,7 +26,6 @@ from PIL import Image, ImageDraw
 import os
 from collections import defaultdict, deque
 
-
 __all__ = [
     "DataLoader",
     "BaseCollateFunction",
@@ -92,6 +91,7 @@ def generate_scales(base_size, base_size_repeat):
     return scales
 
 
+# FIXME: 添加旋转框情况下的处理
 @register()
 class BatchImageCollateFunction(BaseCollateFunction):
     def __init__(
