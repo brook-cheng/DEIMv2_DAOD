@@ -316,13 +316,22 @@ class BatchImageCollateFunction(BaseCollateFunction):
                     source_width = objects_pool["image_width"][idx]
 
                     # calculate source object size and position
-                    cx, cy, w, h = box
-                    x1_src, y1_src = int((cx - w / 2) * source_width), int(
-                        (cy - h / 2) * source_height
-                    )
-                    x2_src, y2_src = int((cx + w / 2) * source_width), int(
-                        (cy + h / 2) * source_height
-                    )
+                    is_obb = box.shape[0] == 5
+                    if is_obb:
+                        # OBB：用 4 顶点的轴对齐外接矩形作为裁剪区
+                        from ...deim.obb_geometry import xywhr_to_xyxyxyxy
+
+                        verts = xywhr_to_xyxyxyxy(box.unsqueeze(0)).squeeze(0)
+                        x1_src = int(verts[:, 0].min().item() * source_width)
+                        y1_src = int(verts[:, 1].min().item() * source_height)
+                        x2_src = int(verts[:, 0].max().item() * source_width)
+                        y2_src = int(verts[:, 1].max().item() * source_height)
+                    else:
+                        cx, cy, w, h = box[0], box[1], box[2], box[3]
+                        x1_src = int((cx - w / 2) * source_width)
+                        y1_src = int((cy - h / 2) * source_height)
+                        x2_src = int((cx + w / 2) * source_width)
+                        y2_src = int((cy + h / 2) * source_height)
 
                     # check if source object is out of bound
                     x1_src, y1_src = max(x1_src, 0), max(y1_src, 0)
@@ -353,7 +362,16 @@ class BatchImageCollateFunction(BaseCollateFunction):
                     new_w, new_h = new_w_px / img_width, new_h_px / img_height
 
                     # add to blend list - use original unexpanded box
-                    blend_boxes.append(torch.tensor([new_cx, new_cy, new_w, new_h]))
+                    if is_obb:
+                        obj_w = box[2] * source_width / img_width
+                        obj_h = box[3] * source_height / img_height
+                        blend_boxes.append(
+                            torch.tensor([new_cx, new_cy, obj_w, obj_h, box[4].item()])
+                        )
+                    else:
+                        blend_boxes.append(
+                            torch.tensor([new_cx, new_cy, new_w, new_h])
+                        )
                     blend_labels.append(label)
                     blend_areas.append(area)
                     # mixup ratio
@@ -485,6 +503,9 @@ class BatchImageCollateFunction(BaseCollateFunction):
     def __call__(self, items):
         images = torch.cat([x[0][None] for x in items], dim=0)
         targets = [x[1] for x in items]
+        for t in targets:
+            if "area" not in t:
+                t["area"] = t["boxes"][:, 2] * t["boxes"][:, 3]
 
         # Mixup
         images, targets = self.apply_mixup(images, targets)

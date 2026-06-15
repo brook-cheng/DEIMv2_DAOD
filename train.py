@@ -234,6 +234,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     args.config = "./configs/custom_obb/deimv2_obb_sp.yml"
+    args.use_amp = True
     # model test part
     # args.test_only = False
     # args.resume = (
