@@ -319,7 +319,7 @@ class BatchImageCollateFunction(BaseCollateFunction):
                     is_obb = box.shape[0] == 5
                     if is_obb:
                         # OBB：用 4 顶点的轴对齐外接矩形作为裁剪区
-                        from ...deim.obb_geometry import xywhr_to_xyxyxyxy
+                        from engine.deim.obb_geometry import xywhr_to_xyxyxyxy
 
                         verts = xywhr_to_xyxyxyxy(box.unsqueeze(0)).squeeze(0)
                         x1_src = int(verts[:, 0].min().item() * source_width)

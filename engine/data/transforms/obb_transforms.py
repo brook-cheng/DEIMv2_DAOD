@@ -151,23 +151,6 @@ class OBBSanitize(nn.Module):
 
 
 @register()
-class OBBMosaic(nn.Module):
-    """Mosaic 拼图对 OBB 的偏移（仅平移中心，w/h/θ 不变）。"""
-
-    def __init__(self, offset_x=0, offset_y=0):
-        super().__init__()
-        self.ox = offset_x
-        self.oy = offset_y
-
-    def forward(self, sample):
-        img, tgt, ds = sample
-        b = tgt["boxes"]
-        b[:, 0] += self.ox
-        b[:, 1] += self.oy
-        return img, tgt, ds
-
-
-@register()
 class OBBIoUCrop(nn.Module):
     """随机 IoU 引导裁剪。使用 HBB 轴对齐 IoU 近似选择裁剪区域（标注为近似），
     裁剪为纯平移操作，在像素坐标下工作。"""

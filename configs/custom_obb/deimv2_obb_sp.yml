@@ -14,20 +14,20 @@ eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
 
 ## DEIM LR-Scheduler
-epoches: 50 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
-warmup_iter: 5   # 0.1 * epoches
-flat_epoch: 30    # epoch // 2 + warmup_iter
-no_aug_epoch: 8
+epoches: 150 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+warmup_iter: 15   # 0.1 * epoches
+flat_epoch: 90    # epoch // 2 + warmup_iter
+no_aug_epoch: 15
 
 #### 设置训练数据
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
-  total_batch_size: 8 # total batch size equals to gpu_nums*batch_size
+  total_batch_size: 1 # total batch size equals to gpu_nums*batch_size
   num_workers: 4
   dataset:
-    img_folder: /mnt/d/project_data/model_test/dota128_ultralystic/images/train
-    ann_folder: /mnt/d/project_data/model_test/dota128_ultralystic/labels_dota/train
-    classes_file: /mnt/d/project_data/model_test/dota128_ultralystic/classes.txt
+    img_folder: /mnt/d/project_data/model_test/dota8_test/images/train
+    ann_folder: /mnt/d/project_data/model_test/dota8_test/labels_dota/train
+    classes_file: /mnt/d/project_data/model_test/dota8_test/classes.txt
     transforms:
       ops:
         - {type: Mosaic, output_size: 320, rotation_range: 10, translation_range: [0.1, 0.1], scaling_range: [0.5, 1.5],
