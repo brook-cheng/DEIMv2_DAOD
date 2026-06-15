@@ -99,7 +99,9 @@ def probiou(
         ((a1 + a2) * (b1 + b2) - (c1 + c2).pow(2))
         / (
             4
-            * ((a1 * b1 - c1.pow(2)).clamp(min=0) * (a2 * b2 - c2.pow(2)).clamp(min=0)).sqrt()
+            * (
+                (a1 * b1 - c1.pow(2)).clamp(min=0) * (a2 * b2 - c2.pow(2)).clamp(min=0)
+            ).sqrt()
             + eps
         )
         + eps
@@ -129,10 +131,12 @@ def batch_probiou(
     Returns:
         (N, M) — similarity matrix.
     """
-    x1, y1 = obb1[..., :2].split(1, dim=-1)                  # (N,1) each
+    x1, y1 = obb1[..., :2].split(1, dim=-1)  # (N,1) each
     x2, y2 = (x.squeeze(-1)[None] for x in obb2[..., :2].split(1, dim=-1))  # (1,M) each
-    a1, b1, c1 = _get_covariance_matrix(obb1)                  # (N,1) each
-    a2, b2, c2 = (x.squeeze(-1)[None] for x in _get_covariance_matrix(obb2))  # (1,M) each
+    a1, b1, c1 = _get_covariance_matrix(obb1)  # (N,1) each
+    a2, b2, c2 = (
+        x.squeeze(-1)[None] for x in _get_covariance_matrix(obb2)
+    )  # (1,M) each
 
     denom = (a1 + a2) * (b1 + b2) - (c1 + c2).pow(2) + eps
     t1 = ((a1 + a2) * (y1 - y2).pow(2) + (b1 + b2) * (x1 - x2).pow(2)) / denom * 0.25
@@ -141,7 +145,9 @@ def batch_probiou(
         ((a1 + a2) * (b1 + b2) - (c1 + c2).pow(2))
         / (
             4
-            * ((a1 * b1 - c1.pow(2)).clamp(min=0) * (a2 * b2 - c2.pow(2)).clamp(min=0)).sqrt()
+            * (
+                (a1 * b1 - c1.pow(2)).clamp(min=0) * (a2 * b2 - c2.pow(2)).clamp(min=0)
+            ).sqrt()
             + eps
         )
         + eps
@@ -154,9 +160,9 @@ def batch_probiou(
 def kld_loss(
     pred: torch.Tensor,
     target: torch.Tensor,
-    fun: str = 'log1p',
+    fun: str = "log1p",
     tau: float = 1.0,
-    reduction: str = 'mean',
+    reduction: str = "mean",
     eps: float = 1e-7,
 ) -> torch.Tensor:
     """Kullback-Leibler Divergence loss between OBBs as 2D Gaussians.
@@ -177,44 +183,53 @@ def kld_loss(
     Returns:
         Scalar loss (or per-element if reduction='none').
     """
-    mu_p, sigma_p = xy_wh_r_2_xy_sigma(pred)          # (..., 2), (..., 2, 2)
-    mu_t, sigma_t = xy_wh_r_2_xy_sigma(target)        # (..., 2), (..., 2, 2)
+    mu_p, sigma_p = xy_wh_r_2_xy_sigma(pred)  # (..., 2), (..., 2, 2)
+    mu_t, sigma_t = xy_wh_r_2_xy_sigma(target)  # (..., 2), (..., 2, 2)
 
     # Woodbury / analytical inverse for 2×2
-    det_t = sigma_t[..., 0, 0] * sigma_t[..., 1, 1] - sigma_t[..., 0, 1].pow(2).clamp(min=eps)
-    inv_t = torch.stack([
-        torch.stack([ sigma_t[..., 1, 1], -sigma_t[..., 0, 1]], dim=-1),
-        torch.stack([-sigma_t[..., 0, 1],  sigma_t[..., 0, 0]], dim=-1),
-    ], dim=-2) / det_t.unsqueeze(-1).unsqueeze(-1)
+    det_t = (sigma_t[..., 0, 0] * sigma_t[..., 1, 1] - sigma_t[..., 0, 1].pow(2)).clamp(
+        min=eps
+    )
+    inv_t = torch.stack(
+        [
+            torch.stack([sigma_t[..., 1, 1], -sigma_t[..., 0, 1]], dim=-1),
+            torch.stack([-sigma_t[..., 0, 1], sigma_t[..., 0, 0]], dim=-1),
+        ],
+        dim=-2,
+    ) / det_t.unsqueeze(-1).unsqueeze(-1)
 
     # Mahalanobis term: (mu_t - mu_p)^T inv_t (mu_t - mu_p)
-    dmu = (mu_t - mu_p).unsqueeze(-1)                  # (..., 2, 1)
-    maha = dmu.transpose(-2, -1).matmul(inv_t).matmul(dmu).squeeze(-1).squeeze(-1)  # (...)
+    dmu = (mu_t - mu_p).unsqueeze(-1)  # (..., 2, 1)
+    maha = (
+        dmu.transpose(-2, -1).matmul(inv_t).matmul(dmu).squeeze(-1).squeeze(-1)
+    )  # (...)
 
     # Trace term: tr(inv_t @ sigma_p)
     trace_term = (inv_t * sigma_p.transpose(-2, -1)).sum(dim=(-2, -1))  # (...)
 
     # Log-det term
-    det_p = sigma_p[..., 0, 0] * sigma_p[..., 1, 1] - sigma_p[..., 0, 1].pow(2).clamp(min=eps)
-    logdet_term = (det_p.clamp(min=eps) / det_t.clamp(min=eps)).log()   # (...)
+    det_p = (sigma_p[..., 0, 0] * sigma_p[..., 1, 1] - sigma_p[..., 0, 1].pow(2)).clamp(
+        min=eps
+    )
+    logdet_term = (det_p.clamp(min=eps) / det_t.clamp(min=eps)).log()  # (...)
 
     kld = 0.5 * (trace_term + maha - logdet_term - 2.0).clamp(min=0)  # (...)
 
     # Post-process
-    if fun == 'log1p':
+    if fun == "log1p":
         dist = torch.log1p(kld)
-    elif fun == 'sqrt':
+    elif fun == "sqrt":
         dist = torch.sqrt(kld.clamp(min=eps))
-    elif fun == 'none':
+    elif fun == "none":
         dist = kld
     else:
         raise ValueError(f"Unknown fun: {fun}")
 
     loss = 1.0 - 1.0 / (tau + dist)
 
-    if reduction == 'mean':
+    if reduction == "mean":
         return loss.mean()
-    elif reduction == 'sum':
+    elif reduction == "sum":
         return loss.sum()
     return loss
 
@@ -222,7 +237,7 @@ def kld_loss(
 def rbbox_overlaps_obb(
     boxes1: torch.Tensor,
     boxes2: torch.Tensor,
-    mode: str = 'probiou',
+    mode: str = "probiou",
     eps: float = 1e-7,
 ) -> torch.Tensor:
     """OBB overlap matrix.
@@ -235,6 +250,6 @@ def rbbox_overlaps_obb(
     Returns:
         (N, M) — overlap scores in [0, 1].
     """
-    if mode == 'probiou':
+    if mode == "probiou":
         return batch_probiou(boxes1, boxes2, eps=eps)
     raise ValueError(f"Unknown mode: {mode}")

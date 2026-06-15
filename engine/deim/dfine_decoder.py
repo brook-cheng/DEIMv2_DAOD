@@ -173,15 +173,15 @@ class MSDeformableAttention(nn.Module):
                 bs, Len_q, -1, 2, 2
             )
             wh = reference_points[..., 2:4] * 0.5
-            # Rotate (w/2, h/2): (bs, Len_q, n_levels, 2)
-            rotated_points = torch.einsum("bnh i j,bnh j->bnh i", rot_matrix, wh)
-            offset = (
+            scaled = (
                 sampling_offsets
                 * num_points_scale
-                * rotated_points[:, :, None, :, :]
                 * self.offset_scale
+                * wh[:, :, None, :, :]
             )
-            sampling_locations = reference_points[:, :, None, :, :2] + offset
+            # Rotate (w/2, h/2): (bs, Len_q, n_levels, 2)
+            rotated = torch.einsum("bqij,bqhpj->bqhpi", rot_matrix, scaled)
+            sampling_locations = reference_points[:, :, None, :, :2] + rotated
 
         else:
             raise ValueError(

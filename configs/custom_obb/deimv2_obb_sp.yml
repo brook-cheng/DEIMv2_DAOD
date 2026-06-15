@@ -41,6 +41,7 @@ train_dataloader:
         - {type: OBBSanitize, min_size: 1}
         - {type: ConvertPILImage, dtype: 'float32', scale: True}
         - {type: OBBConvertBoxes, normalize: True, img_size: [640, 640]}
+        - {type: Normalize, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}
       policy:
         epoch: [4, 29, 50]
         ops: ['Mosaic', 'RandomPhotometricDistort', 'OBBZoomOut', 'OBBIoUCrop']
@@ -120,7 +121,7 @@ DEIMCriterion:
 
   matcher:
     type: HungarianMatcher
-    weight_dict: {cost_class: 2, cost_bbox: 5,  cost_chamfer: 5,cost_kld: 2}
+    weight_dict: {cost_class: 2, cost_bbox: 5,  cost_chamfer: 5,cost_probiou: 2}
     alpha: 0.25
     gamma: 2.0
     # change matcher

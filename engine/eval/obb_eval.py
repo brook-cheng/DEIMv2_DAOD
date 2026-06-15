@@ -13,17 +13,17 @@ from ..deim.obb_ops import batch_probiou
 def _voc_ap(rec, prec, use_07_metric=True):
     """Compute VOC AP given precision and recall."""
     if use_07_metric:
-        ap = 0.
-        for t in np.arange(0., 1.1, 0.1):
+        ap = 0.0
+        for t in np.arange(0.0, 1.1, 0.1):
             if np.sum(rec >= t) == 0:
-                p = 0.
+                p = 0.0
             else:
                 p = np.max(prec[rec >= t])
-            ap += p / 11.
+            ap += p / 11.0
         return ap
     else:
-        mrec = np.concatenate(([0.], rec, [1.]))
-        mpre = np.concatenate(([0.], prec, [0.]))
+        mrec = np.concatenate(([0.0], rec, [1.0]))
+        mpre = np.concatenate(([0.0], prec, [0.0]))
         for i in range(mpre.size - 1, 0, -1):
             mpre[i - 1] = np.maximum(mpre[i - 1], mpre[i])
         i = np.where(mrec[1:] != mrec[:-1])[0]
@@ -60,11 +60,11 @@ def _tpfp(ious, scores, iou_thr):
         if iou_row[best_j] >= iou_thr:
             if not gt_matched[best_j]:
                 gt_matched[best_j] = True
-                tp[i] = 1.
+                tp[i] = 1.0
             else:
-                fp[i] = 1.
+                fp[i] = 1.0
         else:
-            fp[i] = 1.
+            fp[i] = 1.0
 
     tp_reorder = np.zeros(M, dtype=np.float32)
     fp_reorder = np.zeros(M, dtype=np.float32)
@@ -74,8 +74,9 @@ def _tpfp(ious, scores, iou_thr):
 
 
 @torch.no_grad()
-def obb_evaluate(model, postprocessor, data_loader, device,
-                 iou_thrs=(0.5,), num_classes=15):
+def obb_evaluate(
+    model, postprocessor, data_loader, device, iou_thrs=(0.5,), num_classes=15
+):
     """Online OBB evaluation — optimized for large validation sets.
 
     Data collection and IoU computation are each done once.
@@ -89,7 +90,7 @@ def obb_evaluate(model, postprocessor, data_loader, device,
 
     # ── Stage 1: collect all predictions ──
     all_dets = [[] for _ in range(num_classes)]
-    all_gts  = [[] for _ in range(num_classes)]
+    all_gts = [[] for _ in range(num_classes)]
 
     for samples, targets in data_loader:
         samples = samples.to(device)
@@ -99,11 +100,11 @@ def obb_evaluate(model, postprocessor, data_loader, device,
         results = postprocessor(outputs, orig_sizes)
 
         for res, tgt in zip(results, targets):
-            boxes  = res['boxes'].cpu().numpy()
-            scores = res['scores'].cpu().numpy()
-            labels = res['labels'].cpu().numpy()
-            gt_boxes  = tgt['boxes'].cpu().numpy()
-            gt_labels = tgt['labels'].cpu().numpy()
+            boxes = res["boxes"].cpu().numpy()
+            scores = res["scores"].cpu().numpy()
+            labels = res["labels"].cpu().numpy()
+            gt_boxes = tgt["boxes"].cpu().numpy()
+            gt_labels = tgt["labels"].cpu().numpy()
 
             for cls_id in range(num_classes):
                 mask_p = labels == cls_id
@@ -132,7 +133,7 @@ def obb_evaluate(model, postprocessor, data_loader, device,
 
             for img_idx in range(n_imgs):
                 det = all_dets[cls_id][img_idx]
-                gt  = all_gts[cls_id][img_idx]
+                gt = all_gts[cls_id][img_idx]
                 total_gt_cls += len(gt)
 
                 if len(det) == 0 or len(gt) == 0:
@@ -143,7 +144,7 @@ def obb_evaluate(model, postprocessor, data_loader, device,
                     continue
 
                 det_t = torch.tensor(det[:, :5], dtype=torch.float32)
-                gt_t  = torch.tensor(gt, dtype=torch.float32)
+                gt_t = torch.tensor(gt, dtype=torch.float32)
                 ious = batch_probiou(det_t, gt_t).numpy()
                 tp, fp = _tpfp(ious, det[:, 5], iou_thr)
                 all_tp.append(tp)
@@ -171,39 +172,31 @@ def obb_evaluate(model, postprocessor, data_loader, device,
             ap = _voc_ap(rec, prec, use_07_metric=True)
             aps.append(ap)
 
-            tp_cum = np.cumsum(tp_cat)
-            fp_cum = np.cumsum(fp_cat)
-            eps = np.finfo(np.float32).eps
-            rec = tp_cum / max(total_gt_cls, 1)
-            prec = tp_cum / np.maximum(tp_cum + fp_cum, eps)
-            ap = _voc_ap(rec, prec, use_07_metric=True)
-            aps.append(ap)
-
         mean_ap = np.mean(aps)
-        key = f'AP{int(iou_thr*100):.0f}'
+        key = f"AP{int(iou_thr*100):.0f}"
         aps_all[key] = mean_ap
 
     results_dict.update(aps_all)
-    results_dict['mAP'] = np.mean(list(aps_all.values())) if aps_all else 0.0
+    results_dict["mAP"] = np.mean(list(aps_all.values())) if aps_all else 0.0
 
     # ── Stage 5: precision / recall at IoU=0.5 ──
     all_tp_sum = all_fp_sum = total_gt = 0
     for cls_id in range(num_classes):
         for img_idx in range(n_imgs):
             det = all_dets[cls_id][img_idx]
-            gt  = all_gts[cls_id][img_idx]
+            gt = all_gts[cls_id][img_idx]
             total_gt += len(gt)
             if len(det) > 0 and len(gt) > 0:
                 det_t = torch.tensor(det[:, :5], dtype=torch.float32)
-                gt_t  = torch.tensor(gt, dtype=torch.float32)
+                gt_t = torch.tensor(gt, dtype=torch.float32)
                 ious = batch_probiou(det_t, gt_t).numpy()
                 tp, fp = _tpfp(ious, det[:, 5], 0.5)
                 all_tp_sum += tp.sum()
                 all_fp_sum += fp.sum()
             elif len(det) > 0:
                 all_fp_sum += len(det)
-    results_dict['precision'] = all_tp_sum / max(all_tp_sum + all_fp_sum, 1)
-    results_dict['recall'] = all_tp_sum / max(total_gt, 1)
+    results_dict["precision"] = all_tp_sum / max(all_tp_sum + all_fp_sum, 1)
+    results_dict["recall"] = all_tp_sum / max(total_gt, 1)
 
     # convert numpy scalars to Python native types for JSON serialization
     return {k: float(v) for k, v in results_dict.items()}

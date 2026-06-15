@@ -61,7 +61,7 @@ class HungarianMatcher(nn.Module):
         self.cost_bbox = weight_dict.get("cost_bbox", 0)
         self.cost_giou = weight_dict.get("cost_giou", 0)  # hbb
         self.cost_chamfer = weight_dict.get("cost_chamfer", 0)  # obb
-        self.cost_kld = weight_dict.get("cost_kld", 0)  # obb
+        self.cost_probiou = weight_dict.get("cost_probiou", 0)  # obb
 
         self.change_matcher = change_matcher
         self.iou_order_alpha = iou_order_alpha
@@ -84,7 +84,7 @@ class HungarianMatcher(nn.Module):
             assert (
                 self.cost_class != 0
                 or self.cost_bbox != 0
-                or self.cost_kld != 0
+                or self.cost_probiou != 0
                 or self.cost_chamfer != 0
             )
 
@@ -170,11 +170,11 @@ class HungarianMatcher(nn.Module):
                 # θ 维度除以 angle_factor(π)，使 5 个维度量纲一致
                 factor = tgt_bbox.new_tensor([1, 1, 1, 1, 1.0 / self.angle_factor])
                 cost_bbox = torch.cdist(out_bbox * factor, tgt_bbox * factor, p=1)
-                cost_kld = -batch_probiou(out_bbox, tgt_bbox, eps=1e-8)
+                cost_probiou = -batch_probiou(out_bbox, tgt_bbox, eps=1e-8)
                 C = (
                     self.cost_bbox * cost_bbox
                     + self.cost_class * cost_class
-                    + self.cost_kld * cost_kld
+                    + self.cost_probiou * cost_probiou
                 )
                 if self.cost_chamfer > 0:
                     C += self.cost_chamfer * chamfer_cost_obb(out_bbox, tgt_bbox)

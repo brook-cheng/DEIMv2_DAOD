@@ -268,7 +268,6 @@ class TransformerDecoder(nn.Module):
                 )
             elif self.box_mode == "obb":
                 # ref_points_initial /theta belongs to (0,1)
-                # FIXME: 角度量纲不匹配，调整量纲，需要测试
                 theta_scale = torch.ones_like(ref_points_initial)
                 theta_scale[..., 4] *= torch.pi
                 ref_points_initial_scaled = ref_points_initial * theta_scale
