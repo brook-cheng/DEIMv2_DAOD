@@ -1,26 +1,49 @@
-"""OBB-aware data augmentation transforms."""
+"""OBB-aware data augmentation transforms.
 
-import random, torch, torch.nn as nn
-import torch.nn.functional as F
+坐标约定：OBB 格式 (cx, cy, w, h, θ)，θ ∈ [0, π) 弧度。
+OBBConvertBoxes 之前所有变换在**像素坐标**下工作；归一化由 OBBConvertBoxes 完成。
+"""
+
+import random
+import torch
+import torch.nn as nn
 from ...core import register
 import torchvision.transforms.v2.functional as TF
 
 
-# FIXME: 图片没有Flip
 @register()
 class OBBFlip(nn.Module):
+    """水平翻转图像和 OBB 框（像素坐标）。"""
+
+    def __init__(self, p: float = 0.5):
+        super().__init__()
+        self.p = p
+
     def forward(self, sample):
         img, tgt, ds = sample
+        if random.random() > self.p:
+            return img, tgt, ds
+
+        # 获取图像尺寸（像素）
+        if hasattr(img, "shape"):
+            _, h, w = img.shape  # CHW tensor
+        else:
+            w, h = img.size  # PIL Image
+
+        # 水平翻转图像
+        img = TF.hflip(img)
+
+        # 翻转框（像素坐标下 cx' = W - cx，θ' = (π - θ) % π）
         b = tgt["boxes"]
-        _, h, w = img.shape if hasattr(img, "shape") else (img.mode, *img.size[::-1])
         b[:, 0] = w - b[:, 0]
         b[:, 4] = (torch.pi - b[:, 4]) % torch.pi
+
         return img, tgt, ds
 
 
 @register()
 class OBBZoomOut(nn.Module):
-    """Pad image and shift box coordinates accordingly."""
+    """随机四边填充（纯平移），在像素坐标下工作。"""
 
     def __init__(self, fill=0, pad_level=0.5):
         super().__init__()
@@ -30,63 +53,90 @@ class OBBZoomOut(nn.Module):
     def forward(self, sample):
         img, tgt, ds = sample
 
-        c, h, w = img.shape if hasattr(img, "shape") else (img.mode, *img.size[::-1])
+        if hasattr(img, "shape"):
+            c, h, w = img.shape
+        else:
+            w, h = img.size
+
         pad_top = int(random.randint(0, int(h * self.pad_level)))
         pad_bot = int(random.randint(0, int(h * self.pad_level)))
         pad_left = int(random.randint(0, int(w * self.pad_level)))
         pad_right = int(random.randint(0, int(w * self.pad_level)))
-        # use torchvision functional pad (handles both PIL and Tensor)
+
         img = TF.pad(img, [pad_left, pad_top, pad_right, pad_bot], fill=self.fill)
-        # shift boxes
-        new_h, new_w = h + pad_top + pad_bot, w + pad_left + pad_right
+
+        # 纯平移，仅改中心，w/h/θ 不变
         if len(tgt["boxes"]) > 0:
-            tgt["boxes"][:, 0] = (tgt["boxes"][:, 0] * w + pad_left) / new_w
-            tgt["boxes"][:, 1] = (tgt["boxes"][:, 1] * h + pad_top) / new_h
-            tgt["boxes"][:, 2] *= w / new_w
-            tgt["boxes"][:, 3] *= h / new_h
+            from ...deim.obb_geometry import affine_obb
+
+            tgt["boxes"] = affine_obb(
+                tgt["boxes"], sx=1.0, sy=1.0, tx=pad_left, ty=pad_top
+            )
+
         return img, tgt, ds
 
 
 @register()
 class OBBResize(nn.Module):
+    """缩放图像和 OBB 框（像素坐标）。size 格式为 [H, W]（与 torchvision 一致）。"""
+
     def __init__(self, size):
         super().__init__()
-        self.size = size
+        self.size = size  # [H, W]
 
     def forward(self, sample):
         img, tgt, ds = sample
-        _, h, w = img.shape if hasattr(img, "shape") else (3, *img.size[::-1])
+
+        if hasattr(img, "shape"):
+            _, h, w = img.shape  # CHW
+        else:
+            w, h = img.size  # PIL
+
         img = TF.resize(img, self.size)
-        s = self.size
-        b = tgt["boxes"]
-        sx, sy = s[0] / w, s[1] / h
-        b[:, 0] *= sx
-        b[:, 1] *= sy
-        b[:, 2] *= sx
-        b[:, 3] *= sy
+
+        H_out, W_out = self.size[0], self.size[1]
+        sx = W_out / w
+        sy = H_out / h
+
+        if len(tgt["boxes"]) > 0:
+            from ...deim.obb_geometry import affine_obb
+
+            tgt["boxes"] = affine_obb(tgt["boxes"], sx=sx, sy=sy, tx=0.0, ty=0.0)
+
         return img, tgt, ds
 
 
 @register()
 class OBBConvertBoxes(nn.Module):
+    """将 OBB 框从像素坐标归一化到 [0,1]（按图像实际尺寸，θ 不变）。"""
+
     def __init__(self, normalize=True, img_size=(640, 640)):
         super().__init__()
         self.n = normalize
-        self.iw, self.ih = img_size
+        self.iw, self.ih = img_size  # 保留用于向后兼容，优先用实际尺寸
 
     def forward(self, sample):
         if self.n:
             img, tgt, ds = sample
+
+            if hasattr(img, "shape"):
+                _, H, W = img.shape
+            else:
+                W, H = img.size
+
             b = tgt["boxes"]
-            b[:, 0] /= self.iw
-            b[:, 1] /= self.ih
-            b[:, 2] /= self.iw
-            b[:, 3] /= self.ih
+            b[:, 0] /= W
+            b[:, 1] /= H
+            b[:, 2] /= W
+            b[:, 3] /= H
+            # θ 不变，保持在 [0, π)
         return sample
 
 
 @register()
 class OBBSanitize(nn.Module):
+    """过滤 w 或 h 过小的框。"""
+
     def __init__(self, min_size=1):
         super().__init__()
         self.ms = min_size
@@ -100,10 +150,9 @@ class OBBSanitize(nn.Module):
         return img, tgt, ds
 
 
-# FIXME: 这里并没有实现真正的操作，需要在mosaic.py实现
 @register()
 class OBBMosaic(nn.Module):
-    """Mosaic offset for OBB. Shifts cx,cy by grid offset."""
+    """Mosaic 拼图对 OBB 的偏移（仅平移中心，w/h/θ 不变）。"""
 
     def __init__(self, offset_x=0, offset_y=0):
         super().__init__()
@@ -118,11 +167,10 @@ class OBBMosaic(nn.Module):
         return img, tgt, ds
 
 
-# FIXME: 这里使用了hbb iou的计算方式，存在问题，虽然影响可能没那么大
 @register()
 class OBBIoUCrop(nn.Module):
-    """Random IoU-based crop for OBB. Samples multiple crop regions,
-    picks the one with highest average IoU to GT boxes, then crops."""
+    """随机 IoU 引导裁剪。使用 HBB 轴对齐 IoU 近似选择裁剪区域（标注为近似），
+    裁剪为纯平移操作，在像素坐标下工作。"""
 
     def __init__(self, p=1.0, scale=(0.3, 1.0), ratio=(0.5, 2.0), trials=40):
         super().__init__()
@@ -132,7 +180,7 @@ class OBBIoUCrop(nn.Module):
         self.trials = trials
 
     def _hbb_iou(self, boxes, crop_x1, crop_y1, crop_x2, crop_y2):
-        """Average HBB IoU between boxes and crop region."""
+        """近似 HBB IoU：用于筛选裁剪区域（不精确但足够用于"选哪个裁剪区"）。"""
         if len(boxes) == 0:
             return 0.0
         inter_x1 = torch.max(boxes[:, 0] - boxes[:, 2] / 2, torch.tensor(crop_x1))
@@ -150,7 +198,12 @@ class OBBIoUCrop(nn.Module):
         if random.random() > self.p:
             return sample
         img, tgt, ds = sample
-        _, h, w = img.shape if hasattr(img, "shape") else (img.mode, *img.size[::-1])
+
+        if hasattr(img, "shape"):
+            _, h, w = img.shape
+        else:
+            w, h = img.size
+
         boxes = tgt["boxes"]
 
         best_iou, best_crop = -1, None
@@ -164,7 +217,8 @@ class OBBIoUCrop(nn.Module):
             x1 = random.randint(0, max(0, w - crop_w))
             y1 = random.randint(0, max(0, h - crop_h))
             x2, y2 = x1 + crop_w, y1 + crop_h
-            iou = self._hbb_iou(boxes, x1 / w, y1 / h, x2 / w, y2 / h)
+            # HBB IoU 近似用于选择裁剪区（标注为近似）
+            iou = self._hbb_iou(boxes, x1, y1, x2, y2)
             if iou > best_iou:
                 best_iou, best_crop = iou, (x1, y1, x2, y2)
 
@@ -173,19 +227,30 @@ class OBBIoUCrop(nn.Module):
 
         x1, y1, x2, y2 = best_crop
 
+        # 裁剪图像
         if hasattr(img, "shape"):
             img = img[:, y1:y2, x1:x2]
         else:
             img = TF.crop(img, y1, x1, y2 - y1, x2 - x1)
 
+        # 纯平移：框中心减去裁剪起点，w/h/θ 不变
         if len(boxes) > 0:
-            boxes[:, 0] = (boxes[:, 0] * w - x1) / (x2 - x1)
-            boxes[:, 1] = (boxes[:, 1] * h - y1) / (y2 - y1)
-            boxes[:, 2] *= w / (x2 - x1)
-            boxes[:, 3] *= h / (y2 - y1)
-            keep = (boxes[:, 2] > 0.005) & (boxes[:, 3] > 0.005)
-            boxes = boxes[keep]
-            tgt["boxes"] = boxes
+            from ...deim.obb_geometry import affine_obb
+
+            tgt["boxes"] = affine_obb(
+                boxes, sx=1.0, sy=1.0, tx=-float(x1), ty=-float(y1)
+            )
+            # 过滤中心落在裁剪区外的框
+            b = tgt["boxes"]
+            keep = (
+                (b[:, 0] > 0)
+                & (b[:, 0] < (x2 - x1))
+                & (b[:, 1] > 0)
+                & (b[:, 1] < (y2 - y1))
+                & (b[:, 2] > 1)
+                & (b[:, 3] > 1)
+            )
+            tgt["boxes"] = b[keep]
             tgt["labels"] = tgt["labels"][keep]
 
         return img, tgt, ds

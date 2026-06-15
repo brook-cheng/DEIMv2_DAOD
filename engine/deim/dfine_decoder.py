@@ -170,7 +170,7 @@ class MSDeformableAttention(nn.Module):
             sina = torch.sin(reference_points[..., 4:] * torch.pi)
             # rot: (bs, Len_q, n_levels, 2, 2)
             rot_matrix = torch.cat([cosa, -sina, sina, cosa], dim=-1).view(
-                bs, Len_q, -1, 2, 2
+                bs, Len_q, 2, 2
             )
             wh = reference_points[..., 2:4] * 0.5
             scaled = (

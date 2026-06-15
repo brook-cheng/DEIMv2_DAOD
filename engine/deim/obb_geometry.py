@@ -169,10 +169,54 @@ def external_rect_to_oriented_box(
     return torch.stack([cx, cy, w_len, h_len, theta], dim=-1)
 
 
+def affine_obb(
+    boxes_xywhr: Tensor, sx: float, sy: float, tx: float = 0.0, ty: float = 0.0
+) -> Tensor:
+    """对 OBB 做像素级仿射变换：v_x' = v_x * sx + tx, v_y' = v_y * sy + ty。
+    通过将 4 个顶点变换后重新拟合 (cx,cy,w,h,θ)，在 sx≠sy 时正确更新 w/h/θ。
+
+    Args:
+        boxes_xywhr: (N, 5)  —  像素坐标 (cx, cy, w, h, θ), θ∈[0,π)。
+        sx, sy:       x、y 方向缩放因子。
+        tx, ty:       x、y 方向平移量（像素）。
+
+    Returns:
+        (N, 5)  —  变换后的 OBB，像素坐标。N=0 时原样返回。
+    """
+    if boxes_xywhr.numel() == 0:
+        return boxes_xywhr
+    vertices = xywhr_to_xyxyxyxy(boxes_xywhr)            # (N, 4, 2)
+    vertices = vertices.clone()                           # 避免污染输入
+    vertices[..., 0] = vertices[..., 0] * sx + tx
+    vertices[..., 1] = vertices[..., 1] * sy + ty
+    return xyxyxyxy_to_xywhr(vertices)
+
+
+def affine_obb_matrix(boxes_xywhr: Tensor, mat: Tensor) -> Tensor:
+    """对 OBB 施加一般前向仿射：v' = A @ v + b（A=mat[:,:2](2,2)，b=mat[:,2](2,)）。
+    将 4 个顶点变换后用 xyxyxyxy_to_xywhr 重拟合 (cx,cy,w,h,θ)。
+
+    Args:
+        boxes_xywhr: (N,5) 像素坐标。
+        mat:         (2,3) 前向仿射矩阵 [A | b]。
+    Returns:
+        (N,5)。N=0 时原样返回。保持 dtype/device。
+    """
+    if boxes_xywhr.numel() == 0:
+        return boxes_xywhr
+    A = mat[:, :2]   # (2,2)
+    b = mat[:, 2]    # (2,)
+    v = xywhr_to_xyxyxyxy(boxes_xywhr).clone()                  # (N,4,2)
+    v = v.to(dtype=A.dtype, device=A.device)
+    v_new = v @ A.T + b                                         # (N,4,2) @ (2,2) + (2,) -> (N,4,2)
+    return xyxyxyxy_to_xywhr(v_new)
+
+
 # ---------------------------------------------------------------------------
 # Self-test
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    import math
     torch.manual_seed(42)
     device = torch.device("cpu")
 
@@ -257,6 +301,200 @@ if __name__ == "__main__":
     recon_batch = external_rect_to_oriented_box(ext_batch, vo_batch)
     err = (recon_batch - obbs).abs().max().item()
     _check(f"{N} random boxes", obbs, tol=1e-5)
+
+    # ── affine_obb 自测 ──
+    print("\n=== affine_obb tests ===")
+    tol_strict = 1e-4
+
+    # Test 1: 空框安全
+    empty = torch.zeros(0, 5, device=device)
+    r = affine_obb(empty, 2.0, 3.0, 10, 20)
+    assert r.shape == (0, 5), f"空框应保持 (0,5)，得到 {r.shape}"
+    passed += 1
+    print("  [PASS] empty boxes safety")
+
+    # Test 2: 纯平移 w/h/θ 不变
+    boxes_t = torch.tensor(
+        [[100.0, 200.0, 80.0, 40.0, 0.785398],
+         [300.0, 400.0, 60.0, 30.0, 2.094395]], device=device
+    )
+    r_t = affine_obb(boxes_t, 1.0, 1.0, 50.0, 30.0)
+    err_t = (r_t[..., 2:5] - boxes_t[..., 2:5]).abs().max().item()
+    cx_ok = (r_t[:, 0] - (boxes_t[:, 0] + 50.0)).abs().max().item()
+    cy_ok = (r_t[:, 1] - (boxes_t[:, 1] + 30.0)).abs().max().item()
+    if err_t < tol_strict and cx_ok < tol_strict and cy_ok < tol_strict:
+        passed += 1
+        print(f"  [PASS] pure translation: whθ max_err={err_t:.2e}, cx_err={cx_ok:.2e}")
+    else:
+        failed += 1
+        print(f"  [FAIL] pure translation: whθ_err={err_t:.2e}, cx={cx_ok:.2e}, cy={cy_ok:.2e}")
+
+    # Test 3: 等比缩放 (sx=sy) w/h 等比变化，θ 不变
+    boxes_u = torch.tensor(
+        [[100.0, 200.0, 80.0, 40.0, 1.2]], device=device
+    )
+    r_u = affine_obb(boxes_u, 2.0, 2.0, 0.0, 0.0)
+    w_ok = abs(r_u[0, 2].item() - 160.0) < 1.0
+    h_ok = abs(r_u[0, 3].item() - 80.0) < 1.0
+    θ_ok = abs(r_u[0, 4].item() - 1.2) < tol_strict
+    if w_ok and h_ok and θ_ok:
+        passed += 1
+        print(f"  [PASS] uniform scale: w={r_u[0,2]:.1f} h={r_u[0,3]:.1f} θ={r_u[0,4]:.4f}")
+    else:
+        failed += 1
+        print(f"  [FAIL] uniform scale: {r_u[0].tolist()}")
+
+    # Test 4: affine_obb 结果与"手动变换顶点再重拟合"一致
+    boxes_r = torch.tensor(
+        [[50.0, 80.0, 60.0, 20.0, 0.523599]], device=device
+    )
+    r_fwd = affine_obb(boxes_r, 0.5, 0.8, 0.0, 0.0)
+    # 手动计算 ground truth: 变换顶点后重拟合
+    v_orig = xywhr_to_xyxyxyxy(boxes_r).clone()
+    v_orig[..., 0] *= 0.5
+    v_orig[..., 1] *= 0.8
+    gt_refit = xyxyxyxy_to_xywhr(v_orig)
+    param_err = (r_fwd - gt_refit).abs().max().item()
+    # 验证变换后顶点位置正确
+    v_fwd = xywhr_to_xyxyxyxy(r_fwd)
+    v_diff = (v_fwd - v_orig).abs().max().item()
+    if param_err < 1e-3 and v_diff < 5.0:
+        passed += 1
+        print(f"  [PASS] affine_obb vs manual refit: param_err={param_err:.2e}, v_diff={v_diff:.2e}")
+    else:
+        failed += 1
+        print(f"  [FAIL] affine_obb vs manual refit: param_err={param_err:.2e}, v_diff={v_diff:.2e}")
+
+    # Test 5: 各向异性缩放 θ 会改变
+    boxes_a = torch.tensor(
+        [[200.0, 200.0, 100.0, 40.0, torch.pi / 4]], device=device
+    )  # 45°, w≠h
+    r_a = affine_obb(boxes_a, 2.0, 0.5, 0.0, 0.0)
+    # 手动验证：对 4 顶点各自缩放后重拟合
+    v_orig = xywhr_to_xyxyxyxy(boxes_a)
+    v_manual = v_orig.clone()
+    v_manual[..., 0] *= 2.0
+    v_manual[..., 1] *= 0.5
+    refit = xyxyxyxy_to_xywhr(v_manual)
+    param_err = (r_a - refit).abs().max().item()
+    # θ 不应保持 45°
+    θ_changed = abs(r_a[0, 4].item() - torch.pi / 4) > 0.01
+    if param_err < tol_strict and θ_changed:
+        passed += 1
+        print(
+            f"  [PASS] anisotropic scale: θ {boxes_a[0,4]:.4f}→{r_a[0,4]:.4f}, param_err={param_err:.2e}"
+        )
+    else:
+        failed += 1
+        print(
+            f"  [FAIL] anisotropic scale: θ_changed={θ_changed}, param_err={param_err:.2e}"
+        )
+        print(f"         affine_obb: {r_a[0].tolist()}")
+        print(f"         manual:     {refit[0].tolist()}")
+
+    # Test 6: 翻转对合性 (flip twice = identity)
+    # 模拟水平翻转：sx=-1, tx=W, sy=1, ty=0
+    W_img = 640.0
+    boxes_f = torch.tensor(
+        [[200.0, 300.0, 100.0, 50.0, 0.785398],
+         [500.0, 100.0, 80.0, 30.0, 2.094395]], device=device
+    )
+    flipped = affine_obb(boxes_f, -1.0, 1.0, W_img, 0.0)
+    restored = affine_obb(flipped, -1.0, 1.0, W_img, 0.0)
+    v_f_err = _vertex_roundtrip_error(
+        xywhr_to_xyxyxyxy(boxes_f), xywhr_to_xyxyxyxy(restored)
+    )
+    if v_f_err < tol_strict:
+        passed += 1
+        print(f"  [PASS] flip roundtrip: vertex_err={v_f_err:.2e}")
+    else:
+        failed += 1
+        print(f"  [FAIL] flip roundtrip: vertex_err={v_f_err:.2e}")
+
+    # ── affine_obb_matrix 自测 ──
+    print("\n=== affine_obb_matrix tests ===")
+    tol_m = 1e-3
+
+    # Test M1: 单位仿射
+    mat_I = torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], device=device)
+    boxes_m1 = torch.tensor([[200., 300., 80., 40., 0.785398]], device=device)
+    r_m1 = affine_obb_matrix(boxes_m1, mat_I)
+    err_m1 = (r_m1 - boxes_m1).abs().max().item()
+    if err_m1 < 1e-4:
+        passed += 1; print(f"  [PASS] identity: err={err_m1:.2e}")
+    else:
+        failed += 1; print(f"  [FAIL] identity: err={err_m1:.2e}")
+
+    # Test M2: 纯旋转 (绕原点 φ=30°)
+    phi = math.radians(30.0)
+    cos_p, sin_p = math.cos(phi), math.sin(phi)
+    A_rot = torch.tensor([[cos_p, -sin_p], [sin_p, cos_p]], device=device)
+    mat_rot = torch.cat([A_rot, torch.zeros(2, 1, device=device)], dim=1)
+    # 方框 80×80，中心 (100,200)，θ=0
+    boxes_m2 = torch.tensor([[100., 200., 80., 80., 0.0]], device=device)
+    r_m2 = affine_obb_matrix(boxes_m2, mat_rot)
+    # 中心旋转后：A_rot @ [100,200]
+    ct_exp = A_rot @ torch.tensor([100., 200.])
+    assert abs(r_m2[0, 0].item() - ct_exp[0].item()) < 1.0
+    assert abs(r_m2[0, 1].item() - ct_exp[1].item()) < 1.0
+    # 方框 w,h 应接近 80（顶点重拟合后方框 w≈h，微小浮动）
+    w_ok = abs(r_m2[0, 2].item() - 80.0) < 2.0 and abs(r_m2[0, 3].item() - 80.0) < 2.0
+    # θ 应约为 30°（对于正方形，可能是 30° 或 30°+90°=120°，两者几何等价）
+    θ_exp = phi % math.pi
+    θ_alt = (phi + math.pi / 2) % math.pi
+    θ_got = r_m2[0, 4].item() % math.pi
+    θ_ok = min(abs(θ_got - θ_exp), abs(θ_got - θ_alt)) < 0.05
+    if w_ok and θ_ok:
+        passed += 1
+        print(f"  [PASS] pure rotation: ct=({r_m2[0,0]:.1f},{r_m2[0,1]:.1f}) w={r_m2[0,2]:.1f} h={r_m2[0,3]:.1f} θ={r_m2[0,4]:.4f}")
+    else:
+        failed += 1
+        print(f"  [FAIL] pure rotation: {r_m2[0].tolist()}")
+
+    # Test M3: 与手动顶点变换一致
+    phi2 = math.radians(15.0)
+    s2 = 1.2
+    A_m3 = torch.tensor(
+        [[s2 * math.cos(phi2), -s2 * math.sin(phi2)],
+         [s2 * math.sin(phi2),  s2 * math.cos(phi2)]], device=device
+    )
+    b_m3 = torch.tensor([50.0, -30.0], device=device)
+    mat_m3 = torch.cat([A_m3, b_m3[:, None]], dim=1)
+    r_m3 = affine_obb_matrix(boxes_m2, mat_m3)
+    # 手动: 顶点变换后重拟合
+    v_man = xywhr_to_xyxyxyxy(boxes_m2).clone().to(device)
+    v_man = v_man @ A_m3.T + b_m3
+    gt_m3 = xyxyxyxy_to_xywhr(v_man)
+    err_m3 = (r_m3 - gt_m3).abs().max().item()
+    if err_m3 < tol_m:
+        passed += 1; print(f"  [PASS] manual consistency: err={err_m3:.2e}")
+    else:
+        failed += 1; print(f"  [FAIL] manual consistency: err={err_m3:.2e}")
+
+    # Test M4: 各向异性 + 旋转
+    boxes_m4 = torch.tensor(
+        [[200., 200., 100., 40., math.pi / 4]], device=device
+    )  # 45°, w≠h
+    A_m4 = torch.tensor([[1.5, -0.5], [0.3, 0.8]], device=device)
+    b_m4 = torch.tensor([20.0, 10.0], device=device)
+    mat_m4 = torch.cat([A_m4, b_m4[:, None]], dim=1)
+    r_m4 = affine_obb_matrix(boxes_m4, mat_m4)
+    v_m4 = xywhr_to_xyxyxyxy(boxes_m4).clone().to(device)
+    v_m4 = v_m4 @ A_m4.T + b_m4
+    gt_m4 = xyxyxyxy_to_xywhr(v_m4)
+    err_m4 = (r_m4 - gt_m4).abs().max().item()
+    θ_changed = abs(r_m4[0, 4].item() - boxes_m4[0, 4].item()) > 0.01
+    if err_m4 < tol_m and θ_changed:
+        passed += 1
+        print(f"  [PASS] aniso+rot: θ {boxes_m4[0,4]:.4f}→{r_m4[0,4]:.4f}, err={err_m4:.2e}")
+    else:
+        failed += 1
+        print(f"  [FAIL] aniso+rot: θ_changed={θ_changed}, err={err_m4:.2e}")
+
+    # Test M5: 空框安全
+    r_m5 = affine_obb_matrix(torch.zeros(0, 5, device=device), mat_m3)
+    assert r_m5.shape == (0, 5)
+    passed += 1; print("  [PASS] empty boxes")
 
     print(f"\n{'='*40}")
     print(f"Passed: {passed},  Failed: {failed}")

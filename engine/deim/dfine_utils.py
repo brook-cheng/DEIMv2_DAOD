@@ -210,13 +210,13 @@ def distance2bbox_obb(points, distance, reg_scale):
     # (ε,η)
     # TODO: 无法确认使用调整后的外接矩形(文献图示方法)，还是使用调整前的外接矩形(逻辑上更加符合逻辑)
     # 使用调整后外接矩形
-    vertex_offsets_adj = (
-        vertex_offsets + distance[..., 4:] * ext_adj_cxcywh[..., 2:] / reg_scale
-    )
-    # 使用调整前外接矩形
     # vertex_offsets_adj = (
-    #     vertex_offsets + distance[..., 4:] * ext_rect_cxcywh[..., 2:] / reg_scale
+    #     vertex_offsets + distance[..., 4:] * ext_adj_cxcywh[..., 2:] / reg_scale
     # )
+    # 使用调整前外接矩形
+    vertex_offsets_adj = (
+        vertex_offsets + distance[..., 4:] * ext_rect_cxcywh[..., 2:] / reg_scale
+    )
 
     return external_rect_to_oriented_box(ext_adjust_xyxy, vertex_offsets_adj)
 

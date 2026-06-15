@@ -7,6 +7,7 @@ import torch
 import torchvision.transforms.v2 as T
 import torchvision.transforms.v2.functional as F
 import random
+import math
 from PIL import Image
 
 from .._misc import convert_to_tv_tensor
@@ -54,6 +55,11 @@ class Mosaic(T.Transform):
             scale=scaling_range,
             fill=fill_value,
         )
+        # 保存范围供 OBB 仿射使用
+        self.rotation_range = rotation_range
+        self.translation_range = translation_range
+        self.scaling_range = scaling_range
+        self.fill_value = fill_value
         self.use_cache = use_cache
         self.mosaic_cache = []
         self.max_cached_images = max_cached_images
@@ -123,7 +129,12 @@ class Mosaic(T.Transform):
             [[0, 0], [max_width, 0], [0, max_height], [max_width, max_height]]
         ).repeat(1, 2)
         if mosaic_samples[0]["labels"]["boxes"].shape[-1] == 5:
-            offsets = torch.cat([offsets, torch.zeros(4, 1)], dim=-1)
+            # OBB (cx,cy,w,h,θ)：仅平移中心，w/h/θ 不变
+            offsets = torch.tensor(
+                [[0, 0], [max_width, 0], [0, max_height], [max_width, max_height]],
+                dtype=torch.float32,
+            )
+            offsets = torch.cat([offsets, torch.zeros(4, 3)], dim=-1)  # [dx,dy,0,0,0]
 
         mosaic_target = []
         for i, sample in enumerate(mosaic_samples):
@@ -159,7 +170,12 @@ class Mosaic(T.Transform):
             [[0, 0], [max_width, 0], [0, max_height], [max_width, max_height]]
         ).repeat(1, 2)
         if targets[0]["boxes"].shape[-1] == 5:
-            offsets = torch.cat([offsets, torch.zeros(4, 1)], dim=-1)
+            # OBB (cx,cy,w,h,θ)：仅平移中心，w/h/θ 不变
+            offsets = torch.tensor(
+                [[0, 0], [max_width, 0], [0, max_height], [max_width, max_height]],
+                dtype=torch.float32,
+            )
+            offsets = torch.cat([offsets, torch.zeros(4, 3)], dim=-1)  # [dx,dy,0,0,0]
         merged_target = {}
         for key in targets[0]:
             if key == "boxes":
@@ -174,6 +190,65 @@ class Mosaic(T.Transform):
             )
 
         return merged_image, merged_target
+
+    def _affine_obb(self, img_pil, target):
+        """对 OBB mosaic 图施加仿射变换（旋转+缩放+平移）。
+
+        图像用逆矩阵 warp（PIL.AFFINE 约定），框用前向矩阵变换；
+        二者共享同一个 (A,b) 采样，保证图像与框一致。
+        画布尺寸保持不变；范围平凡时 no-op。
+        """
+        W, H = img_pil.size
+
+        # 采样仿射参数
+        phi = math.radians(random.uniform(-self.rotation_range, self.rotation_range))
+        s = random.uniform(self.scaling_range[0], self.scaling_range[1])
+        tx = random.uniform(-self.translation_range[0] * W, self.translation_range[0] * W)
+        ty = random.uniform(-self.translation_range[1] * H, self.translation_range[1] * H)
+
+        # 范围平凡时跳过
+        if abs(phi) < 1e-9 and abs(s - 1.0) < 1e-9 and abs(tx) < 0.5 and abs(ty) < 0.5:
+            return img_pil, target
+
+        # 构造前向矩阵 p' = A @ (p - c) + c + t = A @ p + b
+        cx, cy = W / 2.0, H / 2.0
+        cos_p, sin_p = math.cos(phi), math.sin(phi)
+        A = torch.tensor(
+            [[s * cos_p, -s * sin_p],
+             [s * sin_p,  s * cos_p]], dtype=torch.float32
+        )
+        c = torch.tensor([cx, cy], dtype=torch.float32)
+        t = torch.tensor([tx, ty], dtype=torch.float32)
+        b = c + t - A @ c
+        mat_fwd = torch.cat([A, b[:, None]], dim=1)  # (2,3) 前向
+
+        # 逆矩阵用于图像 warp
+        A_inv = torch.inverse(A)
+        b_inv = -A_inv @ b
+        data = (
+            A_inv[0, 0].item(), A_inv[0, 1].item(), b_inv[0].item(),
+            A_inv[1, 0].item(), A_inv[1, 1].item(), b_inv[1].item(),
+        )
+        img_pil = img_pil.transform(
+            (W, H), Image.AFFINE, data,
+            resample=Image.BILINEAR, fillcolor=self.fill_value,
+        )
+
+        # 前向矩阵变换框 + 过滤越界/微小框
+        boxes = target["boxes"]
+        if len(boxes) > 0:
+            from ...deim.obb_geometry import affine_obb_matrix
+
+            boxes = affine_obb_matrix(boxes, mat_fwd.to(boxes.dtype))
+            keep = (
+                (boxes[:, 0] > 0) & (boxes[:, 0] < W)
+                & (boxes[:, 1] > 0) & (boxes[:, 1] < H)
+                & (boxes[:, 2] > 1) & (boxes[:, 3] > 1)
+            )
+            target["boxes"] = boxes[keep]
+            target["labels"] = target["labels"][keep]
+
+        return img_pil, target
 
     @staticmethod
     def _clone(tensor_dict):
@@ -225,9 +300,13 @@ class Mosaic(T.Transform):
                 mosaic_target["masks"], "masks"
             )
 
-        # Apply affine transformations (skip for OBB — not supported)
+        # Apply affine transformations
         if not is_obb:
             mosaic_image, mosaic_target = self.affine_transform(
+                mosaic_image, mosaic_target
+            )
+        elif is_obb:
+            mosaic_image, mosaic_target = self._affine_obb(
                 mosaic_image, mosaic_target
             )
 
