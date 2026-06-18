@@ -233,13 +233,13 @@ if __name__ == "__main__":
     parser.add_argument("--local-rank", type=int, help="local rank id")
     args = parser.parse_args()
 
-    args.config = "./configs/custom_obb/deimv2_obb_sp.yml"
+    args.config = "./configs/custom_obb/deimv2_obb_sp_jyz.yml"
     args.use_amp = False
     # model test part
     # args.test_only = False
     # args.resume = (
     #     "./outputs/deimv2_dinov3_x_custom/best_stg2_freeze_1109_e186_mAP67.pth"
     # )
-    # args.device = "cuda:1"
+    args.device = "cuda:1"
 
     main(args)

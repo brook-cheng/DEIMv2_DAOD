@@ -27,7 +27,7 @@ class DotaDataset(DetDataset):
             label_names = [line.strip() for line in f.readlines()]
         self.label_names = label_names
         self.format = format
-        if self.format != "DOTA" or self.format != "YOLO-OBB":
+        if self.format != "DOTA" and self.format != "YOLO-OBB":
             raise ValueError(
                 f"Unsupported format: {self.format}, must be DOTA or YOLO-OBB"
             )
