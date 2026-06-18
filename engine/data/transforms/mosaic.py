@@ -148,6 +148,7 @@ class Mosaic(T.Transform):
         merged_target = {}
         for key in mosaic_target[0]:
             merged_target[key] = torch.cat([target[key] for target in mosaic_target])
+        merged_target["orig_size"] = torch.tensor(merged_image.size)
 
         return merged_image, merged_target
 
@@ -188,6 +189,7 @@ class Mosaic(T.Transform):
                 if isinstance(values[0], torch.Tensor)
                 else values
             )
+        merged_target["orig_size"] = torch.tensor(merged_image.size)
 
         return merged_image, merged_target
 

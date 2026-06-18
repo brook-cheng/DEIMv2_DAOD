@@ -22,12 +22,12 @@ no_aug_epoch: 15
 #### 设置训练数据
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
-  total_batch_size: 1 # total batch size equals to gpu_nums*batch_size
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
   num_workers: 4
   dataset:
-    img_folder: /mnt/d/project_data/model_test/dota8_test/images/train
-    ann_folder: /mnt/d/project_data/model_test/dota8_test/labels_dota/train
-    classes_file: /mnt/d/project_data/model_test/dota8_test/classes.txt
+    img_folder: /mnt/d/project_data/model_test/dota128_ultralystic/images/train
+    ann_folder: /mnt/d/project_data/model_test/dota128_ultralystic/labels_dota/train
+    classes_file: /mnt/d/project_data/model_test/dota128_ultralystic/classes.txt
     transforms:
       ops:
         - {type: Mosaic, output_size: 320, rotation_range: 10, translation_range: [0.1, 0.1], scaling_range: [0.5, 1.5],
@@ -72,7 +72,7 @@ DINOv3STAsResAtten:
   name: dinov3_vits16plus # 名称参考 engine/backbone/dinov3/vision_transformer.py
   weights_path: /home/cx/win_dir/thired/DEIMv2_DAOD/ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
   interaction_indexes: []   # all layers will be used
-  finetune: False
+  finetune: True
   conv_inplane: 64 # dinov3_hidden_dim/4
   hidden_dim: 256 # dinov3_hidden_dim*2/3
   adapter_type: 'sta'  # 'sta' or 'c3k2'

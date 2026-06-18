@@ -64,6 +64,7 @@ class OBBZoomOut(nn.Module):
         pad_right = int(random.randint(0, int(w * self.pad_level)))
 
         img = TF.pad(img, [pad_left, pad_top, pad_right, pad_bot], fill=self.fill)
+        tgt["orig_size"] = torch.tensor(img.size if hasattr(img, "size") else img.shape[-2:][::-1])
 
         # 纯平移，仅改中心，w/h/θ 不变
         if len(tgt["boxes"]) > 0:
@@ -93,6 +94,7 @@ class OBBResize(nn.Module):
             w, h = img.size  # PIL
 
         img = TF.resize(img, self.size)
+        tgt["orig_size"] = torch.tensor(img.size if hasattr(img, "size") else [img.shape[-1], img.shape[-2]])
 
         H_out, W_out = self.size[0], self.size[1]
         sx = W_out / w
@@ -215,6 +217,7 @@ class OBBIoUCrop(nn.Module):
             img = img[:, y1:y2, x1:x2]
         else:
             img = TF.crop(img, y1, x1, y2 - y1, x2 - x1)
+        tgt["orig_size"] = torch.tensor(img.size if hasattr(img, "size") else [img.shape[-1], img.shape[-2]])
 
         # 纯平移：框中心减去裁剪起点，w/h/θ 不变
         if len(boxes) > 0:

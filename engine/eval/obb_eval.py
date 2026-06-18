@@ -99,17 +99,27 @@ def obb_evaluate(
         orig_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         results = postprocessor(outputs, orig_sizes)
 
-        for res, tgt in zip(results, targets):
-            boxes = res["boxes"].cpu().numpy()
-            scores = res["scores"].cpu().numpy()
-            labels = res["labels"].cpu().numpy()
+        for res, tgt, orig_sz in zip(results, targets, orig_sizes):
+            pred_boxes = res["boxes"].cpu().numpy()
+            pred_scores = res["scores"].cpu().numpy()
+            pred_labels = res["labels"].cpu().numpy()
             gt_boxes = tgt["boxes"].cpu().numpy()
             gt_labels = tgt["labels"].cpu().numpy()
+            # GT boxes are normalized [0,1]; denormalize to pixel coords
+            # to match pred_boxes (postprocessor already denormalizes via orig_sizes)
+            ow, oh = orig_sz.cpu().numpy()
+            if len(gt_boxes) > 0:
+                gt_boxes[:, 0] *= ow
+                gt_boxes[:, 1] *= oh
+                gt_boxes[:, 2] *= ow
+                gt_boxes[:, 3] *= oh
 
             for cls_id in range(num_classes):
-                mask_p = labels == cls_id
+                mask_p = pred_labels == cls_id
                 if mask_p.any():
-                    det = np.concatenate([boxes[mask_p], scores[mask_p, None]], axis=1)
+                    det = np.concatenate(
+                        [pred_boxes[mask_p], pred_scores[mask_p, None]], axis=1
+                    )
                     all_dets[cls_id].append(det)
                 else:
                     all_dets[cls_id].append(np.zeros((0, 6), dtype=np.float32))
