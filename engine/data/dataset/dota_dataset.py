@@ -13,7 +13,7 @@ __all__ = ["DotaDataset"]
 class DotaDataset(DetDataset):
     __inject__ = ["transforms"]
 
-    def __init__(self, img_folder, ann_folder, classes_file, transforms):
+    def __init__(self, img_folder, ann_folder, classes_file, transforms, format):
         super(DotaDataset, self).__init__()
         from ...deim.obb_geometry import xyxyxyxy_to_xywhr
 
@@ -26,6 +26,11 @@ class DotaDataset(DetDataset):
         with open(classes_file, "r") as f:
             label_names = [line.strip() for line in f.readlines()]
         self.label_names = label_names
+        self.format = format
+        if self.format != "DOTA" or self.format != "YOLO-OBB":
+            raise ValueError(
+                f"Unsupported format: {self.format}, must be DOTA or YOLO-OBB"
+            )
         self._img_ann_dict: dict[str, str] = None
 
     def __len__(self):
@@ -74,19 +79,49 @@ class DotaDataset(DetDataset):
         boxes, labels = [], []
         with open(ann_absolute_path, "r") as f:
             ann_lines = f.readlines()
-        for line in ann_lines:
-            parts = line.strip().split()
-            pts = [float(p) for p in parts[:8]]
-            xyxyxyxy = torch.tensor(pts).reshape(4, 2)
-            xywhr = self.xyxyxyxy_to_xywhr(xyxyxyxy)
-            boxes.append(xywhr)
-            cat_parts = parts[8 : len(parts) - 1]
-            cat = " ".join(cat_parts)
-            labels.append(cat_id_dict[cat])
+
+        if self.format == "YOLO-OBB":
+            # YOLO-OBB: label_id x1 y1 x2 y2 x3 y3 x4 y4（归一化坐标）
+            for line in ann_lines:
+                parts = line.strip().split()
+                if len(parts) < 9:
+                    continue
+                cls_id = (
+                    int(parts[0])
+                    if parts[0].lstrip("-").isdigit()
+                    else cat_id_dict.get(parts[0], 0)
+                )
+                pts = [float(p) for p in parts[1:9]]
+                xyxyxyxy = torch.tensor(pts).reshape(4, 2)
+                # 反归一化：归一化坐标 × 图像尺寸 → 像素坐标
+                xyxyxyxy[:, 0] *= w
+                xyxyxyxy[:, 1] *= h
+                xywhr = self.xyxyxyxy_to_xywhr(xyxyxyxy)
+                boxes.append(xywhr)
+                labels.append(cls_id)
+        elif self.format == "DOTA":
+            # DOTA: x1 y1 x2 y2 x3 y3 x4 y4 label_name difficulty（像素坐标）
+            for line in ann_lines:
+                parts = line.strip().split()
+                if len(parts) < 9:
+                    continue
+                pts = [float(p) for p in parts[:8]]
+                xyxyxyxy = torch.tensor(pts).reshape(4, 2)
+                xywhr = self.xyxyxyxy_to_xywhr(xyxyxyxy)
+                boxes.append(xywhr)
+                cat_parts = parts[8 : len(parts) - 1]
+                cat = " ".join(cat_parts)
+                labels.append(cat_id_dict[cat])
+        else:
+            raise ValueError(
+                f"Unsupported format: {self.format}, must be DOTA or YOLO-OBB"
+            )
 
         target = {
-            "boxes": torch.stack(boxes),
-            "labels": torch.tensor(labels),
+            "boxes": torch.stack(boxes) if boxes else torch.zeros(0, 5),
+            "labels": (
+                torch.tensor(labels) if labels else torch.zeros(0, dtype=torch.long)
+            ),
             "orig_size": torch.tensor([w, h]),
         }
         return img, target
