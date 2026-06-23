@@ -98,6 +98,30 @@ class DetSolver(BaseSolver):
         best_stat_print = best_stat.copy()
         start_time = time.time()
         start_epoch = self.last_epoch + 1
+
+        # GradNorm 自适应 loss 权重
+        gradnorm = None
+        gn_cfg = args.yaml_cfg.get("GradNorm", {})
+        if gn_cfg.get("enabled", False):
+            from .gradnorm import GradNorm
+
+            gradnorm = GradNorm(
+                self.model,
+                loss_names=gn_cfg.get(
+                    "loss_names", ["loss_mal", "loss_bbox", "loss_kld", "loss_fgl"]
+                ),
+                shared_param_pattern=gn_cfg.get(
+                    "shared_param_pattern", r"decoder.*layers\.0\."
+                ),
+                alpha=gn_cfg.get("alpha", 0.12),
+                lr=gn_cfg.get("lr", 5e-5),
+            )
+            # 将 criterion 的 weight_dict 重置为 1.0（GradNorm 自己管理权重）
+            for k in gradnorm.loss_names:
+                if k in self.criterion.weight_dict:
+                    self.criterion.weight_dict[k] = 1.0
+            print("[GradNorm] enabled — adaptive loss weighting active")
+
         for epoch in range(start_epoch, args.epoches):
 
             self.train_dataloader.set_epoch(epoch)
@@ -127,6 +151,7 @@ class DetSolver(BaseSolver):
                 writer=self.writer,
                 comet_exp=comet_exp,
                 comet_step=epoch,
+                gradnorm=gradnorm,
             )
 
             if not self.self_lr_scheduler:  # update by epoch

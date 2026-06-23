@@ -22,16 +22,17 @@ no_aug_epoch: 15
 #### 设置训练数据
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
-  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
-  num_workers: 4
+  total_batch_size: 6 # total batch size equals to gpu_nums*batch_size
+  num_workers: 2
   dataset:
-    img_folder: /mnt/d/project_data/model_test/dota128_ultralystic/images/train
-    ann_folder: /mnt/d/project_data/model_test/dota128_ultralystic/labels_dota/train
-    classes_file: /mnt/d/project_data/model_test/dota128_ultralystic/classes.txt
+    img_folder: /mnt/d/cx/thired/mmlab/mmrotate_STD/train/8_gt/train
+    ann_folder: /mnt/d/cx/thired/mmlab/mmrotate_STD/train/8_gt/train
+    classes_file: /mnt/d/cx/thired/mmlab/mmrotate_STD/train/8_gt/classes_gt.txt
+    format: 'DOTA'
     transforms:
       ops:
         - {type: Mosaic, output_size: 320, rotation_range: 10, translation_range: [0.1, 0.1], scaling_range: [0.5, 1.5],
-           probability: 1.0, fill_value: 0, use_cache: True, max_cached_images: 50, random_pop: True}
+           probability: 1.0, fill_value: 0, use_cache: True, max_cached_images: 30, random_pop: True}
         - {type: RandomPhotometricDistort, p: 0.5}
         - {type: OBBZoomOut, fill: 0}
         - {type: OBBIoUCrop, p: 0.8}
@@ -56,9 +57,10 @@ val_dataloader:
   total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
   num_workers: 2
   dataset:
-    img_folder: /mnt/d/project_data/model_test/dota128_ultralystic/images/val
-    ann_folder: /mnt/d/project_data/model_test/dota128_ultralystic/labels_dota/val
-    classes_file: /mnt/d/project_data/model_test/dota128_ultralystic/classes.txt
+    img_folder: /mnt/d/cx/thired/mmlab/mmrotate_STD/train/8_gt/val
+    ann_folder: /mnt/d/cx/thired/mmlab/mmrotate_STD/train/8_gt/val
+    classes_file: /mnt/d/cx/thired/mmlab/mmrotate_STD/train/8_gt/classes_gt.txt
+    format: 'DOTA'
     transforms:
       ops:
         - {type: OBBResize, size: [640, 640]}
@@ -72,7 +74,7 @@ DINOv3STAsResAtten:
   name: dinov3_vits16plus # 名称参考 engine/backbone/dinov3/vision_transformer.py
   weights_path: /home/cx/win_dir/thired/DEIMv2_DAOD/ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
   interaction_indexes: []   # all layers will be used
-  finetune: True
+  finetune: False
   conv_inplane: 64 # dinov3_hidden_dim/4
   hidden_dim: 256 # dinov3_hidden_dim*2/3
   adapter_type: 'sta'  # 'sta' or 'c3k2'
@@ -112,8 +114,13 @@ optimizer:
   weight_decay: 0.000125
 
 ### Loss
+GradNorm:
+  enabled: true
+  alpha: 0.12
+  lr: 0.00005
+
 DEIMCriterion:
-  weight_dict: {loss_mal: 1, loss_bbox: 5, loss_kld: 2, loss_fgl: 0.15}
+  weight_dict: {loss_mal: 1, loss_bbox: 2, loss_kld: 2, loss_fgl: 0.2}
   losses: ['mal', 'boxes', 'local']
   gamma: 1.5
   alpha: 0.75
