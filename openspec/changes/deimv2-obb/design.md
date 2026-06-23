@@ -106,10 +106,10 @@ GradNorm (Chen et al., ICML 2018) was attempted but **fundamentally incompatible
 
 | File | Role |
 |------|------|
-| `engine/solver/kendall.py` | `KendallWeighting(nn.Module)`: learnable `log_sigma`, `weighted_loss()`, `_aggregate_loss()` for aux/dn/enc/pre |
-| `engine/solver/det_engine.py` | Calls `kendall.weighted_loss(loss_dict)` in training loop; separate `kendall_optimizer` stepped alongside main optimizer |
-| `engine/solver/det_solver.py` | Creates `KendallWeighting` + separate `Adam(log_sigma, lr=sigma_lr)`; passes both to `train_one_epoch()` |
-| `configs/custom_obb/deimv2_obb_sp.yml` | `KendallWeighting: {enabled: true, sigma_lr: 0.001, init_log_sigma: 0.0}` |
+| `engine/solver/kendall.py` | `KendallWeighting(nn.Module)`: learnable `log_sigma`, fixed `prior` buffer, `weighted_loss()`, `_aggregate_loss()` for aux/dn/enc/pre |
+| `engine/solver/det_solver.py` | Reads `criterion.weight_dict`, computes `p_i = w_i/mean(w)`, passes as `prior` to `KendallWeighting`; creates separate `Adam(log_sigma, lr=sigma_lr)` |
+| `engine/solver/det_engine.py` | Calls `kendall.weighted_loss(loss_dict)` in training loop; `kendall_optimizer.zero_grad()` + `.step()` alongside main optimizer |
+| `configs/custom_obb/deimv2_obb_sp.yml` | `DEIMCriterion.weight_dict` provides `p_i` source; `KendallWeighting: {enabled: true, sigma_lr: 0.001}` |
 
 Key invariant: `log_sigma` has its own optimizer (not added to main optimizer's param groups) — this avoids `FlatCosineLRScheduler`'s `base_lrs` indexing assuming a fixed number of groups.
 

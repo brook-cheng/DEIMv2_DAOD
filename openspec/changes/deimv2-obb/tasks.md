@@ -182,11 +182,13 @@ Priority-ordered fixes from the code review:
 
 ### Step 9.2: Kendall Uncertainty Weighting ✅
 - [x] 创建 `engine/solver/kendall.py` — `KendallWeighting(nn.Module)` 类
-  - 公式：`L_total = Σ [ 0.5·exp(-2s_i) · L_i + s_i ]`，其中 `s_i = log σ_i` 可学习
+  - 公式：`L_total = Σ [ p_i · 0.5·exp(-2s_i) · L_i + p_i · s_i ]`
+  - `s_i = log σ_i` 可学习（自动平衡量纲），`p_i = weight_dict_i / mean(weight_dict)` 固定先验（用户偏好）
   - 不需要共享参数瓶颈，不需要二阶梯度，天然兼容 grid_sample
   - `_aggregate_loss()` 聚合 aux/dn/enc/pre 后缀
-  - `weighted_loss()` 计算加权 loss + Kendall 正则项
-  - `get_weights()` 返回当前权重（用于 Comet/TensorBoard 日志）
+  - `weighted_loss()` 计算加权 loss + Kendall 正则项（各乘 `self.prior`）
+  - `get_weights()` 返回当前权重（含 prior 乘子，用于 Comet/TensorBoard 日志）
+  - `register_buffer("prior")` 存 p_i，随 model.to(device) 自动迁移
 - [x] 修改 `engine/solver/det_engine.py`
   - 替换 gradnorm 块为 `kendall.weighted_loss(loss_dict)`
   - 为 kendall 单独建 `Adam` optimizer（避免 FlatCosineLRScheduler param group 越界）
@@ -194,31 +196,27 @@ Priority-ordered fixes from the code review:
   - ema/lr 更新不再需要 skip_schedule
 - [x] 修改 `engine/solver/det_solver.py`
   - 从 config 读取 `KendallWeighting` 块
+  - 从 `criterion.weight_dict` 计算归一化 prior 乘子 `p_i`
   - 创建 `KendallWeighting` 实例 + 独立 `Adam` optimizer
   - 传 `kendall=` 和 `kendall_optimizer=` 给 `train_one_epoch()`
-- [x] 修改 `configs/custom_obb/deimv2_obb_sp.yml`
-  - 替换 `GradNorm` 块为 `KendallWeighting: {enabled: true, sigma_lr: 0.001, init_log_sigma: 0.0}`
-- [x] 创建 `test/test_kendall.py` — 5 项单元测试全部通过
+- [x] `configs/custom_obb/deimv2_obb_sp.yml`
+  - 保留 `DEIMCriterion.weight_dict: {loss_mal: 1, loss_bbox: 2, loss_kld: 2, loss_fgl: 0.2}` 不动
+  - `KendallWeighting: {enabled: true, sigma_lr: 0.001, init_log_sigma: 0.0}`
+- [x] 创建 `test/test_kendall.py` — 7 项单元测试全部通过
   - 初始权重均为 0.5
   - 大 loss → 训练后权重降低
   - 聚合 aux/dn/enc 正确
   - log_sigma 正则项有非零梯度
   - 完整训练流程 loss 递减
+  - prior 倍乘初始权重（p=2 → w=1.0 vs p=1 → w=0.5）
+  - prior 倍乘正则梯度（p=2 → grad=-198 vs p=1 → grad=-99）
 - [x] 删除已废弃文件：`gradnorm.py`, `test_gradnorm.py`, `tools/gradnorm_grid_search.py`
-- **Verify**: `train.py` 运行 334+ steps，0 error/NaN/OOM，loss 值稳定，kendall 权重日志到 Comet
+- **Verify**: `train.py` 运行 199+ steps，prior=`['0.769','1.538','1.538','0.154']`（从 weight_dict 推算 ✓），0 error/NaN/OOM
 
 ### 关键设计决策
 | 决策 | 原因 |
 |------|------|
 | 独立 optimizer（非主 optimizer param group） | 避免 FlatCosineLRScheduler 的 base_lrs 越界 |
-| 不搞探针阶段 | Kendall 的 s_i 从 0 开始自动调整，无需探测 |
-| 保留 `_aggregate_loss` 聚合 aux/dn/enc | DEIM 的 aux/dn/enc 输出路径不同，需统一加权 |
-
-### GradNorm vs Kendall 对比
-| 维度 | GradNorm | Kendall |
-|------|----------|---------|
-| 需要共享参数 | ✅（DEIM 不存在） | ❌ |
-| 二阶梯度 | ✅（grid_sampler 不兼容） | ❌ |
-| 初始权重方案 | 探针（需 N 个 batch） | s_i=0 起点自动平衡 |
-| 代码复杂度 | ~200 行 | ~95 行 |
-| 验证 | 架构不兼容 | 训练稳定 334+ steps |
+| `weight_dict` 作为 `register_buffer` 固定先验 | 用户偏好全程保留，Kendall 自适应只影响量纲部分 |
+| p_i 乘正则项（非仅乘 loss 项） | 均衡态分析：`∂L/∂s_i=0` 给出 `exp(-2s_i)=1/L_i`，p_i 两边消掉 → 先验不干扰自适应 |
+| `_aggregate_loss` 聚合 aux/dn/enc | DEIM 的 aux/dn/enc 输出路径不同，需统一加权 |
