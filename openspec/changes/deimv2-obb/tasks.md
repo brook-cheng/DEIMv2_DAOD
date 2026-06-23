@@ -170,12 +170,55 @@ Priority-ordered fixes from the code review:
 - [ ] **#13** `deim_criterion.py:702-703` — Implement `get_loss_meta_info` for OBB
 - [ ] **#14** `obb_transforms.py:71-85` — Remove hardcoded `img_size=(640,640)` in OBBConvertBoxes
 
-## Phase 9 — Additional Features (from git history) ✅
+## Phase 9 — Multi-Task Loss Weighting ✅ (GradNorm → Kendall)
 
-- [x] `gradnorm.py` — Multi-task learning automatic loss weighting (recent)
-- [x] `deimv2_obb_sp_jyz.yml` — Insulator testing config
-- [x] YOLO-OBB annotation format support in DotaDataset
-- [x] Transforms unit tests
-- [x] `origin_size` fix in transforms
-- [x] Model comparison test scripts
-- [x] Inference and benchmark interfaces
+### Step 9.1: GradNorm 尝试（已废弃）
+- [x] ~`gradnorm.py` — Gradient Normalization for adaptive loss weighting~
+  - **已废弃**: GradNorm 要求在共享参数上所有 loss 都有非零梯度，但 DEIM 架构中
+    `loss_mal` 和 `loss_bbox/kld/fgl` 走不同的参数路径，不存在这样的共享参数集。
+  - 网格搜索验证：遍历 177 个 encoder 参数和 83 个 decoder 参数，无一能同时收到
+    4 个 loss 的非零梯度。
+  - `create_graph=True` 还需要 `grid_sampler_2d_backward` 的二阶导数 — PyTorch 未实现。
+
+### Step 9.2: Kendall Uncertainty Weighting ✅
+- [x] 创建 `engine/solver/kendall.py` — `KendallWeighting(nn.Module)` 类
+  - 公式：`L_total = Σ [ 0.5·exp(-2s_i) · L_i + s_i ]`，其中 `s_i = log σ_i` 可学习
+  - 不需要共享参数瓶颈，不需要二阶梯度，天然兼容 grid_sample
+  - `_aggregate_loss()` 聚合 aux/dn/enc/pre 后缀
+  - `weighted_loss()` 计算加权 loss + Kendall 正则项
+  - `get_weights()` 返回当前权重（用于 Comet/TensorBoard 日志）
+- [x] 修改 `engine/solver/det_engine.py`
+  - 替换 gradnorm 块为 `kendall.weighted_loss(loss_dict)`
+  - 为 kendall 单独建 `Adam` optimizer（避免 FlatCosineLRScheduler param group 越界）
+  - 探针阶段逻辑完全移除（Kendall 无需探针）
+  - ema/lr 更新不再需要 skip_schedule
+- [x] 修改 `engine/solver/det_solver.py`
+  - 从 config 读取 `KendallWeighting` 块
+  - 创建 `KendallWeighting` 实例 + 独立 `Adam` optimizer
+  - 传 `kendall=` 和 `kendall_optimizer=` 给 `train_one_epoch()`
+- [x] 修改 `configs/custom_obb/deimv2_obb_sp.yml`
+  - 替换 `GradNorm` 块为 `KendallWeighting: {enabled: true, sigma_lr: 0.001, init_log_sigma: 0.0}`
+- [x] 创建 `test/test_kendall.py` — 5 项单元测试全部通过
+  - 初始权重均为 0.5
+  - 大 loss → 训练后权重降低
+  - 聚合 aux/dn/enc 正确
+  - log_sigma 正则项有非零梯度
+  - 完整训练流程 loss 递减
+- [x] 删除已废弃文件：`gradnorm.py`, `test_gradnorm.py`, `tools/gradnorm_grid_search.py`
+- **Verify**: `train.py` 运行 334+ steps，0 error/NaN/OOM，loss 值稳定，kendall 权重日志到 Comet
+
+### 关键设计决策
+| 决策 | 原因 |
+|------|------|
+| 独立 optimizer（非主 optimizer param group） | 避免 FlatCosineLRScheduler 的 base_lrs 越界 |
+| 不搞探针阶段 | Kendall 的 s_i 从 0 开始自动调整，无需探测 |
+| 保留 `_aggregate_loss` 聚合 aux/dn/enc | DEIM 的 aux/dn/enc 输出路径不同，需统一加权 |
+
+### GradNorm vs Kendall 对比
+| 维度 | GradNorm | Kendall |
+|------|----------|---------|
+| 需要共享参数 | ✅（DEIM 不存在） | ❌ |
+| 二阶梯度 | ✅（grid_sampler 不兼容） | ❌ |
+| 初始权重方案 | 探针（需 N 个 batch） | s_i=0 起点自动平衡 |
+| 代码复杂度 | ~200 行 | ~95 行 |
+| 验证 | 架构不兼容 | 训练稳定 334+ steps |

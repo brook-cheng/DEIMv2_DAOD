@@ -24,3 +24,14 @@ Add oriented bounding box (OBB) support to DEIMv2, enabling detection of arbitra
 ## Non-goals
 - This change does NOT modify existing HBB code paths
 - This change does NOT add ADR-specific FGL loss initially (Phase 2)
+
+## Multi-Task Loss Weighting
+
+DEIMv2-OBB has 4 concurrent losses (mal, bbox, kld, fgl) with different magnitude scales.
+Kendall Uncertainty Weighting (Kendall et al., CVPR 2018) is used for automatic balancing:
+learnable σ_i² parameters are optimized by the model's own gradient descent,
+eliminating manual `weight_dict` tuning.
+
+GradNorm (Chen et al., ICML 2018) was evaluated and ruled out — it requires a shared
+parameter bottleneck that DEIM's architecture does not provide (classification and regression
+paths diverge at the decoder). See `design.md` for details.

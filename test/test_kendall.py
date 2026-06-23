@@ -100,10 +100,37 @@ def test_full_train_flow():
     print(f"[PASS] test_full_train_flow: loss {initial_loss:.4f} → {final_loss:.4f}")
 
 
+def test_prior_multiplies_initial_weight():
+    """prior=2 的 loss 初始权重应为 prior=1 的 2 倍。"""
+    kw = KendallWeighting(["loss_a", "loss_b"], prior=[2.0, 1.0])
+    w = kw.get_weights()
+    assert abs(w["loss_a"] / w["loss_b"] - 2.0) < 0.01, \
+        f"Expected w_a/w_b ≈ 2.0, got {w['loss_a']:.4f}/{w['loss_b']:.4f}"
+    print(f"[PASS] test_prior_multiplies_initial_weight: w_a={w['loss_a']:.4f} w_b={w['loss_b']:.4f}")
+
+
+def test_prior_in_regularizer():
+    """prior 不同 → 正则梯度不同（s_i 的梯度含 p_i 因子）。"""
+    kw1 = KendallWeighting(["loss_a"], prior=[1.0])
+    kw2 = KendallWeighting(["loss_a"], prior=[2.0])
+    ld = {"loss_a": torch.tensor(100.0)}
+    loss1 = kw1.weighted_loss(ld)
+    loss2 = kw2.weighted_loss(ld)
+    loss1.backward()
+    loss2.backward()
+    g1 = kw1.log_sigma.grad.item()
+    g2 = kw2.log_sigma.grad.item()
+    assert abs(g2 / g1 - 2.0) < 0.2, \
+        f"Expected grad ratio ≈ 2.0, got {g2/g1:.3f}"
+    print(f"[PASS] test_prior_in_regularizer: grad1={g1:.4f} grad2={g2:.4f}")
+
+
 if __name__ == "__main__":
     test_init_weights()
     test_weights_diverge_after_training()
     test_aggregate_loss()
     test_regularizer_present()
     test_full_train_flow()
+    test_prior_multiplies_initial_weight()
+    test_prior_in_regularizer()
     print("\n✅ All Kendall tests passed")

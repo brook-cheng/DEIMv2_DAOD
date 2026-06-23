@@ -37,11 +37,15 @@ class KendallWeighting(nn.Module):
           sigma_lr: 0.001
     """
 
-    def __init__(self, loss_names: list, init_log_sigma: float = 0.0):
+    def __init__(self, loss_names: list, init_log_sigma: float = 0.0, prior: list = None):
         super().__init__()
         self.loss_names = loss_names
         self.T = len(loss_names)
         self.log_sigma = nn.Parameter(torch.full((self.T,), init_log_sigma))
+
+        if prior is None:
+            prior = [1.0] * self.T
+        self.register_buffer("prior", torch.tensor(prior, dtype=torch.float32))
 
         # 用于匹配 aux/dn/enc/pre 后缀的 regex
         pat_parts = "|".join(["aux", "dn", "enc", "pre"])
@@ -50,9 +54,9 @@ class KendallWeighting(nn.Module):
         )
 
     def get_weights(self):
-        """返回各 loss 当前权重 dict（用于日志）。"""
+        """返回各 loss 当前权重 dict（用于日志）。包含 prior 乘子。"""
         with torch.no_grad():
-            w = 0.5 * torch.exp(-2.0 * self.log_sigma)
+            w = 0.5 * torch.exp(-2.0 * self.log_sigma) * self.prior
         return {n: w[i].item() for i, n in enumerate(self.loss_names)}
 
     def _aggregate_loss(self, loss_dict: dict, name: str) -> torch.Tensor:
@@ -67,15 +71,16 @@ class KendallWeighting(nn.Module):
         return total
 
     def weighted_loss(self, loss_dict: dict) -> torch.Tensor:
-        """计算加权总 loss = Σ w_i * (聚合 L_i) + Σ s_i。
+        """计算加权总 loss = Σ p_i·w_i·(聚合 L_i) + Σ p_i·s_i。
 
-        w_i = 0.5 * exp(-2 * s_i)，s_i = log σ_i 是正则项。
-        aux/dn/enc/pre 子项自动与对应主 loss_name 共享同一 w_i。
+        w_i = 0.5 * exp(-2 * s_i)，s_i = log σ_i 是正则项，
+        p_i = weight_dict_i / mean(weight_dict) 是固定先验乘子。
+        aux/dn/enc/pre 子项自动与对应主 loss_name 共享同一 w_i 和 p_i。
         """
         loss = None
         for i, name in enumerate(self.loss_names):
             agg = self._aggregate_loss(loss_dict, name)
-            w = 0.5 * torch.exp(-2.0 * self.log_sigma[i])
+            w = 0.5 * torch.exp(-2.0 * self.log_sigma[i]) * self.prior[i]
             contrib = w * agg
             loss = contrib if loss is None else loss + contrib
 
@@ -89,6 +94,6 @@ class KendallWeighting(nn.Module):
             if not is_managed:
                 loss = v if loss is None else loss + v
 
-        # Kendall 正则项：Σ log σ_i = Σ s_i
-        loss = loss + self.log_sigma.sum()
+        # Kendall 正则项：Σ p_i·log σ_i = Σ p_i·s_i
+        loss = loss + (self.log_sigma * self.prior).sum()
         return loss

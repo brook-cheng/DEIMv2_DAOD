@@ -74,6 +74,45 @@ The oriented box is reconstructed as:
 2. Vertex offsets: `(ε, η)` relative to external rect corners → OBB vertices
 3. OBB `(cx,cy,w,h,θ)` via `obb_geometry.decode()`
 
+## Multi-Task Loss Weighting (Kendall Uncertainty)
+
+### Design
+
+Total loss is weighted by learnable task-specific uncertainty parameters σ_i:
+
+```
+L_total = Σ_i [ p_i · 0.5·exp(-2s_i) · L_i + p_i · s_i ]
+
+s_i = log σ_i   (learnable task uncertainty)
+p_i = weight_dict_i / mean(weight_dict)   (fixed prior multiplier)
+```
+
+- `p_i` encodes the user's fixed task preference (e.g., bbox > mal)
+- `s_i` adapts to loss magnitude automatically
+- Both are multiplicative → they compose without interference
+- Equilibrium: `exp(-2s_i) = 1/L_i` regardless of `p_i` → prior doesn't affect self-adaptation
+
+### Why not GradNorm
+
+GradNorm (Chen et al., ICML 2018) was attempted but **fundamentally incompatible** with DEIMv2-OBB:
+
+| Issue | Detail |
+|-------|--------|
+| No shared parameter bottleneck | `loss_mal` → decoder self-attn/ffn; `loss_bbox/kld/fgl` → `dec_bbox_head` MLPs. No single param receives gradient from all 4 losses. Verified via parameter-level grid search (260 params, 0 with full coverage). |
+| `create_graph=True` breaks on deformable attention | `grid_sampler_2d_backward` second derivative not implemented in PyTorch → crashes in `torch.autograd.grad(L_grad, w_i)` |
+| Probe-based init has bootstrap bias | Focal loss at cold-start has inflated gradient norm → `1/‖∇L_mal‖` → weight → 0 + collapse |
+
+### Implementation
+
+| File | Role |
+|------|------|
+| `engine/solver/kendall.py` | `KendallWeighting(nn.Module)`: learnable `log_sigma`, `weighted_loss()`, `_aggregate_loss()` for aux/dn/enc/pre |
+| `engine/solver/det_engine.py` | Calls `kendall.weighted_loss(loss_dict)` in training loop; separate `kendall_optimizer` stepped alongside main optimizer |
+| `engine/solver/det_solver.py` | Creates `KendallWeighting` + separate `Adam(log_sigma, lr=sigma_lr)`; passes both to `train_one_epoch()` |
+| `configs/custom_obb/deimv2_obb_sp.yml` | `KendallWeighting: {enabled: true, sigma_lr: 0.001, init_log_sigma: 0.0}` |
+
+Key invariant: `log_sigma` has its own optimizer (not added to main optimizer's param groups) — this avoids `FlatCosineLRScheduler`'s `base_lrs` indexing assuming a fixed number of groups.
+
 ## Key Invariants
 
 1. **HBB path untouched**: When `box_mode='hbb'`, all code paths use the original logic

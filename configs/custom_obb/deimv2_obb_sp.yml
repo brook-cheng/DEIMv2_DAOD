@@ -120,7 +120,7 @@ KendallWeighting:
   init_log_sigma: 0.0
 
 DEIMCriterion:
-  weight_dict: {loss_mal: 1, loss_bbox: 2, loss_kld: 2, loss_fgl: 0.2}
+  weight_dict: {loss_mal: 4, loss_bbox: 1, loss_kld: 1, loss_fgl: 0.5}
   losses: ['mal', 'boxes', 'local']
   gamma: 1.5
   alpha: 0.75

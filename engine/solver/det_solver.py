@@ -100,22 +100,31 @@ class DetSolver(BaseSolver):
         start_epoch = self.last_epoch + 1
 
         # Kendall Uncertainty Weighting：可学习 σ² 自动平衡 loss 量纲
+        # weight_dict 作为固定先验乘子 p_i = w_i / mean(w)，全程不洗掉
         kendall = None
         kendall_optimizer = None
         kw_cfg = args.yaml_cfg.get("KendallWeighting", {})
         if kw_cfg.get("enabled", False):
             from .kendall import KendallWeighting
 
+            loss_names = kw_cfg.get(
+                "loss_names", ["loss_mal", "loss_bbox", "loss_kld", "loss_fgl"]
+            )
+            # 从 criterion 配置读取 weight_dict，计算再归一先验 p_i
+            wd = self.criterion.weight_dict
+            raw_prior = [wd.get(n, 1.0) for n in loss_names]
+            mean_p = sum(raw_prior) / len(raw_prior)
+            prior = [p / mean_p for p in raw_prior]
+
             kendall = KendallWeighting(
-                loss_names=kw_cfg.get(
-                    "loss_names", ["loss_mal", "loss_bbox", "loss_kld", "loss_fgl"]
-                ),
+                loss_names=loss_names,
                 init_log_sigma=kw_cfg.get("init_log_sigma", 0.0),
+                prior=prior,
             )
             kendall_optimizer = torch.optim.Adam(
                 [kendall.log_sigma], lr=kw_cfg.get("sigma_lr", 0.001),
             )
-            print("[KendallWeighting] enabled — learnable σ² balancing active")
+            print(f"[KendallWeighting] enabled — prior={[f'{p:.3f}' for p in prior]}")
 
         for epoch in range(start_epoch, args.epoches):
 
