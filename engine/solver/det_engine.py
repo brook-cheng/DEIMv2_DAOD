@@ -50,7 +50,8 @@ def train_one_epoch(
     ema: ModelEMA = kwargs.get("ema", None)
     scaler: GradScaler = kwargs.get("scaler", None)
     lr_warmup_scheduler: Warmup = kwargs.get("lr_warmup_scheduler", None)
-    gradnorm = kwargs.get("gradnorm", None)
+    kendall = kwargs.get("kendall", None)
+    kendall_optimizer = kwargs.get("kendall_optimizer", None)
     box_mode = criterion.box_mode
 
     comet_exp = kwargs.get("comet_exp", None)
@@ -120,47 +121,43 @@ def train_one_epoch(
             loss_dict = criterion(outputs, targets, **metas)
 
             optimizer.zero_grad()
+            if kendall_optimizer is not None:
+                kendall_optimizer.zero_grad()
 
-            if gradnorm is not None:
-                # GradNorm: forward graph 仍在，先用 unweighted loss 计算 w_i
-                current_weights = gradnorm.step(loss_dict)
-                # 用 w_i.detach() 加权 — 模型梯度受自适应权重影响，但 w_i 不被模型 backward 改动
-                loss = loss_dict[gradnorm.loss_names[0]] * gradnorm.w_i[0].detach()
-                for i in range(1, gradnorm.T):
-                    name = gradnorm.loss_names[i]
-                    if name in loss_dict:
-                        loss = loss + loss_dict[name] * gradnorm.w_i[i].detach()
-                # 加上非 GradNorm 管理的 loss（如有）
-                for k, v in loss_dict.items():
-                    if k not in gradnorm.loss_names:
-                        loss = loss + v
-                # 记录权重到 Comet / TensorBoard
+            if kendall is not None:
+                loss = kendall.weighted_loss(loss_dict)
+                loss.backward()
+
+                if max_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+                optimizer.step()
+                if kendall_optimizer is not None:
+                    kendall_optimizer.step()
+
                 if dist_utils.is_main_process() and global_step % 10 == 0:
+                    weights = kendall.get_weights()
                     if comet_exp:
-                        for k, w in current_weights.items():
-                            comet_exp.log_metric(f"gradnorm_{k}", w, step=global_step)
+                        for k, w in weights.items():
+                            comet_exp.log_metric(f"kendall_{k}", w, step=global_step)
                     if writer:
-                        for k, w in current_weights.items():
-                            writer.add_scalar(f"GradNorm/{k}", w, global_step)
+                        for k, w in weights.items():
+                            writer.add_scalar(f"Kendall/{k}", w, global_step)
             else:
                 loss: torch.Tensor = sum(loss_dict.values())
+                loss.backward()
 
-            loss.backward()
+                if max_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+                optimizer.step()
 
-            if max_norm > 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+            if ema is not None:
+                ema.update(model)
 
-            optimizer.step()
-
-        # ema
-        if ema is not None:
-            ema.update(model)
-
-        if self_lr_scheduler:
-            optimizer = lr_scheduler.step(cur_iters + i, optimizer)
-        else:
-            if lr_warmup_scheduler is not None:
-                lr_warmup_scheduler.step()
+            if self_lr_scheduler:
+                optimizer = lr_scheduler.step(cur_iters + i, optimizer)
+            else:
+                if lr_warmup_scheduler is not None:
+                    lr_warmup_scheduler.step()
 
         loss_dict_reduced = dist_utils.reduce_dict(loss_dict)
         loss_value = sum(loss_dict_reduced.values())

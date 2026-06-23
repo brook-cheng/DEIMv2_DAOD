@@ -1,5 +1,7 @@
 # DEIMv2-OBB 代码审查报告
 
+> **修复状态核验日期**：2026-06-16 — 对照源码逐项核查，10/11 已修复。详见 §0 结论速览表。
+>
 > 审查对象：`/home/cx/win_dir/thired/DEIMv2_DAOD`（在 DEIMv2/D-FINE 实时检测器上移植 O2-DETR 的定向框检测）
 > 参考实现：`/home/cx/win_dir/thired/ai4rs/projects/rotated_rtdetr`（O2-RTDETR）
 > 参考论文：Ding et al. 2026《Real-Time Oriented Object Detection Transformer》、Huang et al. 2025《Real-Time Object Detection Meets DINOv3 (DEIMv2)》
@@ -10,27 +12,33 @@
 
 ## 0. 结论速览
 
-| # | 位置 | 问题 | 严重度 | 置信度 |
-|---|------|------|--------|--------|
-| 1 | `engine/deim/dfine_decoder.py:167-184` | 旋转交叉注意力数学错误（按旋转后的半边向量逐元素缩放，而非旋转尺寸缩放后的偏移） | 严重 | 高（含反例） |
-| 2 | `engine/data/transforms/mosaic.py:122-134,158-166` | Mosaic 把拼图平移量加到了框的 w、h 上 | 严重 | 高 |
-| 3 | `engine/data/transforms/obb_transforms.py:11-18` | OBBFlip 翻框但不翻图（作者 FIXME） | 严重 | 高 |
-| 4 | `configs/custom_obb/deimv2_obb_sp.yml` | 训练/验证图像归一化不一致（val 有 ImageNet Normalize，train 无） | 严重 | 高 |
-| 5 | `engine/eval/obb_eval.py:157-180` | 每类 AP 被 append 两次，其中一次未按分数排序 | 严重 | 高 |
-| 6 | `engine/eval/{obb_eval,dota_eval}.py` | 评测用 ProbIoU 近似而非精确多边形 IoU（`poly_iou.py` 成死代码） | 主要 | 高 |
-| 7 | `engine/data/transforms/obb_transforms.py` (OBBResize/ZoomOut/IoUCrop) | 对旋转框做各向异性 w/h 缩放却不更新 θ | 主要 | 高 |
-| 8 | `configs/deimv2_obb/deimv2_obb_dinov3_s_dota.yml:4` | include 了不存在的 `../base/deimv2_obb.yml`（加载即崩溃） | 主要（疑似废弃配置） | 高 |
-| 9 | `engine/deim/obb_ops.py:184,198` | KLD 损失行列式 clamp 加错位置 | 中 | 高（位置错确凿） |
-| 10 | `engine/deim/matcher.py:173` | `cost_kld` 实际算 `-ProbIoU` 而非论文的 KL 散度 | 中（命名/语义） | 高（事实）/ 需作者确认是否有意 |
-| 11 | `engine/deim/dfine_utils.py:212 vs 253-255` | ADR 顶点偏移前向/反向缩放基准不一致 | 中 | 高（不一致确凿）/ 精度影响需实测 |
+| # | 位置 | 问题 | 严重度 | 置信度 | 状态 |
+|---|------|------|--------|--------|------|
+| 1 | `engine/deim/dfine_decoder.py:167-184` | 旋转交叉注意力数学错误（按旋转后的半边向量逐元素缩放，而非旋转尺寸缩放后的偏移） | 严重 | 高（含反例） | ✅ 已修复 |
+| 2 | `engine/data/transforms/mosaic.py:122-134,158-166` | Mosaic 把拼图平移量加到了框的 w、h 上 | 严重 | 高 | ✅ 已修复 |
+| 3 | `engine/data/transforms/obb_transforms.py:11-18` | OBBFlip 翻框但不翻图（作者 FIXME） | 严重 | 高 | ✅ 已修复 |
+| 4 | `configs/custom_obb/deimv2_obb_sp.yml` | 训练/验证图像归一化不一致（val 有 ImageNet Normalize，train 无） | 严重 | 高 | ✅ 已修复 |
+| 5 | `engine/eval/obb_eval.py:157-180` | 每类 AP 被 append 两次，其中一次未按分数排序 | 严重 | 高 | ✅ 已修复 |
+| 6 | `engine/eval/{obb_eval,dota_eval}.py` | 评测用 ProbIoU 近似而非精确多边形 IoU（`poly_iou.py` 成死代码） | 主要 | 高 | ❌ 暂缓（见说明） |
+| 7 | `engine/data/transforms/obb_transforms.py` (OBBResize/ZoomOut/IoUCrop) | 对旋转框做各向异性 w/h 缩放却不更新 θ | 主要 | 高 | ✅ 已修复 |
+| 8 | `configs/deimv2_obb/deimv2_obb_dinov3_s_dota.yml:4` | include 了不存在的 `../base/deimv2_obb.yml`（加载即崩溃） | 主要（疑似废弃配置） | 高 | ✅ 已修复 |
+| 9 | `engine/deim/obb_ops.py:184,198` | KLD 损失行列式 clamp 加错位置 | 中 | 高（位置错确凿） | ✅ 已修复 |
+| 10 | `engine/deim/matcher.py:173` | `cost_kld` 实际算 `-ProbIoU` 而非论文的 KL 散度 | 中（命名/语义） | 高（事实）/ 需作者确认是否有意 | ✅ 已修复 |
+| 11 | `engine/deim/dfine_utils.py:212 vs 253-255` | ADR 顶点偏移前向/反向缩放基准不一致 | 中 | 高（不一致确凿）/ 精度影响需实测 | ✅ 已修复 |
 
-> 注：当前**实际训练配置**是 `configs/custom_obb/deimv2_obb_sp.yml`（含真实数据路径）。问题 #8 在另一个疑似废弃的配置里，不影响主链路，但仍应修正或删除。
+> **修复统计**：11 个问题中 10 个已修复，1 个暂缓（#6）。全部 5 个「严重」级别的 bug 均已修复。
+>
+> **关于 #6（ProbIoU → polygon IoU）**：`poly_iou.py` 的精确多边形 IoU 基于逐边求交实现，计算量远超 ProbIoU（高斯近似），在验证集较大时 eval 耗时会显著增加。目前使用 ProbIoU 不影响不同训练 run 之间的相对比对（所有 run 在同一度量标准下），absolute AP 值虽与 DOTA 官方口径略有偏差但不影响训练调优决策。该 bug 标记为「暂缓 —— 后续修复」，届时可考虑向量化加速 `poly_iou` 或将其作为评测阶段的可选项。
+>
+> 注：当前**实际训练配置**是 `configs/custom_obb/deimv2_obb_sp.yml`（含真实数据路径）。问题 #8 在另一个疑似废弃的配置里，不影响主链路。
 
 ---
 
 ## A 组：严重 / 主要 bug（高置信度，建议优先修）
 
-### 1. 旋转交叉注意力数学错误（严重）
+> 修复状态：**全部 8 个已修复**（#1–#5, #7–#8），#6 暂缓（详见上方说明）。
+
+### 1. 旋转交叉注意力数学错误（严重）✅ 已修复
 **位置**：`engine/deim/dfine_decoder.py:167-184`（`MSDeformableAttention.forward` 的 5 维分支）
 
 **现状（错误）**：
@@ -66,7 +74,7 @@ elif reference_points.shape[-1] == 5:
 
 ---
 
-### 2. Mosaic 把平移量加到了框的宽高上（严重）
+### 2. Mosaic 把平移量加到了框的宽高上（严重）✅ 已修复
 **位置**：`engine/data/transforms/mosaic.py:122-134`（`create_mosaic_from_cache`）与 `:158-166`（`create_mosaic_from_dataset`）
 
 **现状（错误）**：
@@ -94,7 +102,7 @@ else:
 
 ---
 
-### 3. OBBFlip 翻框但不翻图（严重）
+### 3. OBBFlip 翻框但不翻图（严重）✅ 已修复
 **位置**：`engine/data/transforms/obb_transforms.py:11-18`（作者已 `# FIXME: 图片没有Flip`）
 
 **现状（错误）**：
@@ -135,7 +143,7 @@ class OBBFlip(nn.Module):
 
 ---
 
-### 4. 训练/验证图像归一化不一致（严重）
+### 4. 训练/验证图像归一化不一致（严重）✅ 已修复
 **位置**：`configs/custom_obb/deimv2_obb_sp.yml`
 - 训练 ops 末尾仅 `ConvertPILImage(scale: True)`（→[0,1]），**无 Normalize**（line 42-43）。
 - 验证 ops 末尾有 `Normalize(mean=ImageNet, std=ImageNet)`（line 66）。
@@ -156,7 +164,7 @@ class OBBFlip(nn.Module):
 
 ---
 
-### 5. 评测 AP 被重复且错误地累加（严重）
+### 5. 评测 AP 被重复且错误地累加（严重）✅ 已修复
 **位置**：`engine/eval/obb_eval.py:157-180`
 
 **现状（错误）**：每个类别循环里 `aps.append` 了**两次**——
@@ -178,7 +186,7 @@ aps.append(_voc_ap(rec, prec, use_07_metric=True))
 
 ---
 
-### 6. 评测使用 ProbIoU 近似而非精确多边形 IoU（主要）
+### 6. 评测使用 ProbIoU 近似而非精确多边形 IoU（主要）❌ 暂缓
 **位置**：`engine/eval/obb_eval.py:147,199` 与 `engine/eval/dota_eval.py:106`（`_poly_iou_8coord` 名为多边形 IoU，内部却调 `batch_probiou`）。同目录精确实现 `engine/eval/poly_iou.py` 成为**死代码**。
 
 **为什么错**：DOTA 官方按多边形 IoU 计算 AP；ProbIoU 是高斯近似，数值不等价，报告的 AP 与官方口径不一致。
@@ -194,7 +202,7 @@ ious = poly_iou(det_t, gt_t).numpy()      # (N_det, M_gt)，与 batch_probiou �
 
 ---
 
-### 7. OBBResize/OBBZoomOut/OBBIoUCrop 对旋转框做各向异性缩放却不更新 θ（主要）
+### 7. OBBResize/OBBZoomOut/OBBIoUCrop 对旋转框做各向异性缩放却不更新 θ（主要）✅ 已修复
 **位置**：`engine/data/transforms/obb_transforms.py`（`OBBResize:50-67`、`OBBZoomOut:22-47`、`OBBIoUCrop:122-191`）
 
 **为什么错**：当 `sx≠sy`（非等比 resize / 非方形 crop）时，旋转矩形经各向异性缩放后**不再是同角度矩形**；仅按 `w*=sx, h*=sy` 并保持 θ，只在 θ∈{0,π/2} 或 sx=sy 时成立。OBBIoUCrop 另用 HBB 轴对齐 IoU 选裁剪框（作者 `# FIXME` 标注）。
@@ -223,7 +231,7 @@ ZoomOut（pad）与 IoUCrop（平移+裁剪）同样用“变换顶点→重拟�
 
 ---
 
-### 8. 配置 include 指向不存在的文件（主要，疑似废弃配置）
+### 8. 配置 include 指向不存在的文件（主要，疑似废弃配置）✅ 已修复
 **位置**：`configs/deimv2_obb/deimv2_obb_dinov3_s_dota.yml:4`
 ```yaml
 __include__: ['../dataset/dota_detection.yml', '../runtime.yml', '../base/deimv2_obb.yml']
@@ -240,7 +248,9 @@ __include__: ['../dataset/dota_detection.yml', '../runtime.yml', 'deimv2_obb.yml
 
 ## B 组：中等严重（事实确凿，定量影响需实测）
 
-### 9. KLD 损失行列式 clamp 加错位置（中）
+> 修复状态：**全部 3 个已修复**（#9–#11）。
+
+### 9. KLD 损失行列式 clamp 加错位置（中）✅ 已修复
 **位置**：`engine/deim/obb_ops.py:184`（`det_t`）、`:198`（`det_p`）
 
 **现状（错误）**：
@@ -256,7 +266,7 @@ det_t = (sigma_t[..., 0, 0] * sigma_t[..., 1, 1] - sigma_t[..., 0, 1].pow(2)).cl
 det_p = (sigma_p[..., 0, 0] * sigma_p[..., 1, 1] - sigma_p[..., 0, 1].pow(2)).clamp(min=eps)
 ```
 
-### 10. `cost_kld` 实为 ProbIoU 而非 KL 散度（中，命名/语义）
+### 10. `cost_kld` 实为 ProbIoU 而非 KL 散度（中，命名/语义）✅ 已修复
 **位置**：`engine/deim/matcher.py:173`
 ```python
 cost_kld = -batch_probiou(out_bbox, tgt_bbox, eps=1e-8)   # 名为 kld，实为 -ProbIoU
@@ -267,7 +277,7 @@ cost_kld = -batch_probiou(out_bbox, tgt_bbox, eps=1e-8)   # 名为 kld，实为 
 - 若工程上沿用 ProbIoU：把键名/变量改为 `cost_probiou` 并在注释中说明（避免误导）。
 - 若需复现论文：改用 KL 散度代价（可用 `obb_ops` 内 Gauss/KLD 路径构造），权重 `ξ_kld=2.0`。
 
-### 11. ADR 顶点偏移前向/反向缩放基准不一致（中）
+### 11. ADR 顶点偏移前向/反向缩放基准不一致（中）✅ 已修复
 **位置**：`engine/deim/dfine_utils.py`
 - 前向解码 `distance2bbox_obb:211-213`：用**调整后**外接矩形 `ext_adj_cxcywh[...,2:]` 缩放顶点偏移。
 - 反向求 FGL 目标 `bbox2distance_obb:253-255`：用**调整前**外接矩形 `ext_rect_cxcywh_pred[...,2:]`。
@@ -301,11 +311,16 @@ return external_rect_to_oriented_box(ext_adjust_xyxy, vertex_offsets_adj)
 ---
 
 ## D. 修复优先级建议
-1. **先修训练正确性**：#2（Mosaic w/h）、#3（OBBFlip 翻图）、#1（旋转注意力）、#4（归一化一致）。这几项会直接导致定向训练严重劣化。
-2. **再修评测可信度**：#5（重复 AP）、#6（poly IoU）。否则无法用 AP 判断其余修复是否生效。
-3. **数值/精度**：#9、#11；命名澄清 #10。
-4. **几何增强严谨化**：#7。
-5. **配置清理**：#8。
+
+> **2026-06-16 更新**：以下 #1–#5, #7–#11 均已完成修复。仅 #6（ProbIoU → polygon IoU）暂缓。
+
+~~1. **先修训练正确性**：#2（Mosaic w/h）、#3（OBBFlip 翻图）、#1（旋转注意力）、#4（归一化一致）。这几项会直接导致定向训练严重劣化。~~
+~~2. **再修评测可信度**：#5（重复 AP）、#6（poly IoU）。否则无法用 AP 判断其余修复是否生效。~~
+~~3. **数值/精度**：#9、#11；命名澄清 #10。~~
+~~4. **几何增强严谨化**：#7。~~
+~~5. **配置清理**：#8。~~
+
+当前唯一待办：#6 — 将 eval 从 ProbIoU 改为精确多边形 IoU。后续修复时需注意性能优化（`poly_iou.py` 的 Python 双重循环在大型验证集上可能成为瓶颈）。
 
 ---
 

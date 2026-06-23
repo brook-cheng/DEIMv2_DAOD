@@ -99,28 +99,23 @@ class DetSolver(BaseSolver):
         start_time = time.time()
         start_epoch = self.last_epoch + 1
 
-        # GradNorm 自适应 loss 权重
-        gradnorm = None
-        gn_cfg = args.yaml_cfg.get("GradNorm", {})
-        if gn_cfg.get("enabled", False):
-            from .gradnorm import GradNorm
+        # Kendall Uncertainty Weighting：可学习 σ² 自动平衡 loss 量纲
+        kendall = None
+        kendall_optimizer = None
+        kw_cfg = args.yaml_cfg.get("KendallWeighting", {})
+        if kw_cfg.get("enabled", False):
+            from .kendall import KendallWeighting
 
-            gradnorm = GradNorm(
-                self.model,
-                loss_names=gn_cfg.get(
+            kendall = KendallWeighting(
+                loss_names=kw_cfg.get(
                     "loss_names", ["loss_mal", "loss_bbox", "loss_kld", "loss_fgl"]
                 ),
-                shared_param_pattern=gn_cfg.get(
-                    "shared_param_pattern", r"decoder.*layers\.0\."
-                ),
-                alpha=gn_cfg.get("alpha", 0.12),
-                lr=gn_cfg.get("lr", 5e-5),
+                init_log_sigma=kw_cfg.get("init_log_sigma", 0.0),
             )
-            # 将 criterion 的 weight_dict 重置为 1.0（GradNorm 自己管理权重）
-            for k in gradnorm.loss_names:
-                if k in self.criterion.weight_dict:
-                    self.criterion.weight_dict[k] = 1.0
-            print("[GradNorm] enabled — adaptive loss weighting active")
+            kendall_optimizer = torch.optim.Adam(
+                [kendall.log_sigma], lr=kw_cfg.get("sigma_lr", 0.001),
+            )
+            print("[KendallWeighting] enabled — learnable σ² balancing active")
 
         for epoch in range(start_epoch, args.epoches):
 
@@ -151,7 +146,8 @@ class DetSolver(BaseSolver):
                 writer=self.writer,
                 comet_exp=comet_exp,
                 comet_step=epoch,
-                gradnorm=gradnorm,
+                kendall=kendall,
+                kendall_optimizer=kendall_optimizer,
             )
 
             if not self.self_lr_scheduler:  # update by epoch
