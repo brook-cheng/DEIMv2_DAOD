@@ -10,6 +10,7 @@ import os
 import pytest
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -33,17 +34,21 @@ def test_cdn_generation():
     targets = [
         {
             "labels": torch.tensor([3, 7]),
-            "boxes": torch.tensor([
-                [0.3, 0.4, 0.20, 0.30, 0.5],
-                [0.6, 0.6, 0.15, 0.25, 1.2],
-            ]),
+            "boxes": torch.tensor(
+                [
+                    [0.3, 0.4, 0.20, 0.30, 0.5],
+                    [0.6, 0.6, 0.15, 0.25, 1.2],
+                ]
+            ),
         },
         {
             "labels": torch.tensor([3, 7]),
-            "boxes": torch.tensor([
-                [0.2, 0.3, 0.10, 0.20, 2.0],
-                [0.7, 0.5, 0.20, 0.15, 0.8],
-            ]),
+            "boxes": torch.tensor(
+                [
+                    [0.2, 0.3, 0.10, 0.20, 2.0],
+                    [0.7, 0.5, 0.20, 0.15, 0.8],
+                ]
+            ),
         },
     ]
 
@@ -67,13 +72,20 @@ def test_cdn_generation():
     actual_denoising = 200
 
     # ── shape assertions ──
-    assert input_query_logits.shape == (2, actual_denoising, num_classes), (
-        f"Expected (2, {actual_denoising}, {num_classes}), got {input_query_logits.shape}"
-    )
-    assert input_query_bbox_unact.shape == (2, actual_denoising, 5), (
-        f"Expected (2, {actual_denoising}, 5), got {input_query_bbox_unact.shape}"
-    )
-    assert attn_mask.shape == (actual_denoising + num_queries, actual_denoising + num_queries), (
+    assert input_query_logits.shape == (
+        2,
+        actual_denoising,
+        num_classes,
+    ), f"Expected (2, {actual_denoising}, {num_classes}), got {input_query_logits.shape}"
+    assert input_query_bbox_unact.shape == (
+        2,
+        actual_denoising,
+        5,
+    ), f"Expected (2, {actual_denoising}, 5), got {input_query_bbox_unact.shape}"
+    assert attn_mask.shape == (
+        actual_denoising + num_queries,
+        actual_denoising + num_queries,
+    ), (
         f"Expected ({actual_denoising + num_queries}, {actual_denoising + num_queries}), "
         f"got {attn_mask.shape}"
     )
@@ -82,25 +94,34 @@ def test_cdn_generation():
     # ── metadata assertions ──
     assert dn_meta is not None, "dn_meta should not be None"
     assert dn_meta["dn_num_group"] >= 1, f"dn_num_group={dn_meta['dn_num_group']} < 1"
-    assert dn_meta["dn_num_split"] == [actual_denoising, num_queries], (
-        f"Expected [{actual_denoising}, {num_queries}], got {dn_meta['dn_num_split']}"
-    )
-    assert len(dn_meta["dn_positive_idx"]) == 2, (
-        f"Expected 2 positive index groups, got {len(dn_meta['dn_positive_idx'])}"
-    )
+    assert dn_meta["dn_num_split"] == [
+        actual_denoising,
+        num_queries,
+    ], f"Expected [{actual_denoising}, {num_queries}], got {dn_meta['dn_num_split']}"
+    assert (
+        len(dn_meta["dn_positive_idx"]) == 2
+    ), f"Expected 2 positive index groups, got {len(dn_meta['dn_positive_idx'])}"
 
     # ── value-domain assertions ──
-    assert torch.isfinite(input_query_logits).all(), "input_query_logits contains NaN/Inf"
-    assert torch.isfinite(input_query_bbox_unact).all(), "input_query_bbox_unact contains NaN/Inf"
+    assert torch.isfinite(
+        input_query_logits
+    ).all(), "input_query_logits contains NaN/Inf"
+    assert torch.isfinite(
+        input_query_bbox_unact
+    ).all(), "input_query_bbox_unact contains NaN/Inf"
 
     # ── edge case: num_denoising=0 → all None ──
     r_zero = get_contrastive_denoising_training_group(
-        targets, num_classes, num_queries, class_embed,
-        num_denoising=0, box_mode="obb",
+        targets,
+        num_classes,
+        num_queries,
+        class_embed,
+        num_denoising=0,
+        box_mode="obb",
     )
-    assert all(v is None for v in r_zero), (
-        f"Expected all-None for num_denoising=0, got {[type(v).__name__ for v in r_zero]}"
-    )
+    assert all(
+        v is None for v in r_zero
+    ), f"Expected all-None for num_denoising=0, got {[type(v).__name__ for v in r_zero]}"
 
     # ── edge case: empty targets → all None ──
     empty_targets = [
@@ -108,17 +129,22 @@ def test_cdn_generation():
         {"labels": torch.empty(0, dtype=torch.long), "boxes": torch.empty(0, 5)},
     ]
     r_empty = get_contrastive_denoising_training_group(
-        empty_targets, num_classes, num_queries, class_embed,
-        num_denoising=100, box_mode="obb",
+        empty_targets,
+        num_classes,
+        num_queries,
+        class_embed,
+        num_denoising=100,
+        box_mode="obb",
     )
-    assert all(v is None for v in r_empty), (
-        f"Expected all-None for empty targets, got {[type(v).__name__ for v in r_empty]}"
-    )
+    assert all(
+        v is None for v in r_empty
+    ), f"Expected all-None for empty targets, got {[type(v).__name__ for v in r_empty]}"
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # GPU-backed tests (shared setup)
 # ═══════════════════════════════════════════════════════════════════════
+
 
 def _cdn_gpu_setup():
     """Shared GPU setup for CDN visualization and gradient tests.
@@ -228,10 +254,11 @@ def _draw_obb_boxes(ax, boxes_px, color, labels=None, scores=None, linewidth=1.5
             ax.text(cx, cy + h / 2 + 4, sc, color=color, fontsize=5, ha="center")
 
 
-def _draw_obb_ellipses(ax, boxes_px, color, linewidth=1.5):
+def _draw_obb_ellipses(ax, boxes_px, color, labels=None, linewidth=1.5):
     """Draw OBB boxes as Gaussian covariance ellipses (1-sigma contour).
 
     boxes_px: (N, 5) — [cx, cy, w, h, theta] in pixel coords, theta in radians.
+    labels:   (N,) optional — label IDs drawn next to each ellipse center.
     """
     import numpy as np
     from matplotlib.patches import Ellipse
@@ -250,10 +277,31 @@ def _draw_obb_ellipses(ax, boxes_px, color, linewidth=1.5):
         height = 2 * np.sqrt(max(eigvals[1], 1e-6))
         angle = np.degrees(np.arctan2(eigvecs[1, 0], eigvecs[0, 0]))
         ell = Ellipse(
-            (cx, cy), width, height, angle=angle,
-            linewidth=linewidth, edgecolor=color, facecolor="none", alpha=0.6,
+            (cx, cy),
+            width,
+            height,
+            angle=angle,
+            linewidth=linewidth,
+            edgecolor=color,
+            facecolor="none",
+            alpha=0.6,
         )
         ax.add_patch(ell)
+        if labels is not None:
+            lbl = str(int(labels[i].item())) if labels.dim() > 0 else str(labels)
+            ax.text(
+                cx,
+                cy,
+                lbl,
+                color=color,
+                fontsize=7,
+                ha="center",
+                va="center",
+                fontweight="bold",
+                bbox=dict(
+                    boxstyle="round,pad=0.15", facecolor="white", alpha=0.7, lw=0.5
+                ),
+            )
 
 
 def test_cdn_visualization():
@@ -362,17 +410,13 @@ def test_cdn_visualization():
 
         # Panel 3: CDN positive queries
         axes[2].imshow(img_np)
-        axes[2].set_title(
-            f"Image {img_idx}: CDN positive (red, n={len(pos_idx)})"
-        )
+        axes[2].set_title(f"Image {img_idx}: CDN positive (red, n={len(pos_idx)})")
         _draw_obb_boxes(axes[2], dn_pos_boxes_px, "red", scores=dn_pos_scores)
         axes[2].axis("off")
 
         # Panel 4: CDN negative queries
         axes[3].imshow(img_np)
-        axes[3].set_title(
-            f"Image {img_idx}: CDN negative (orange, n={len(neg_idx)})"
-        )
+        axes[3].set_title(f"Image {img_idx}: CDN negative (orange, n={len(neg_idx)})")
         _draw_obb_boxes(axes[3], dn_neg_boxes_px, "orange", scores=dn_neg_scores)
         axes[3].axis("off")
 
@@ -406,15 +450,11 @@ def test_cdn_gradient():
     loss_dict = criterion(outputs, targets)
 
     # ── CDN loss ratio ──
-    dn_loss = sum(
-        v.item() for k, v in loss_dict.items() if "_dn_" in k
-    )
+    dn_loss = sum(v.item() for k, v in loss_dict.items() if "_dn_" in k)
     total_loss = sum(v.item() for v in loss_dict.values())
     ratio = dn_loss / total_loss if total_loss > 0 else 0.0
     print(f"dn_loss={dn_loss:.2f}, total_loss={total_loss:.2f}, ratio={ratio:.4f}")
-    assert 0.05 < ratio < 0.95, (
-        f"dn/total ratio {ratio:.4f} outside [0.05, 0.95]"
-    )
+    assert 0.05 < ratio < 0.95, f"dn/total ratio {ratio:.4f} outside [0.05, 0.95]"
 
     # ── grad checkpoint param ──
     grad_param_name = "decoder.decoder.layers.0.self_attn.in_proj_weight"
@@ -437,23 +477,17 @@ def test_cdn_gradient():
     assert grad_tensor is not None, f"No parameter named {grad_param_name}"
     mal_grad_norm = grad_tensor.grad.norm().item()
     print(f"loss_mal grad norm ({grad_param_name}): {mal_grad_norm:.6f}")
-    assert mal_grad_norm > 1e-6, (
-        f"Non-CDN loss gradient too small: {mal_grad_norm:.6e}"
-    )
+    assert mal_grad_norm > 1e-6, f"Non-CDN loss gradient too small: {mal_grad_norm:.6e}"
 
     # ── Gradient from CDN loss (sum of _dn_.*_mal) ──
-    dn_mal = sum(
-        v for k, v in loss_dict.items() if "_dn_" in k and "_mal" in k
-    )
+    dn_mal = sum(v for k, v in loss_dict.items() if "_dn_" in k and "_mal" in k)
     if dn_mal > 0:
         model.zero_grad()
         dn_mal.backward(retain_graph=True)
 
         dn_grad_norm = grad_tensor.grad.norm().item()
         print(f"dn_mal grad norm ({grad_param_name}): {dn_grad_norm:.6f}")
-        assert dn_grad_norm > 1e-6, (
-            f"CDN loss gradient too small: {dn_grad_norm:.6e}"
-        )
+        assert dn_grad_norm > 1e-6, f"CDN loss gradient too small: {dn_grad_norm:.6e}"
     else:
         print("dn_mal is zero — skipping CDN gradient check")
 
@@ -471,55 +505,53 @@ def test_cdn_generation_visualization():
 
     class_embed = nn.Embedding(num_classes + 1, hidden_dim, padding_idx=num_classes)
 
-    targets = [
-        {
-            "labels": torch.tensor([3, 7]),
-            "boxes": torch.tensor([
-                [0.30, 0.40, 0.20, 0.30, 0.50],
-                [0.60, 0.60, 0.15, 0.25, 1.20],
-            ]),
-        },
-        {
-            "labels": torch.tensor([3, 7]),
-            "boxes": torch.tensor([
-                [0.20, 0.30, 0.10, 0.20, 2.00],
-                [0.70, 0.50, 0.20, 0.15, 0.80],
-            ]),
-        },
-    ]
-
-    logits, bbox_unact, attn_mask, dn_meta = get_contrastive_denoising_training_group(
-        targets=targets,
-        num_classes=num_classes,
-        num_queries=num_queries,
-        class_embed=class_embed,
-        num_denoising=num_denoising,
-        label_noise_ratio=0.5,
-        box_noise_scale=1.0,
-        box_mode="obb",
-    )
-    assert logits is not None, "CDN generation returned None"
-
-    actual_denoising = bbox_unact.shape[1]  # 40 = 2*2*(20//2)
-    dn_positive_idx = dn_meta["dn_positive_idx"]
-
-    # Denormalize: inverse_sigmoid space → sigmoid → rescale θ
-    cdn_bboxes_norm = bbox_unact.sigmoid()  # (2, actual_denoising, 5)
-    cdn_bboxes_norm[..., 4] = cdn_bboxes_norm[..., 4] * torch.pi  # θ back to [0,π]
+    # ── generate random samples across GT quantity levels ──
+    num_gts_per_image = [1, 2, 5, 10, 20, 50, 100]
+    rng = torch.Generator().manual_seed(42)
+    img_w, img_h = 640.0, 640.0
 
     import matplotlib
+
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
 
     output_dir = "test/outputs/cdn_inspect"
     os.makedirs(output_dir, exist_ok=True)
-    img_w, img_h = 640.0, 640.0
 
-    for img_idx in range(2):
-        gt_boxes = targets[img_idx]["boxes"]
+    for level_idx, n_gt in enumerate(num_gts_per_image):
+        # ── random GT: cx,cy ∈ [0.15,0.85], w,h ∈ [0.03,0.25], θ ∈ [0,π] ──
+        cx = 0.15 + 0.70 * torch.rand(n_gt, generator=rng)
+        cy = 0.15 + 0.70 * torch.rand(n_gt, generator=rng)
+        w = 0.03 + 0.22 * torch.rand(n_gt, generator=rng)
+        h = 0.03 + 0.22 * torch.rand(n_gt, generator=rng)
+        theta = torch.pi * torch.rand(n_gt, generator=rng)
+        gt_boxes = torch.stack([cx, cy, w, h, theta], dim=-1)
+        gt_labels = torch.randint(0, num_classes, (n_gt,))
 
-        # Denormalize GT
+        targets = [{"labels": gt_labels, "boxes": gt_boxes}]
+
+        # ── CDN generation (batch=1 for simplicity) ──
+        logits, bbox_unact, _attn, dn_meta = get_contrastive_denoising_training_group(
+            targets=targets,
+            num_classes=num_classes,
+            num_queries=num_queries,
+            class_embed=class_embed,
+            num_denoising=num_denoising,
+            label_noise_ratio=0.5,
+            box_noise_scale=0.5,
+            box_mode="obb",
+        )
+        assert logits is not None, f"CDN generation returned None for n_gt={n_gt}"
+
+        actual_denoising = bbox_unact.shape[1]
+        dn_positive_idx = dn_meta["dn_positive_idx"]
+
+        # Denormalize CDN bboxes: inverse_sigmoid → sigmoid → θ back to [0,π]
+        cdn_bboxes_norm = bbox_unact.sigmoid()
+        cdn_bboxes_norm[..., 4] = cdn_bboxes_norm[..., 4] * torch.pi
+
+        # ── denormalize GT to pixel ──
         gt_px = gt_boxes.clone()
         gt_px[:, 0] *= img_w
         gt_px[:, 1] *= img_h
@@ -527,8 +559,9 @@ def test_cdn_generation_visualization():
         gt_px[:, 3] *= img_h
 
         # CDN positive: correct label + box noise
-        pos_idx = dn_positive_idx[img_idx]
-        pos_px = cdn_bboxes_norm[img_idx][pos_idx].clone()
+        pos_idx = dn_positive_idx[0]  # batch=1
+        pos_labels = gt_labels[pos_idx % (2 * n_gt)]
+        pos_px = cdn_bboxes_norm[0][pos_idx].clone()
         pos_px[:, 0] *= img_w
         pos_px[:, 1] *= img_h
         pos_px[:, 2] *= img_w
@@ -538,47 +571,73 @@ def test_cdn_generation_visualization():
         all_idx = set(range(actual_denoising))
         neg_idx_list = sorted(all_idx - set(pos_idx.tolist()))
         neg_idx = torch.tensor(neg_idx_list)
-        neg_px = cdn_bboxes_norm[img_idx][neg_idx].clone()
+        neg_px = cdn_bboxes_norm[0][neg_idx].clone()
         neg_px[:, 0] *= img_w
         neg_px[:, 1] *= img_h
         neg_px[:, 2] *= img_w
         neg_px[:, 3] *= img_h
 
+        # recover negative query labels from embedding (cosine nearest match)
+        neg_logits = logits[0][neg_idx]
+        neg_logits_n = F.normalize(neg_logits.float(), dim=-1)
+        embed_w = class_embed.weight[:num_classes]
+        embed_w_n = F.normalize(embed_w.float(), dim=-1)
+        neg_labels = (neg_logits_n @ embed_w_n.T).argmax(dim=-1)
+
         # ── 3-panel figure ──
         fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+        fig.suptitle(
+            f"n_gt={n_gt}  |  CDN: {actual_denoising} queries (pos={len(pos_idx)}, neg={len(neg_idx)})",
+            fontsize=13,
+        )
 
         axes[0].set_xlim(0, img_w)
         axes[0].set_ylim(img_h, 0)
         axes[0].set_aspect("equal")
-        axes[0].set_title(f"GT (green ellipses)\nImage {img_idx}")
-        _draw_obb_ellipses(axes[0], gt_px, "green", linewidth=2.0)
-        axes[0].scatter(gt_px[:, 0], gt_px[:, 1], c="green", s=30, marker="x", zorder=5)
+        axes[0].set_title(f"GT ({n_gt} boxes)")
+        _draw_obb_ellipses(
+            axes[0],
+            gt_px,
+            "green",
+            labels=gt_labels,
+            linewidth=max(0.5, 3.0 - 0.03 * n_gt),
+        )
+        axes[0].scatter(gt_px[:, 0], gt_px[:, 1], c="green", s=10, marker="x", zorder=5)
 
         axes[1].set_xlim(0, img_w)
         axes[1].set_ylim(img_h, 0)
         axes[1].set_aspect("equal")
-        axes[1].set_title(f"CDN Positive ({len(pos_idx)} queries)\nCorrect label + box noise")
-        _draw_obb_boxes(axes[1], pos_px, "red", linewidth=1.0)
-        axes[1].scatter(pos_px[:, 0], pos_px[:, 1], c="red", s=20, marker="o", alpha=0.5, zorder=5)
+        axes[1].set_title(f"CDN Positive ({len(pos_idx)} queries)")
+        _draw_obb_ellipses(axes[1], gt_px, "green", labels=gt_labels, linewidth=2)
+        _draw_obb_boxes(axes[1], gt_px, "green", linewidth=2)
+        _draw_obb_boxes(axes[1], pos_px, "red", labels=pos_labels, linewidth=0.8)
+        axes[1].scatter(
+            pos_px[:, 0], pos_px[:, 1], c="red", s=8, marker="o", alpha=0.4, zorder=5
+        )
 
         axes[2].set_xlim(0, img_w)
         axes[2].set_ylim(img_h, 0)
         axes[2].set_aspect("equal")
-        axes[2].set_title(f"CDN Negative ({len(neg_idx)} queries)\nWrong label + box noise")
-        _draw_obb_boxes(axes[2], neg_px, "orange", linewidth=1.0)
-        axes[2].scatter(neg_px[:, 0], neg_px[:, 1], c="orange", s=20, marker="o", alpha=0.5, zorder=5)
+        axes[2].set_title(f"CDN Negative ({len(neg_idx)} queries)")
+        _draw_obb_ellipses(axes[2], gt_px, "green", labels=gt_labels, linewidth=2)
+        _draw_obb_boxes(axes[2], gt_px, "green", linewidth=2)
+        _draw_obb_boxes(axes[2], neg_px, "orange", labels=neg_labels, linewidth=0.8)
+        axes[2].scatter(
+            neg_px[:, 0], neg_px[:, 1], c="orange", s=8, marker="o", alpha=0.4, zorder=5
+        )
 
         for ax in axes:
-            ax.grid(True, alpha=0.3)
+            ax.grid(True, alpha=0.2)
 
         plt.tight_layout()
-        out_path = os.path.join(output_dir, f"cdn_input_viz_sample{img_idx}.png")
-        plt.savefig(out_path, dpi=100)
+        out_path = os.path.join(output_dir, f"cdn_input_viz_n{level_idx}_{n_gt}.png")
+        plt.savefig(out_path, dpi=120)
         plt.close()
+        print(f"  [{level_idx}] n_gt={n_gt:3d} → {out_path}")
 
     # ── assertions ──
-    for img_idx in range(2):
-        path = os.path.join(output_dir, f"cdn_input_viz_sample{img_idx}.png")
+    for level_idx, n_gt in enumerate(num_gts_per_image):
+        path = os.path.join(output_dir, f"cdn_input_viz_n{level_idx}_{n_gt}.png")
         assert os.path.exists(path), f"Missing {path}"
         size = os.path.getsize(path)
         assert size > 5000, f"{path} too small: {size} bytes"

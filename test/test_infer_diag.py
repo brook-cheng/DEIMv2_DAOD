@@ -20,8 +20,29 @@ from engine.solver import TASKS
 OUTPUT_DIR = os.path.join(ROOT, "test", "outputs", "infer_diag")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0),
-          (255, 0, 255), (0, 255, 255), (255, 128, 0)] * 3
+# 按 class ID 固定颜色映射，同类目标颜色一致
+COLORS = [
+    (255,  50,  50),   # 0: red
+    ( 50, 200,  50),   # 1: green
+    ( 50,  50, 255),   # 2: blue
+    (255, 200,   0),   # 3: orange/yellow
+    (200,   0, 200),   # 4: magenta
+    (  0, 200, 200),   # 5: cyan
+    (180, 100,  50),   # 6: brown
+    (100, 180,  50),   # 7: olive
+    ( 50, 100, 200),   # 8: steel blue
+    (200,  50, 100),   # 9: rose
+    (140, 140, 140),   # 10: gray
+    (255, 100, 150),   # 11: pink
+    (150, 255, 100),   # 12: lime
+    (100, 150, 255),   # 13: sky
+    (255, 150,  50),   # 14: tangerine
+    (150,  50, 255),   # 15: violet
+    ( 50, 255, 200),   # 16: mint
+    (200, 200, 100),   # 17: sand
+    (100, 200, 255),   # 18: light blue
+    (255, 100, 200),   # 19: hot pink
+]
 
 
 def load_model(ckpt_path, config_path):
@@ -36,28 +57,35 @@ def load_model(ckpt_path, config_path):
     return solver.model, solver.postprocessor, cfg
 
 
-def draw_obb(draw, boxes, labels, scores=None, color_offset=0, width=2):
-    """在 PIL ImageDraw 上绘制 OBB 旋转矩形。"""
+def draw_obb(draw, boxes, labels, scores=None, width=2):
+    """在 PIL ImageDraw 上绘制 OBB 旋转矩形，颜色由 label ID 固定映射。"""
     if boxes.numel() == 0:
         return
     verts = xywhr_to_xyxyxyxy(boxes)
     for i in range(len(boxes)):
-        c = COLORS[(color_offset + i) % len(COLORS)]
+        lid = int(labels[i].item())
+        c = COLORS[lid % len(COLORS)]
         pts = [(float(verts[i, j, 0]), float(verts[i, j, 1])) for j in range(4)]
         draw.polygon(pts, outline=c, width=width)
         cx, cy = float(boxes[i, 0]), float(boxes[i, 1])
-        label = f"{labels[i].item()}" if labels is not None else str(i)
+        label = str(lid)
         if scores is not None:
             label += f"({scores[i]:.2f})"
         bbox = draw.textbbox((cx + 4, cy - 14), label)
-        draw.rectangle([bbox[0] - 2, bbox[1] - 1, bbox[2] + 2, bbox[3] + 1], fill=(30, 30, 30))
+        draw.rectangle(
+            [bbox[0] - 2, bbox[1] - 1, bbox[2] + 2, bbox[3] + 1], fill=(30, 30, 30)
+        )
         draw.text((cx + 4, cy - 14), label, fill=c)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ckpt", default=os.path.join(ROOT, "outputs/deimv2_obb_sp_custom/last.pth"))
-    parser.add_argument("--config", default=os.path.join(ROOT, "configs/custom_obb/deimv2_obb_sp.yml"))
+    parser.add_argument(
+        "--ckpt", default=os.path.join(ROOT, "outputs/deimv2_obb_sp_custom/last.pth")
+    )
+    parser.add_argument(
+        "--config", default=os.path.join(ROOT, "configs/custom_obb/deimv2_obb_sp.yml")
+    )
     parser.add_argument("--num", type=int, default=4, help="推理图片数")
     parser.add_argument("--conf", type=float, default=0.1, help="预测框置信度阈值")
     args = parser.parse_args()
@@ -94,10 +122,10 @@ def main():
                 break
             processed += 1
 
-            pred_boxes = res["boxes"]       # (N_pred, 5) 像素坐标
-            pred_scores = res["scores"]     # (N_pred,)
-            pred_labels = res["labels"]     # (N_pred,)
-            gt_boxes = tgt["boxes"]         # (N_gt, 5) 归一化
+            pred_boxes = res["boxes"]  # (N_pred, 5) 像素坐标
+            pred_scores = res["scores"]  # (N_pred,)
+            pred_labels = res["labels"]  # (N_pred,)
+            gt_boxes = tgt["boxes"]  # (N_gt, 5) 归一化
             gt_labels = tgt["labels"]
 
             ow, oh = orig_sizes[i].cpu().numpy()
@@ -114,9 +142,15 @@ def main():
             mid_conf = ((pred_scores > 0.1) & (pred_scores <= 0.5)).sum().item()
             low_conf = (pred_scores <= 0.1).sum().item()
 
-            print(f"\n--- img[{processed-1}] {ow:.0f}x{oh:.0f} | {n_gt} GT | {n_pred} pred ---")
-            print(f"  scores: high(>0.5)={high_conf}  mid(0.1-0.5)={mid_conf}  low(≤0.1)={low_conf}")
-            print(f"  score range: [{pred_scores.min():.4f}, {pred_scores.max():.4f}]  mean={pred_scores.mean():.4f}  std={pred_scores.std():.4f}")
+            print(
+                f"\n--- img[{processed-1}] {ow:.0f}x{oh:.0f} | {n_gt} GT | {n_pred} pred ---"
+            )
+            print(
+                f"  scores: high(>0.5)={high_conf}  mid(0.1-0.5)={mid_conf}  low(≤0.1)={low_conf}"
+            )
+            print(
+                f"  score range: [{pred_scores.min():.4f}, {pred_scores.max():.4f}]  mean={pred_scores.mean():.4f}  std={pred_scores.std():.4f}"
+            )
             if n_pred > 0:
                 pcts = [50, 75, 90, 95, 99]
                 for p in pcts:
@@ -136,7 +170,7 @@ def main():
             # GT 框（绿色粗线）
             img_gt = img_pil.copy()
             draw_gt = ImageDraw.Draw(img_gt)
-            draw_obb(draw_gt, gt_boxes_px, gt_labels, color_offset=1, width=3)
+            draw_obb(draw_gt, gt_boxes_px, gt_labels, width=3)
             img_gt.save(os.path.join(OUTPUT_DIR, f"img{processed-1:02d}_gt.jpg"))
 
             # 预测框（红色，过滤低置信度）
@@ -146,14 +180,29 @@ def main():
             pred_boxes_filt = pred_boxes[mask]
             pred_scores_filt = pred_scores[mask]
             pred_labels_filt = pred_labels[mask]
-            draw_obb(draw_pred, pred_boxes_filt, pred_labels_filt, pred_scores_filt, color_offset=0)
-            img_pred.save(os.path.join(OUTPUT_DIR, f"img{processed-1:02d}_pred_conf{args.conf}.jpg"))
+            draw_obb(
+                draw_pred,
+                pred_boxes_filt,
+                pred_labels_filt,
+                pred_scores_filt,
+            )
+            img_pred.save(
+                os.path.join(
+                    OUTPUT_DIR, f"img{processed-1:02d}_pred_conf{args.conf}.jpg"
+                )
+            )
 
             # GT + Pred 叠加
             img_both = img_pil.copy()
             draw_both = ImageDraw.Draw(img_both)
-            draw_obb(draw_both, gt_boxes_px, gt_labels, color_offset=1, width=3)
-            draw_obb(draw_both, pred_boxes_filt, pred_labels_filt, pred_scores_filt, color_offset=0, width=1)
+            draw_obb(draw_both, gt_boxes_px, gt_labels, width=3)
+            draw_obb(
+                draw_both,
+                pred_boxes_filt,
+                pred_labels_filt,
+                pred_scores_filt,
+                width=1,
+            )
             img_both.save(os.path.join(OUTPUT_DIR, f"img{processed-1:02d}_both.jpg"))
 
     # ── 全局统计 ──
@@ -163,7 +212,9 @@ def main():
     print(f"  min={all_s.min():.6f}  max={all_s.max():.6f}")
     print(f"  mean={all_s.mean():.6f}  std={all_s.std():.6f}")
     print(f"  >0.5: {(all_s>0.5).sum()} ({(all_s>0.5).mean()*100:.1f}%)")
-    print(f"  0.1-0.5: {((all_s>0.1)&(all_s<=0.5)).sum()} ({((all_s>0.1)&(all_s<=0.5)).mean()*100:.1f}%)")
+    print(
+        f"  0.1-0.5: {((all_s>0.1)&(all_s<=0.5)).sum()} ({((all_s>0.1)&(all_s<=0.5)).mean()*100:.1f}%)"
+    )
     print(f"  ≤0.1: {(all_s<=0.1).sum()} ({(all_s<=0.1).mean()*100:.1f}%)")
     print(f"\nOutputs: {OUTPUT_DIR}")
 
