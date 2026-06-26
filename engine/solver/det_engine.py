@@ -284,9 +284,10 @@ def evaluate(
         )
         print(f"AP @ IoU=0.50      = {stats.get('AP50', 0):.4f}")
         print(f"AP @ IoU=0.75      = {stats.get('AP75', 0):.4f}")
-        print(f"mAP                = {stats['mAP']:.4f}")
-        print(f"Precision @ IoU=0.50 = {stats['precision']:.4f}")
-        print(f"Recall @ IoU=0.50    = {stats['recall']:.4f}")
+        print(f"mAP@0.5:0.95       = {stats['mAP']:.4f}")
+        print(f"Precision (max-F1) = {stats['precision']:.4f}")
+        print(f"Recall    (max-F1) = {stats['recall']:.4f}")
+        print(f"F1        (max-F1) = {stats.get('f1', 0):.4f}")
         print("-" * 50)
         print("=" * 60 + "\n")
 

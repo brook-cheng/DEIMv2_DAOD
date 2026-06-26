@@ -257,6 +257,7 @@ class TransformerDecoder(nn.Module):
                     pre_bbox_head(output) + inverse_sigmoid(ref_points_detach)
                 )
                 pre_scores = score_head[0](output)
+                # hbb:(cx,cy,w,h) obb:(cx,cy,w,h,r)
                 ref_points_initial = pre_bboxes.detach()
 
             # Refine bounding box corners using FDR, integrating previous layer's corrections

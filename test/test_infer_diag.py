@@ -22,26 +22,26 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # 按 class ID 固定颜色映射，同类目标颜色一致
 COLORS = [
-    (255,  50,  50),   # 0: red
-    ( 50, 200,  50),   # 1: green
-    ( 50,  50, 255),   # 2: blue
-    (255, 200,   0),   # 3: orange/yellow
-    (200,   0, 200),   # 4: magenta
-    (  0, 200, 200),   # 5: cyan
-    (180, 100,  50),   # 6: brown
-    (100, 180,  50),   # 7: olive
-    ( 50, 100, 200),   # 8: steel blue
-    (200,  50, 100),   # 9: rose
-    (140, 140, 140),   # 10: gray
-    (255, 100, 150),   # 11: pink
-    (150, 255, 100),   # 12: lime
-    (100, 150, 255),   # 13: sky
-    (255, 150,  50),   # 14: tangerine
-    (150,  50, 255),   # 15: violet
-    ( 50, 255, 200),   # 16: mint
-    (200, 200, 100),   # 17: sand
-    (100, 200, 255),   # 18: light blue
-    (255, 100, 200),   # 19: hot pink
+    (255, 50, 50),  # 0: red
+    (50, 200, 50),  # 1: green
+    (50, 50, 255),  # 2: blue
+    (255, 200, 0),  # 3: orange/yellow
+    (200, 0, 200),  # 4: magenta
+    (0, 200, 200),  # 5: cyan
+    (180, 100, 50),  # 6: brown
+    (100, 180, 50),  # 7: olive
+    (50, 100, 200),  # 8: steel blue
+    (200, 50, 100),  # 9: rose
+    (140, 140, 140),  # 10: gray
+    (255, 100, 150),  # 11: pink
+    (150, 255, 100),  # 12: lime
+    (100, 150, 255),  # 13: sky
+    (255, 150, 50),  # 14: tangerine
+    (150, 50, 255),  # 15: violet
+    (50, 255, 200),  # 16: mint
+    (200, 200, 100),  # 17: sand
+    (100, 200, 255),  # 18: light blue
+    (255, 100, 200),  # 19: hot pink
 ]
 
 
@@ -81,10 +81,13 @@ def draw_obb(draw, boxes, labels, scores=None, width=2):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--ckpt", default=os.path.join(ROOT, "outputs/deimv2_obb_sp_custom/last.pth")
+        "--ckpt", default=os.path.join(ROOT, "outputs/synthetic_exp_020/last_0626.pth")
     )
     parser.add_argument(
-        "--config", default=os.path.join(ROOT, "configs/custom_obb/deimv2_obb_sp.yml")
+        "--config",
+        default=os.path.join(
+            ROOT, "configs/custom_obb/synthetic_configs/synthetic_exp_020.yml"
+        ),
     )
     parser.add_argument("--num", type=int, default=4, help="推理图片数")
     parser.add_argument("--conf", type=float, default=0.1, help="预测框置信度阈值")
