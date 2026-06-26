@@ -588,8 +588,10 @@ def analyze_q2(all_data, output_dir):
         norm_sep = w_dist / u_std if u_std > 1e-8 else 0.0
 
         sep[cn] = norm_sep
-        print(f"  {cn:12s}: wasserstein={w_dist:.3f}, unmatched_std={u_std:.3f}, "
-              f"norm_sep={norm_sep:.2f}")
+        print(
+            f"  {cn:12s}: wasserstein={w_dist:.3f}, unmatched_std={u_std:.3f}, "
+            f"norm_sep={norm_sep:.2f}"
+        )
 
     return sep
 
@@ -726,9 +728,7 @@ def generate_report(all_data, q1, q2, q3, output_dir):
         f.write("  (normalized Wasserstein distance: >1.0 = good separation)\n")
         for cn, norm_sep in q2.items():
             flag = "OK" if norm_sep > 1.0 else "FLAG"
-            f.write(
-                f"  {cn:12s} norm_sep: {norm_sep:.2f}  [{flag}]\n"
-            )
+            f.write(f"  {cn:12s} norm_sep: {norm_sep:.2f}  [{flag}]\n")
         f.write("\n")
 
         # ── Q3 ──
@@ -776,7 +776,9 @@ def main():
     )
     parser.add_argument(
         "--config",
-        default=os.path.join(ROOT, "configs/custom_obb/synthetic_exp_020.yml"),
+        default=os.path.join(
+            ROOT, "configs/custom_obb/synthetic_configs/synthetic_exp_020.yml"
+        ),
         help="YAML 配置文件路径",
     )
     parser.add_argument(

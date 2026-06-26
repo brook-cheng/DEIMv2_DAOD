@@ -134,5 +134,6 @@ DEIMCriterion:
     # change matcher
     change_matcher: True
     iou_order_alpha: 4.0
-    matcher_change_epoch: 45
+    # 0.75~0.85 * epoches
+    matcher_change_epoch: 112
 

@@ -281,7 +281,8 @@ DEIMCriterion:
     gamma: 2.0
     change_matcher: true
     iou_order_alpha: 4.0
-    matcher_change_epoch: 45
+    # 0.75~0.85 * epoches
+    matcher_change_epoch: 22
     box_mode: obb
   box_mode: obb
   mal_iou_type: giou
