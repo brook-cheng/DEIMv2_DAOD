@@ -1,0 +1,17 @@
+Task 1: openspec/README.md — OpenSpec ownership contract
+Completed: 2026-06-27
+
+Checks:
+- [PASS] File exists: test -f openspec/README.md
+- [PASS] Contains "Belongs here" — confirms positive ownership rules
+- [PASS] Contains "Does not belong here" — confirms exclusion rules
+- [PASS] Contains "docs/superpowers" — cross-references the other system
+- [PASS] No forbidden phrase claiming openspec owns Superpowers reviews
+
+Content summary:
+- Defines what belongs: proposals, accepted specs, change lifecycle, OpenSpec-managed analysis
+- Defines what does not belong: agent workflow outputs, reviews, brainstorming drafts, implementation plans
+- Directory structure with actual current files
+- Workflow 1-5 steps
+
+Verification: python3 script, all asserts passed.

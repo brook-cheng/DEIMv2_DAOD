@@ -1,0 +1,29 @@
+Task 4: docs/superpowers/INDEX.md — Superpowers artifact index
+Completed: 2026-06-27 | Updated: 2026-06-27 (fix: add missing cleanup note)
+
+Checks:
+- [PASS] File exists: test -f docs/superpowers/INDEX.md
+- [PASS] Contains '2026-06-25-decoder-decoupling-design.md'
+- [PASS] Contains '2026-06-25-decoder-decoupling-plan.md'
+- [PASS] Contains 'OBB_CODE_REVIEW.md'
+- [PASS] Contains '2026-06-27-workflow-docs-cleanup-note.md'
+- [PASS] Both decoder-decoupling docs marked as canonical (★)
+- [PASS] All 14 Markdown files under docs/superpowers/ are referenced:
+  - design/2026-06-25-decoder-decoupling-design.md
+  - plans/2026-06-25-decoder-decoupling-plan.md
+  - plans/2026-06-24-hungarian-matching-diagnosis-plan.md
+  - plans/2026-06-24-cdn-input-viz.md
+  - plans/2026-06-26-h4-lqe-ablation-plan.md
+  - plans/2026-01-17-model-correctness-tests.md
+  - review/OBB_CODE_REVIEW.md
+  - review/2026-06-25-decoder-decoupling_review_deepseekv4_pro_max.md
+  - review/2026-06-25-decoder-decoupling-review_GLM_5.2_max.md
+  - review/2026-06-25-decoder-decoupling-review_Opus_4.8_max.md
+  - review/2026-06-25-decoder-decoupling-review-INTEGRATED_GLM_5.2_max.md
+  - review/2026-06-25-three-reviews-comparison_GLM_5.2_max.md
+  - review/2026-06-26-h0-h4-experiment-results.md
+  - review/2026-06-27-workflow-docs-cleanup-note.md
+- [PASS] No listed path points to a non-existent file
+- [PASS] Index includes conventions and cross-reference to openspec INDEX
+
+Verification: python3 glob + existence check script, all asserts passed.

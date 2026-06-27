@@ -3,8 +3,8 @@
 > 评审日期：2026-06-25
 > 评审模型：GLM-5.2-max
 > 评审对象：
-> - 设计：`openspec/2026-06-25-decoder-decoupling-design.md`
-> - 计划：`openspec/plans/2026-06-25-decoder-decoupling-plan.md`
+> - 设计：`docs/superpowers/design/2026-06-25-decoder-decoupling-design.md`（canonical）
+> - 计划：`docs/superpowers/plans/2026-06-25-decoder-decoupling-plan.md`（canonical）
 > - 诊断证据：`test/diagnose_hungarian_matching.py` 及其输出 `test/outputs/matching_diag/matching_report.txt`
 > - 代码基线：`engine/deim/{deim_decoder,dfine_decoder,dfine_utils,deim_utils,deim_criterion}.py`
 > 评审维度：合理性（hypothesis→solution 因果链）、完备性（任务覆盖与遗漏）、可靠性（可实现性与风险）

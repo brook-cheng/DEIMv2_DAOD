@@ -1,0 +1,23 @@
+Task 3: openspec/INDEX.md — OpenSpec artifact index
+Completed: 2026-06-27
+
+Checks:
+- [PASS] File exists: test -f openspec/INDEX.md
+- [PASS] grep -q 'deimv2-obb' — index references the primary change
+- [PASS] grep -q 'docs/superpowers/INDEX.md' — cross-references the other index
+- [PASS] All 11 Markdown files under openspec/changes/ and openspec/specs/ are referenced:
+  - openspec/changes/deimv2-obb/proposal.md
+  - openspec/changes/deimv2-obb/design.md
+  - openspec/changes/deimv2-obb/tasks.md
+  - openspec/changes/deimv2-obb/specs/obb-detection/spec.md
+  - openspec/changes/deimv2-obb/specs/obb-geometry/spec.md
+  - openspec/changes/deimv2-obb/specs/obb-evaluation/spec.md
+  - openspec/changes/deimv2-obb/analysis/self-attention-query-diversity.md
+  - openspec/changes/deimv2-obb-eval-opt/proposal.md
+  - openspec/specs/2026-06-23-synthetic-ellipse-obb-dataset-design.md
+  - openspec/specs/2026-06-23-synthetic-ellipse-obb-implementation-plan.md
+  - openspec/specs/2026-06-24-hungarian-matching-diagnosis-design.md
+- [PASS] No stale removed top-level paths appear
+- [PASS] Index includes conventions and cross-reference to superpowers INDEX
+
+Verification: python3 glob + content search script, all asserts passed.

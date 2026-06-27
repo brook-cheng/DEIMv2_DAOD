@@ -1,0 +1,14 @@
+{
+  "schema_version": 2,
+  "active_work_id": null,
+  "works": {
+    "workflow-docs-cleanup": {
+      "work_id": "workflow-docs-cleanup",
+      "active_plan": ".omo/plans/workflow-docs-cleanup.md",
+      "plan_name": "workflow-docs-cleanup",
+      "session_ids": ["codex:workflow-docs-cleanup-current"],
+      "status": "completed",
+      "worktree_path": null
+    }
+  }
+}
