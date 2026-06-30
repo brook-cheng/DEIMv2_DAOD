@@ -227,7 +227,6 @@ DEIMTransformer:
   - 16
   - 32
   hidden_dim: 256
-  num_levels: 3
   num_layers: 6
   eval_idx: -1
   num_queries: 300

@@ -32,7 +32,7 @@ train_dataloader:
     transforms:
       ops:
         - {type: Mosaic, output_size: 320, rotation_range: 10, translation_range: [0.1, 0.1], scaling_range: [0.5, 1.5],
-           probability: 1.0, fill_value: 0, use_cache: True, max_cached_images: 30, random_pop: True}
+           probability: 1.0, fill_value: 0, use_cache: True, max_cached_images: 60, random_pop: True}
         - {type: RandomPhotometricDistort, p: 0.5}
         - {type: OBBZoomOut, fill: 0}
         - {type: OBBIoUCrop, p: 0.8}

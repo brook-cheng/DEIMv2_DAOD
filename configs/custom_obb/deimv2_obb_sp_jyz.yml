@@ -22,17 +22,17 @@ no_aug_epoch: 15
 #### 设置训练数据
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
-  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
+  total_batch_size: 16 # total batch size equals to gpu_nums*batch_size
   num_workers: 4
   dataset:
-    img_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/images/train
-    ann_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/labels/train
-    classes_file: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/classes.txt
+    img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/images/train
+    ann_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/labels/train
+    classes_file: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/classes.txt
     format: 'YOLO-OBB'
     transforms:
       ops:
         - {type: Mosaic, output_size: 320, rotation_range: 10, translation_range: [0.1, 0.1], scaling_range: [0.5, 1.5],
-           probability: 1.0, fill_value: 0, use_cache: True, max_cached_images: 50, random_pop: True}
+           probability: 1.0, fill_value: 0, use_cache: True, max_cached_images: 60, random_pop: True}
         - {type: RandomPhotometricDistort, p: 0.5}
         - {type: OBBZoomOut, fill: 0}
         - {type: OBBIoUCrop, p: 0.8}
@@ -58,9 +58,9 @@ val_dataloader:
   total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
   num_workers: 2
   dataset:
-    img_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/images/val
-    ann_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/labels/val
-    classes_file: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/classes.txt
+    img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/images/val
+    ann_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/labels/val
+    classes_file: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/classes.txt
     format: 'YOLO-OBB'
     transforms:
       ops:
@@ -74,7 +74,7 @@ val_dataloader:
 ### backbone
 DINOv3STAsResAtten:
   name: dinov3_vits16plus # 名称参考 engine/backbone/dinov3/vision_transformer.py
-  weights_path: /home/cx/cx_dir/third/deimv2_daod/ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
+  weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
   interaction_indexes: []   # all layers will be used
   finetune: True
   conv_inplane: 64 # dinov3_hidden_dim/4
@@ -92,6 +92,11 @@ DEIMTransformer:
   feat_channels: [256, 256, 256] #hidden_dim
   hidden_dim: 256 #hidden_dim
   dim_feedforward: 2048 # hidden_dim*8
+  box_mode: obb
+  decouple_angle: True
+
+PostProcessor:
+  box_mode: obb
 
 ### optimizer
 optimizer:
@@ -119,9 +124,10 @@ optimizer:
 DEIMCriterion:
   weight_dict: {loss_mal: 4, loss_bbox: 1, loss_kld: 1, loss_fgl: 0.5}
   losses: ['mal', 'boxes', 'local']
-  gamma: 1.5
+  gamma: 1.0
   alpha: 0.75
   reg_max: 32
+  box_mode: obb
 
   matcher:
     type: HungarianMatcher
@@ -132,4 +138,5 @@ DEIMCriterion:
     change_matcher: True
     iou_order_alpha: 4.0
     matcher_change_epoch: 45
+    box_mode: obb
 
