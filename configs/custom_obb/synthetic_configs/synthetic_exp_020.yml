@@ -144,7 +144,7 @@ val_dataloader:
   drop_last: true
   collate_fn:
     type: BatchImageCollateFunction
-epoches: 120
+epoches: 80
 clip_max_norm: 0.1
 optimizer:
   type: AdamW
@@ -248,6 +248,7 @@ DEIMTransformer:
   dim_feedforward: 2048
   box_mode: obb
   decouple_angle: True
+
 PostProcessor:
   num_top_queries: 300
   box_mode: obb
@@ -284,7 +285,7 @@ DEIMCriterion:
     change_matcher: true
     iou_order_alpha: 4.0
     # 0.75~0.85 * epoches
-    matcher_change_epoch: 22
+    matcher_change_epoch: 60
     box_mode: obb
   box_mode: obb
   mal_iou_type: giou
