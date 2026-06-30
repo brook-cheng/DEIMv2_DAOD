@@ -1,5 +1,5 @@
 print_freq: 500
-output_dir: ./outputs/synthetic_exp_020
+output_dir: ./outputs/synthetic_exp_decouple_020
 checkpoint_freq: 10
 sync_bn: true
 find_unused_parameters: true
@@ -144,7 +144,7 @@ val_dataloader:
   drop_last: true
   collate_fn:
     type: BatchImageCollateFunction
-epoches: 120
+epoches: 30
 clip_max_norm: 0.1
 optimizer:
   type: AdamW
@@ -216,7 +216,6 @@ HybridEncoder:
   version: deim
   csp_type: csp2
   fuse_op: sum
-
 DEIMTransformer:
   feat_channels:
   - 256
@@ -248,6 +247,8 @@ DEIMTransformer:
   dim_feedforward: 2048
   box_mode: obb
   decouple_angle: True
+  angle_step: 10
+  num_r_layers: 6
 PostProcessor:
   num_top_queries: 300
   box_mode: obb
@@ -308,7 +309,7 @@ DINOv3STAsResAtten:
   conv_inplane: 64
   hidden_dim: 256
   adapter_type: sta
-# KendallWeighting:
-#   enabled: true
-#   sigma_lr: 0.001
-#   init_log_sigma: 0.0
+KendallWeighting:
+  enabled: true
+  sigma_lr: 0.001
+  init_log_sigma: 0.0

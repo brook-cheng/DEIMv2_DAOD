@@ -81,7 +81,7 @@ def draw_obb(draw, boxes, labels, scores=None, width=2):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--ckpt", default=os.path.join(ROOT, "outputs/synthetic_exp_020/last_0626.pth")
+        "--ckpt", default=os.path.join(ROOT, "outputs/synthetic_exp_020/last.pth")
     )
     parser.add_argument(
         "--config",

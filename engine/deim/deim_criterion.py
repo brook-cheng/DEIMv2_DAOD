@@ -698,10 +698,10 @@ class DEIMCriterion(nn.Module):
         target_boxes = torch.cat(
             [t["boxes"][j] for t, (_, j) in zip(targets, indices)], dim=0
         )
-        # TODO: 这里没有处理OBB的情况
         if self.box_mode == "obb":
-            raise NotImplementedError()
-        if self.boxes_weight_format == "iou":
+            iou = batch_probiou(src_boxes.detach(), target_boxes)
+            iou = torch.diag(iou)
+        elif self.boxes_weight_format == "iou":
             iou, _ = box_iou(
                 box_cxcywh_to_xyxy(src_boxes.detach()), box_cxcywh_to_xyxy(target_boxes)
             )

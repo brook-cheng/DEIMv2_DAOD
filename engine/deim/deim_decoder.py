@@ -29,6 +29,7 @@ from .utils import (
 from .dfine_decoder import MSDeformableAttention, LQE, Integral
 from .dfine_utils import weighting_function, distance2bbox, distance2bbox_obb
 from .deim_utils import RMSNorm, SwiGLUFFN, Gate, MLP
+from .obb_geometry import external_rect_to_oriented_box
 
 __all__ = ["DEIMTransformer"]
 
@@ -144,6 +145,7 @@ class TransformerDecoder(nn.Module):
         act="relu",
         num_reg_dist=4,
         box_mode="hbb",
+        decouple_angle=False,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -153,6 +155,8 @@ class TransformerDecoder(nn.Module):
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
         self.up, self.reg_scale, self.reg_max = up, reg_scale, reg_max
         self.box_mode = box_mode
+        self.decouple_angle = decouple_angle
+        self.num_offset_layers = num_layers
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
             + [
@@ -168,6 +172,42 @@ class TransformerDecoder(nn.Module):
                 for _ in range(num_layers)
             ]
         )
+
+        if self.decouple_angle:
+            from .gated_fusion import GatedSoftmaxFusion
+
+            self.num_reg_dist_xywh = 4
+            self.num_reg_dist_offset = 2
+
+            self.integral_offset = Integral(self.reg_max, self.num_reg_dist_offset)
+
+            self.dec_offset_head = nn.ModuleList(
+                [
+                    MLP(
+                        hidden_dim,
+                        hidden_dim,
+                        self.num_reg_dist_offset * (self.reg_max + 1),
+                        3,
+                        act=act,
+                    )
+                    for _ in range(self.num_offset_layers)
+                ]
+            )
+
+            offset_layer_template = self.layers[-1]
+            self.offset_layers = nn.ModuleList(
+                [
+                    copy.deepcopy(offset_layer_template)
+                    for _ in range(self.num_offset_layers)
+                ]
+            )
+
+            self.gate_fusions = nn.ModuleList(
+                [
+                    GatedSoftmaxFusion(d_model=hidden_dim, n_sources=2, hidden_dim=128)
+                    for _ in range(self.num_offset_layers - 1)
+                ]
+            )
 
     def value_op(
         self, memory, value_proj, value_scale, memory_mask, memory_spatial_shapes
@@ -196,6 +236,25 @@ class TransformerDecoder(nn.Module):
             [nn.Identity()] * (self.eval_idx) + [self.lqe_layers[self.eval_idx]]
         )
 
+    # FIXME:与external_rect_to_oriented_box接口功能重复
+    @staticmethod
+    def _convert_6dof_to_5dof(bboxes_6dof):
+        """Convert (cx,cy,w,h,ε,η) [0,1] to (cx,cy,w,h,θ) [0,1].
+
+        θ is in [0,π] from external_rect_to_oriented_box, then /π to [0,1].
+        """
+        cx, cy, w, h = (
+            bboxes_6dof[..., 0:1],
+            bboxes_6dof[..., 1:2],
+            bboxes_6dof[..., 2:3],
+            bboxes_6dof[..., 3:4],
+        )
+        eps_v, eta = bboxes_6dof[..., 4:5], bboxes_6dof[..., 5:6]
+        ext_rect = torch.cat([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], dim=-1)
+        vertex_offsets = torch.cat([eps_v, eta], dim=-1)
+        obb_5dof = external_rect_to_oriented_box(ext_rect, vertex_offsets)
+        return torch.cat([obb_5dof[..., :4], obb_5dof[..., 4:5] / torch.pi], dim=-1)
+
     def forward(
         self,
         target,
@@ -212,7 +271,11 @@ class TransformerDecoder(nn.Module):
         attn_mask=None,
         memory_mask=None,
         dn_meta=None,
+        pre_angle_head=None,
+        query_offset_head=None,
     ):
+        from .obb_geometry import external_rect_to_oriented_box
+
         output = target
         output_detach = pred_corners_undetach = 0
         value = self.value_op(memory, None, None, memory_mask, spatial_shapes)
@@ -221,13 +284,23 @@ class TransformerDecoder(nn.Module):
         dec_out_logits = []
         dec_out_pred_corners = []
         dec_out_refs = []
+
         if not hasattr(self, "project"):
             project = weighting_function(self.reg_max, up, reg_scale)
         else:
             project = self.project
 
-        ref_points_detach = F.sigmoid(ref_points_unact)
-        query_pos_embed = query_pos_head(ref_points_detach).clamp(min=-10, max=10)
+        if not self.decouple_angle:
+            ref_points_detach = F.sigmoid(ref_points_unact)
+            query_pos_embed = query_pos_head(ref_points_detach).clamp(min=-10, max=10)
+        else:
+            offset_output = target
+            offset_output_detach = 0
+            pred_corners_undetach_offset = 0
+            ref_points_detach = F.sigmoid(ref_points_unact[..., :4])
+            query_pos_embed = query_pos_head(ref_points_detach).clamp(min=-10, max=10)
+            ref_offset_detech = F.sigmoid(ref_points_unact)
+            offset_query_pos_embed = query_offset_head(ref_offset_detech)
 
         for i, layer in enumerate(self.layers):
             ref_points_input = ref_points_detach.unsqueeze(2)
@@ -242,6 +315,15 @@ class TransformerDecoder(nn.Module):
                 output = F.interpolate(output, size=query_pos_embed.shape[-1])
                 output_detach = output.detach()
 
+                if self.decouple_angle and self.box_mode == "obb":
+                    offset_query_pos_embed = F.interpolate(
+                        offset_query_pos_embed, scale_factor=self.layer_scale
+                    )
+                    offset_output = F.interpolate(
+                        offset_output, size=offset_query_pos_embed.shape[-1]
+                    )
+                    offset_output_detach = offset_output.detach()
+
             output = layer(
                 output,
                 ref_points_input,
@@ -252,24 +334,61 @@ class TransformerDecoder(nn.Module):
             )
 
             if i == 0:
-                # Initial bounding box predictions with inverse sigmoid refinement，theta belongs to (0,1)
                 pre_bboxes = F.sigmoid(
                     pre_bbox_head(output) + inverse_sigmoid(ref_points_detach)
                 )
-                pre_scores = score_head[0](output)
-                # hbb:(cx,cy,w,h) obb:(cx,cy,w,h,r)
+                pre_scores = score_head[i](output)
                 ref_points_initial = pre_bboxes.detach()
-
-            # Refine bounding box corners using FDR, integrating previous layer's corrections
-            # hbb:(α,β,γ,δ) obb:(α,β,γ,δ,ε,η)
             pred_corners = bbox_head[i](output + output_detach) + pred_corners_undetach
+            output_detach = output.detach()
+            pred_corners_undetach = pred_corners
+
+            if self.decouple_angle:
+                # ref_offset_input初始为(x,y,w,h,offset_w,offset_h)，后续为(x,y,w,h,r)
+                ref_offset_input = ref_offset_detech.unsqueeze(2)
+                offset_output = self.offset_layers[i](
+                    offset_output,
+                    ref_offset_input,
+                    value,
+                    spatial_shapes,
+                    attn_mask,
+                    offset_query_pos_embed,
+                )
+                if i == 0:
+                    offset_initial = torch.sigmoid(
+                        pre_angle_head(offset_output)
+                        + inverse_sigmoid(ref_offset_detech)[..., 4:]
+                    )
+                    vertex_offset_initial = torch.concat(
+                        [pre_bboxes, offset_initial], dim=-1
+                    )
+                    # convert offset to angle
+                    ref_points_initial = external_rect_to_oriented_box(
+                        ref_points_initial, vertex_offset_initial
+                    )
+                    pre_bboxes = ref_points_initial
+                pred_offset = (
+                    self.dec_offset_head[i](offset_output + offset_output_detach)
+                    + pred_corners_undetach_offset
+                )
+                offset_output_detach = offset_output.detach()
+                pred_corners_undetach_offset = pred_offset
+                if i > 0:
+                    offset_output = self.gate_fusions[i - 1](
+                        [output, offset_output], query=offset_output
+                    )
+
+                # cat (α,β,γ,δ)(ε,η)->(α,β,γ,δ,ε,η)
+                pred_corners_xywh = pred_corners.detach()
+                pred_corners = torch.concat([pred_corners, pred_offset], dim=-1)
+
             if self.box_mode == "hbb":
                 inter_ref_bbox = distance2bbox(
                     ref_points_initial, integral(pred_corners, project), reg_scale
                 )
             elif self.box_mode == "obb":
-                # ref_points_initial /theta belongs to (0,1)
                 theta_scale = torch.ones_like(ref_points_initial)
+                # theta:[0,1]→[0,pi]
                 theta_scale[..., 4] *= torch.pi
                 ref_points_initial_scaled = ref_points_initial * theta_scale
                 inter_ref_bbox = distance2bbox_obb(
@@ -284,8 +403,11 @@ class TransformerDecoder(nn.Module):
 
             if self.training or i == self.eval_idx:
                 scores = score_head[i](output)
-                # Lqe does not affect the performance here.
-                scores = self.lqe_layers[i](scores, pred_corners)
+                if self.decouple_angle:
+                    # 确保类别只和外接矩形相关
+                    scores = self.lqe_layers[i](scores, pred_corners_xywh)
+                else:
+                    scores = self.lqe_layers[i](scores, pred_corners)
                 dec_out_logits.append(scores)
                 dec_out_bboxes.append(inter_ref_bbox)
                 dec_out_pred_corners.append(pred_corners)
@@ -294,10 +416,12 @@ class TransformerDecoder(nn.Module):
                 if not self.training:
                     break
 
-            pred_corners_undetach = pred_corners
-            ref_points_detach = inter_ref_bbox.detach()
-            output_detach = output.detach()
-
+            if self.decouple_angle:
+                # inter_ref_bbox:(x,y,w,h,r)
+                ref_points_detach = inter_ref_bbox[..., :4].detach()
+                ref_offset_detech = inter_ref_bbox.detach()
+            else:
+                ref_points_detach = inter_ref_bbox.detach()
         return (
             torch.stack(dec_out_bboxes),
             torch.stack(dec_out_logits),
@@ -344,6 +468,7 @@ class DEIMTransformer(nn.Module):
         share_bbox_head=False,
         share_score_head=False,
         box_mode="hbb",
+        decouple_angle=False,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -366,8 +491,13 @@ class DEIMTransformer(nn.Module):
         self.reg_max = reg_max
 
         self.box_mode = box_mode
+        self.decouple_angle = decouple_angle
+        self.num_r_layers = num_layers
         if self.box_mode == "obb":
-            self._num_box_dof = 5  # (cx,cy,w,h,θ)
+            # self._num_box_dof = (
+            #     5  # (cx,cy,w,h,θ) — will become 6 in Task 3 when R decoder is created
+            # )
+            self._num_box_dof = 6  # (cx,cy,w,h,ε,η) external rectangle, vertex bias
             self.num_reg_dist = 6  # (α,β,γ,δ,ε,η) external rectangle, vertex bias
         elif self.box_mode == "hbb":
             self._num_box_dof = 4  # (cx,cy,w,h)
@@ -423,8 +553,13 @@ class DEIMTransformer(nn.Module):
             eval_idx,
             layer_scale,
             act=activation,
-            num_reg_dist=self.num_reg_dist,
+            num_reg_dist=(
+                4
+                if (self.box_mode == "obb" and self.decouple_angle)
+                else self.num_reg_dist
+            ),
             box_mode=self.box_mode,
+            decouple_angle=self.decouple_angle,
         )
         # denoising
         self.num_denoising = num_denoising
@@ -445,6 +580,7 @@ class DEIMTransformer(nn.Module):
             self.enc_score_head = nn.Linear(hidden_dim, 1)
         else:
             self.enc_score_head = nn.Linear(hidden_dim, num_classes)
+
         self.enc_bbox_head = MLP(
             hidden_dim, hidden_dim, self._num_box_dof, 3, act=mlp_act
         )
@@ -496,6 +632,45 @@ class DEIMTransformer(nn.Module):
                 for _ in range(num_layers - self.eval_idx - 1)
             ]
         )
+
+        if self.box_mode == "obb" and self.decouple_angle:
+            self.num_reg_dist_xywh = 4
+            self.num_reg_dist_angle = 2
+
+            self.integral_xywh = Integral(self.reg_max, self.num_reg_dist_xywh)
+
+            self.pre_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3, act=mlp_act)
+            self.pre_offset_head = MLP(hidden_dim, hidden_dim, 2, 3, act=mlp_act)
+
+            dec_bbox_head_xywh = MLP(
+                hidden_dim,
+                hidden_dim,
+                self.num_reg_dist_xywh * (self.reg_max + 1),
+                3,
+                act=mlp_act,
+            )
+            self.dec_bbox_head = nn.ModuleList(
+                [
+                    (
+                        dec_bbox_head_xywh
+                        if share_bbox_head
+                        else copy.deepcopy(dec_bbox_head_xywh)
+                    )
+                    for _ in range(self.eval_idx + 1)
+                ]
+                + [
+                    MLP(
+                        scaled_dim,
+                        scaled_dim,
+                        self.num_reg_dist_xywh * (self.reg_max + 1),
+                        3,
+                        act=mlp_act,
+                    )
+                    for _ in range(num_layers - self.eval_idx - 1)
+                ]
+            )
+            self.query_pos_head = MLP(4, hidden_dim, hidden_dim, 3, act=mlp_act)
+            self.query_offset_head = MLP(6, hidden_dim, hidden_dim, 3, act=mlp_act)
 
         # init encoder output anchors and valid_mask
         if self.eval_spatial_size:
@@ -645,22 +820,46 @@ class DEIMTransformer(nn.Module):
                 )
                 anchors.append(lvl_anchors)
         elif self.box_mode == "obb":
-            for lvl, (h, w) in enumerate(spatial_shapes):
-                grid_y, grid_x = torch.meshgrid(
-                    torch.arange(h), torch.arange(w), indexing="ij"
-                )
-                grid_xy = torch.stack([grid_x, grid_y], dim=-1)
-                grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor(
-                    [w, h], dtype=dtype
-                )
-                wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
-                theta = 0.5 * torch.ones(
-                    *grid_xy.shape[:-1], 1, dtype=grid_xy.dtype, device=grid_xy.device
-                )
-                lvl_anchors = torch.concat([grid_xy, wh, theta], dim=-1).reshape(
-                    -1, h * w, self._num_box_dof
-                )
-                anchors.append(lvl_anchors)
+            if getattr(self, "decouple_angle", False):
+                from .obb_geometry import oriented_box_to_external_rect
+
+                for lvl, (h, w) in enumerate(spatial_shapes):
+                    grid_y, grid_x = torch.meshgrid(
+                        torch.arange(h), torch.arange(w), indexing="ij"
+                    )
+                    grid_xy = torch.stack([grid_x, grid_y], dim=-1)
+                    grid_offset_hv = grid_xy.unsqueeze(0) * torch.tensor(
+                        [1 / w, 1 / h], dtype=dtype
+                    )
+                    grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor(
+                        [w, h], dtype=dtype
+                    )
+                    wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
+                    lvl_anchors = torch.concat(
+                        [grid_xy, wh, grid_offset_hv], dim=-1
+                    ).reshape(-1, h * w, self._num_box_dof)
+
+                    anchors.append(lvl_anchors)
+            else:
+                for lvl, (h, w) in enumerate(spatial_shapes):
+                    grid_y, grid_x = torch.meshgrid(
+                        torch.arange(h), torch.arange(w), indexing="ij"
+                    )
+                    grid_xy = torch.stack([grid_x, grid_y], dim=-1)
+                    grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor(
+                        [w, h], dtype=dtype
+                    )
+                    wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
+                    edge = 0.5 * torch.ones(
+                        *grid_xy.shape[:-1],
+                        1,
+                        dtype=grid_xy.dtype,
+                        device=grid_xy.device,
+                    )
+                    lvl_anchors = torch.concat([grid_xy, wh, edge], dim=-1).reshape(
+                        -1, h * w, self._num_box_dof
+                    )
+                    anchors.append(lvl_anchors)
 
         anchors = torch.concat(anchors, dim=1).to(device)
         if self.box_mode == "hbb":
@@ -695,8 +894,8 @@ class DEIMTransformer(nn.Module):
         if memory.shape[0] > 1:
             anchors = anchors.repeat(memory.shape[0], 1, 1)
 
-        # memory = torch.where(valid_mask, memory, 0)
-        memory = valid_mask.to(memory.dtype) * memory
+        if not (self.box_mode == "obb" and getattr(self, "decouple_angle", False)):
+            memory = valid_mask.to(memory.dtype) * memory
 
         enc_outputs_logits: torch.Tensor = self.enc_score_head(memory)
 
@@ -713,10 +912,15 @@ class DEIMTransformer(nn.Module):
         if self.training:
             enc_topk_bboxes = F.sigmoid(enc_topk_bbox_unact)
             if self.box_mode == "obb":
-                enc_topk_bboxes = torch.cat(
-                    [enc_topk_bboxes[..., :4], enc_topk_bboxes[..., 4:] * torch.pi],
-                    dim=-1,
-                )
+                if not self.decouple_angle:
+                    # 角度归一化
+                    enc_topk_bboxes = torch.cat(
+                        [enc_topk_bboxes[..., :4], enc_topk_bboxes[..., 4:] * torch.pi],
+                        dim=-1,
+                    )
+                else:
+                    # 使用偏移量替代角度表示
+                    enc_topk_bboxes = enc_topk_bboxes
             enc_topk_bboxes_list.append(enc_topk_bboxes)
             enc_topk_logits_list.append(enc_topk_logits)
 
@@ -728,9 +932,22 @@ class DEIMTransformer(nn.Module):
         enc_topk_bbox_unact = enc_topk_bbox_unact.detach()
 
         if denoising_bbox_unact is not None:
-            enc_topk_bbox_unact = torch.concat(
-                [denoising_bbox_unact, enc_topk_bbox_unact], dim=1
-            )
+            if not self.decouple_angle:
+                enc_topk_bbox_unact = torch.concat(
+                    [denoising_bbox_unact, enc_topk_bbox_unact], dim=1
+                )
+            else:
+                from .obb_geometry import oriented_box_to_external_rect
+
+                dn_exter_bbox_unact, dn_vetex_offset = oriented_box_to_external_rect(
+                    denoising_bbox_unact
+                )
+                dn_bbox_unact = torch.concat(
+                    [dn_exter_bbox_unact, dn_vetex_offset], dim=-1
+                )
+                enc_topk_bbox_unact = torch.concat(
+                    [dn_bbox_unact, enc_topk_bbox_unact], dim=1
+                )
             content = torch.concat([denoising_logits, content], dim=1)
 
         return content, enc_topk_bbox_unact, enc_topk_bboxes_list, enc_topk_logits_list
@@ -826,11 +1043,25 @@ class DEIMTransformer(nn.Module):
                 self.dec_score_head,
                 self.query_pos_head,
                 self.pre_bbox_head,
-                self.integral,
+                (
+                    self.integral_xywh
+                    if (self.box_mode == "obb" and self.decouple_angle)
+                    else self.integral
+                ),
                 self.up,
                 self.reg_scale,
                 attn_mask=attn_mask,
                 dn_meta=dn_meta,
+                pre_angle_head=(
+                    self.pre_offset_head
+                    if (self.box_mode == "obb" and self.decouple_angle)
+                    else None
+                ),
+                query_offset_head=(
+                    self.query_offset_head
+                    if (self.box_mode == "obb" and self.decouple_angle)
+                    else None
+                ),
             )
         )
 
@@ -892,6 +1123,15 @@ class DEIMTransformer(nn.Module):
                 out_corners[-1],
                 out_logits[-1],
             )
+
+            if self.decouple_angle:
+                enc_topk_bboxes_list = [
+                    external_rect_to_oriented_box(
+                        enc_topk_bboxes[..., :4],
+                        enc_topk_bboxes[..., 4:],
+                    )
+                    for enc_topk_bboxes in enc_topk_bboxes_list
+                ]
             out["enc_aux_outputs"] = self._set_aux_loss(
                 enc_topk_logits_list, enc_topk_bboxes_list
             )

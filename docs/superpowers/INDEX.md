@@ -41,6 +41,8 @@
 
 [2026-06-26-h0-h4-experiment-results](review/2026-06-26-h0-h4-experiment-results.md) — H0-H4 根因实验结果补充：记录整合评审提出的 5 个廉价根因实验的实际执行结果。  
 
+[2026-06-27-decoder-decoupling-design-review_sisyphus](review/2026-06-27-decoder-decoupling-design-review_sisyphus.md) — Decoder 解耦设计评估（Sisyphus），评估 `docs/superpowers/design/2026-06-25-decoder-decoupling-design.md` 的合理性、可靠性和可实施性，并纳入 H3 用户补充判断。  
+
 [2026-06-27-workflow-docs-cleanup-note](review/2026-06-27-workflow-docs-cleanup-note.md) — 工作流文档清理记录：所有权契约、canonical 路径、变更文件清单。
 
 ---

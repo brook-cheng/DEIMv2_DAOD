@@ -11,6 +11,7 @@ import copy
 import functools
 from collections import OrderedDict
 
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -22,6 +23,7 @@ from .denoising import get_contrastive_denoising_training_group
 from .utils import deformable_attention_core_func_v2, get_activation, inverse_sigmoid
 from .utils import bias_init_with_prob
 from ..core import register
+from .obb_geometry import external_rect_to_oriented_box
 
 __all__ = ["DFINETransformer"]
 
@@ -164,13 +166,27 @@ class MSDeformableAttention(nn.Module):
                 * self.offset_scale
             )
             sampling_locations = reference_points[:, :, None, :, :2] + offset
-        elif reference_points.shape[-1] == 5:
+        elif reference_points.shape[-1] == 5 or reference_points.shape[-1] == 6:
             # reference_points: (bs, Len_q, n_levels, 5) — (cx, cy, w, h, θ）
-            cosa = torch.cos(reference_points[..., 4:] * torch.pi)
-            sina = torch.sin(reference_points[..., 4:] * torch.pi)
-            # rot: (bs, Len_q, n_levels, 2, 2)
-            rot_matrix = torch.cat([cosa, -sina, sina, cosa], dim=-1).view(
-                bs, Len_q, 2, 2
+            # reference_points: (bs, Len_q, n_levels, 6) — (cx, cy, w, h, offset_w,offset_h))
+            if reference_points.shape[-1] == 6:
+                reference_points = external_rect_to_oriented_box(
+                    reference_points[..., :4], reference_points[..., 4:]
+                )
+
+            angle = reference_points[..., 4:5] * torch.pi
+            n_heads = sampling_offsets.shape[2]
+            half_heads = n_heads // 2
+            angle_expanded = angle.expand(-1, -1, -1, n_heads)
+            angle_modified = torch.where(
+                torch.arange(n_heads, device=angle.device) < half_heads,
+                angle_expanded,
+                angle_expanded + math.pi / 2,
+            )
+            cosa = torch.cos(angle_modified)
+            sina = torch.sin(angle_modified)
+            rot_matrix = torch.stack([cosa, -sina, sina, cosa], dim=-1).view(
+                bs, Len_q, n_heads, 2, 2
             )
             wh = reference_points[..., 2:4] * 0.5
             scaled = (
@@ -179,8 +195,7 @@ class MSDeformableAttention(nn.Module):
                 * self.offset_scale
                 * wh[:, :, None, :, :]
             )
-            # Rotate (w/2, h/2): (bs, Len_q, n_levels, 2)
-            rotated = torch.einsum("bqij,bqhpj->bqhpi", rot_matrix, scaled)
+            rotated = torch.einsum("bqhij,bqhpj->bqhpi", rot_matrix, scaled)
             sampling_locations = reference_points[:, :, None, :, :2] + rotated
 
         else:
