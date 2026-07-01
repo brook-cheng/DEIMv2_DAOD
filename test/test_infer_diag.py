@@ -2,7 +2,7 @@
 
 用法：
     python test/test_infer_diag.py
-    python test/test_infer_diag.py --num 5 --conf 0.1
+    python test/test_infer_diag.py --num 5 --conf 0.1 --conf-step 0.2
 """
 
 import os, sys, argparse, math
@@ -78,10 +78,37 @@ def draw_obb(draw, boxes, labels, scores=None, width=2):
         draw.text((cx + 4, cy - 14), label, fill=c)
 
 
+def score_buckets(scores, conf_step, summary=False):
+    """按 conf_step 分段统计分数分布。
+
+    Args:
+        scores: np.ndarray 或 torch.Tensor，置信度数组
+        conf_step: 分段步长（如 0.2 → 5 段：0-0.2, 0.2-0.4, ..., 0.8-1.0）
+        summary: 返回简洁字符串还是列表
+
+    Returns:
+        如果 summary=True: 字符串，如 "0-0.2=45 0.2-0.4=32 ..."
+        否则: list[(lo, hi, count)] 按 lo 升序排列
+    """
+    if isinstance(scores, torch.Tensor):
+        scores = scores.cpu().numpy()
+    n = int(math.ceil(1.0 / conf_step))
+    buckets = []
+    for k in range(n):
+        lo = k * conf_step
+        hi = min((k + 1) * conf_step, 1.0)
+        cnt = ((scores >= lo) & (scores < hi)).sum()
+        buckets.append((lo, hi, int(cnt)))
+    if summary:
+        return "  ".join(f"{lo:.1f}-{hi:.1f}={cnt}" for lo, hi, cnt in buckets)
+    return buckets
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--ckpt", default=os.path.join(ROOT, "outputs/synthetic_exp_020/last.pth")
+        "--ckpt",
+        default=os.path.join(ROOT, "outputs/synthetic_exp_020/last_0701_add1.pth"),
     )
     parser.add_argument(
         "--config",
@@ -90,7 +117,10 @@ def main():
         ),
     )
     parser.add_argument("--num", type=int, default=4, help="推理图片数")
-    parser.add_argument("--conf", type=float, default=0.1, help="预测框置信度阈值")
+    parser.add_argument("--conf", type=float, default=0.5, help="预测框置信度阈值")
+    parser.add_argument(
+        "--conf-step", type=float, default=0.2, help="置信度分段步长（0-1 之间）"
+    )
     args = parser.parse_args()
 
     print(f"Loading model from {args.ckpt}...")
@@ -141,15 +171,12 @@ def main():
             # ── 统计 ──
             n_pred = len(pred_scores)
             n_gt = len(gt_labels)
-            high_conf = (pred_scores > 0.5).sum().item()
-            mid_conf = ((pred_scores > 0.1) & (pred_scores <= 0.5)).sum().item()
-            low_conf = (pred_scores <= 0.1).sum().item()
 
             print(
                 f"\n--- img[{processed-1}] {ow:.0f}x{oh:.0f} | {n_gt} GT | {n_pred} pred ---"
             )
             print(
-                f"  scores: high(>0.5)={high_conf}  mid(0.1-0.5)={mid_conf}  low(≤0.1)={low_conf}"
+                f"  scores: {score_buckets(pred_scores, args.conf_step, summary=True)}"
             )
             print(
                 f"  score range: [{pred_scores.min():.4f}, {pred_scores.max():.4f}]  mean={pred_scores.mean():.4f}  std={pred_scores.std():.4f}"
@@ -211,23 +238,24 @@ def main():
     # ── 全局统计 ──
     all_s = np.concatenate(all_scores) if all_scores else np.array([])
     print(f"\n{'='*50}")
-    print(f"GLOBAL SCORE DISTRIBUTION ({len(all_s)} predictions)")
+    print(
+        f"GLOBAL SCORE DISTRIBUTION ({len(all_s)} predictions, step={args.conf_step})"
+    )
     print(f"  min={all_s.min():.6f}  max={all_s.max():.6f}")
     print(f"  mean={all_s.mean():.6f}  std={all_s.std():.6f}")
-    print(f"  >0.5: {(all_s>0.5).sum()} ({(all_s>0.5).mean()*100:.1f}%)")
-    print(
-        f"  0.1-0.5: {((all_s>0.1)&(all_s<=0.5)).sum()} ({((all_s>0.1)&(all_s<=0.5)).mean()*100:.1f}%)"
-    )
-    print(f"  ≤0.1: {(all_s<=0.1).sum()} ({(all_s<=0.1).mean()*100:.1f}%)")
+    for lo, hi, cnt in score_buckets(all_s, args.conf_step):
+        pct = 100.0 * cnt / max(len(all_s), 1)
+        bar = "█" * int(pct / 2)
+        print(f"  [{lo:.1f},{hi:.1f}): {cnt:>6d}  ({pct:5.1f}%)  {bar}")
     print(f"\nOutputs: {OUTPUT_DIR}")
 
-    # 保存 score 分布直方图数据
+    # 保存 score 分布直方图数据（按 conf_step 分桶）
     hist_path = os.path.join(OUTPUT_DIR, "score_dist.txt")
-    counts, bins = np.histogram(all_s, bins=20, range=(0, 1))
+    bins = score_buckets(all_s, args.conf_step)
     with open(hist_path, "w") as f:
-        f.write("bin_center,count\n")
-        for c, b in zip(counts, bins[:-1]):
-            f.write(f"{b:.3f},{c}\n")
+        f.write("bin_range,count\n")
+        for lo, hi, cnt in bins:
+            f.write(f"{lo:.1f}-{hi:.1f},{cnt}\n")
     print(f"Score histogram: {hist_path}")
 
 
