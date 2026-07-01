@@ -1,0 +1,14 @@
+faster-coco-eval>=1.6.7
+opencv-python
+PyYAML
+tensorboard
+scipy
+calflops
+scikit-learn
+matplotlib
+tqdm
+comet_ml
+transformers
+# --index-url https://download.pytorch.org/whl/cu128
+# torch==2.7.0
+# torchvision==0.22.0
