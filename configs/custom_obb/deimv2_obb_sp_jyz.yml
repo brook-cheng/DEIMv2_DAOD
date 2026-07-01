@@ -12,6 +12,7 @@ output_dir: ./outputs/deimv2_obb_sp_jyz
 comet_project_name: 'deimv2_obb_sp_jyz'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
+num_classes: 8
 
 ## DEIM LR-Scheduler
 epoches: 150 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.

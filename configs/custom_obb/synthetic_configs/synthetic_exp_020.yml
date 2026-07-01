@@ -77,9 +77,9 @@ train_dataloader:
       type: Compose
       mosaic_prob: 0.5
     type: DotaDataset
-    img_folder: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/train
-    ann_folder: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/train
-    classes_file: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/classes.txt
+    img_folder: /data/cx_dir/project_data/model_test/synthetic_ellipse/density_020/train
+    ann_folder: /data/cx_dir/project_data/model_test/synthetic_ellipse/density_020/train
+    classes_file: /data/cx_dir/project_data/model_test/synthetic_ellipse/classes.txt
     format: DOTA
   collate_fn:
     type: BatchImageCollateFunction
@@ -133,12 +133,12 @@ val_dataloader:
         - 0.225
       type: Compose
     type: DotaDataset
-    img_folder: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/val
-    ann_folder: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/val
-    classes_file: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/classes.txt
+    img_folder: /data/cx_dir/project_data/model_test/synthetic_ellipse/density_020/val
+    ann_folder: /data/cx_dir/project_data/model_test/synthetic_ellipse/density_020/val
+    classes_file: /data/cx_dir/project_data/model_test/synthetic_ellipse/classes.txt
     format: DOTA
   shuffle: true
-  total_batch_size: 8
+  total_batch_size: 2
   num_workers: 2
   type: DataLoader
   drop_last: true
@@ -150,13 +150,13 @@ optimizer:
   type: AdamW
   params:
   - params: ^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$
-    lr: 1.0e-05
+    lr: 2.0e-05
   - params: ^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$
-    lr: 1.0e-05
+    lr: 2.0e-05
     weight_decay: 0.0
   - params: ^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$
     weight_decay: 0.0
-  lr: 0.0005
+  lr: 0.001
   betas:
   - 0.9
   - 0.999
@@ -292,7 +292,7 @@ DEIMCriterion:
 comet_project_name: deimv2_obb_synthetic
 DINOv3STAs:
   name: dinov3_vits16plus
-  weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
+  weights_path: /home/cx/cx_dir/projects/model_research/deimv2_daod/ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
   interaction_indexes:
   - 5
   - 8
@@ -302,7 +302,7 @@ DINOv3STAs:
   hidden_dim: 256
 DINOv3STAsResAtten:
   name: dinov3_vits16plus
-  weights_path: /home/cx/win_dir/thired/DEIMv2_DAOD/ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
+  weights_path: /home/cx/cx_dir/projects/model_research/deimv2_daod/ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
   interaction_indexes: []
   finetune: false
   conv_inplane: 64
