@@ -1,10 +1,10 @@
 __include__: [
-  '../runtime.yml',
-  '../base/dataloader.yml',
-  '../base/optimizer.yml',
-  '../dataset/dota_detection.yml',
-  './dataset_common.yml',
-  './deimv2_obb_common.yml'
+  '../../runtime.yml',
+  '../../base/dataloader.yml',
+  '../../base/optimizer.yml',
+  '../../dataset/dota_detection.yml',
+  '../dataset_common.yml',
+  '../deimv2_obb_common.yml'
 ]
 
 #### 项目配置
@@ -56,7 +56,7 @@ train_dataloader:
     base_size_repeat: 4
 
 val_dataloader:
-  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
+  total_batch_size: 2 # total batch size equals to gpu_nums*batch_size
   num_workers: 2
   dataset:
     img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/images/val

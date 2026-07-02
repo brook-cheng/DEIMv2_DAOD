@@ -1,14 +1,14 @@
 __include__: [
-  '../runtime.yml',
-  '../base/dataloader.yml',
-  '../base/optimizer.yml',
-  '../dataset/dota_detection.yml',
-  './dataset_common.yml',
-  './deimv2_obb_common.yml'
+  '../../runtime.yml',
+  '../../base/dataloader.yml',
+  '../../base/optimizer.yml',
+  '../../dataset/dota_detection.yml',
+  '../dataset_common.yml',
+  '../deimv2_obb_common.yml'
 ]
 
 #### 项目配置
-output_dir: ./outputs/deimv2_obb_sp_jyz
+output_dir: ./outputs/deimv2_obb_sp_jyz_undec_angle
 comet_project_name: 'deimv2_obb_sp_jyz'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
@@ -23,7 +23,7 @@ no_aug_epoch: 15
 #### 设置训练数据
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
-  total_batch_size: 10 # total batch size equals to gpu_nums*batch_size
+  total_batch_size: 12 # total batch size equals to gpu_nums*batch_size
   num_workers: 4
   dataset:
     img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/images/train
