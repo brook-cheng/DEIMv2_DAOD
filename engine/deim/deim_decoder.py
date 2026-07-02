@@ -469,10 +469,11 @@ class DEIMTransformer(nn.Module):
         self.decouple_angle = decouple_angle
         self.num_r_layers = num_layers
         if self.box_mode == "obb":
-            # self._num_box_dof = (
-            #     5  # (cx,cy,w,h,θ) — will become 6 in Task 3 when R decoder is created
-            # )
-            self._num_box_dof = 6  # (cx,cy,w,h,ε,η) external rectangle, vertex bias
+
+            if self.decouple_angle:
+                self._num_box_dof = 6  # (cx,cy,w,h,ε,η) external rectangle, vertex bias
+            else:
+                self._num_box_dof = 5  # (cx,cy,w,h,θ) — will become 6 in Task 3 when R decoder is created
             self.num_reg_dist = 6  # (α,β,γ,δ,ε,η) external rectangle, vertex bias
         elif self.box_mode == "hbb":
             self._num_box_dof = 4  # (cx,cy,w,h)
@@ -797,14 +798,14 @@ class DEIMTransformer(nn.Module):
                 )
                 anchors.append(lvl_anchors)
         elif self.box_mode == "obb":
-            if getattr(self, "decouple_angle", False):
+            if self.decouple_angle:
                 for lvl, (h, w) in enumerate(spatial_shapes):
                     grid_y, grid_x = torch.meshgrid(
                         torch.arange(h), torch.arange(w), indexing="ij"
                     )
                     grid_xy = torch.stack([grid_x, grid_y], dim=-1)
-                    grid_offset_hv = grid_xy.unsqueeze(0) * torch.tensor(
-                        [1 / w, 1 / h], dtype=dtype
+                    grid_offset_hv = grid_xy.unsqueeze(0) / torch.tensor(
+                        [w, h], dtype=dtype
                     )
                     grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor(
                         [w, h], dtype=dtype
@@ -825,13 +826,18 @@ class DEIMTransformer(nn.Module):
                         [w, h], dtype=dtype
                     )
                     wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
-                    edge = 0.5 * torch.ones(
-                        *grid_xy.shape[:-1],
-                        1,
-                        dtype=grid_xy.dtype,
-                        device=grid_xy.device,
+
+                    # r = 0.5 * torch.ones(
+                    #     *grid_xy.shape[:-1],
+                    #     1,
+                    #     dtype=grid_xy.dtype,
+                    #     device=grid_xy.device,
+                    # )
+                    r = grid_x / torch.tensor(
+                        w, dtype=grid_xy.dtype, device=grid_xy.device
                     )
-                    lvl_anchors = torch.concat([grid_xy, wh, edge], dim=-1).reshape(
+                    r = r.unsqueeze(0).unsqueeze(-1)
+                    lvl_anchors = torch.concat([grid_xy, wh, r], dim=-1).reshape(
                         -1, h * w, self._num_box_dof
                     )
                     anchors.append(lvl_anchors)

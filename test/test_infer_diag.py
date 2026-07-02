@@ -17,7 +17,7 @@ from engine.deim.obb_geometry import xywhr_to_xyxyxyxy
 from engine.core import YAMLConfig
 from engine.solver import TASKS
 
-OUTPUT_DIR = os.path.join(ROOT, "test", "outputs", "infer_diag")
+OUTPUT_DIR = os.path.join(ROOT, "test", "outputs", "infer_diag", "density_020_undec")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # 按 class ID 固定颜色映射，同类目标颜色一致
@@ -108,12 +108,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--ckpt",
-        default=os.path.join(ROOT, "outputs/synthetic_exp_020/last_0701_add1.pth"),
+        default=os.path.join(ROOT, "outputs/synthetic_exp_020_undec/last.pth"),
     )
     parser.add_argument(
         "--config",
         default=os.path.join(
-            ROOT, "configs/custom_obb/synthetic_configs/synthetic_exp_020.yml"
+            ROOT, "configs/custom_obb/synthetic_configs/synthetic_exp_020_undec.yml"
         ),
     )
     parser.add_argument("--num", type=int, default=4, help="推理图片数")

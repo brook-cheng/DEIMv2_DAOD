@@ -122,7 +122,8 @@ class DetSolver(BaseSolver):
                 prior=prior,
             )
             kendall_optimizer = torch.optim.Adam(
-                [kendall.log_sigma], lr=kw_cfg.get("sigma_lr", 0.001),
+                [kendall.log_sigma],
+                lr=kw_cfg.get("sigma_lr", 0.001),
             )
             print(f"[KendallWeighting] enabled — prior={[f'{p:.3f}' for p in prior]}")
 
@@ -152,7 +153,6 @@ class DetSolver(BaseSolver):
                 ema=self.ema,
                 scaler=self.scaler,
                 lr_warmup_scheduler=self.lr_warmup_scheduler,
-                writer=self.writer,
                 comet_exp=comet_exp,
                 comet_step=epoch,
                 kendall=kendall,

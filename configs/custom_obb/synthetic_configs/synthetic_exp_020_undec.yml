@@ -1,5 +1,5 @@
 print_freq: 500
-output_dir: ./outputs/synthetic_exp_020
+output_dir: ./outputs/synthetic_exp_020_undec
 checkpoint_freq: 10
 sync_bn: true
 find_unused_parameters: true
@@ -245,7 +245,7 @@ DEIMTransformer:
   mlp_act: silu
   dim_feedforward: 2048
   box_mode: obb
-  decouple_angle: True
+  decouple_angle: False
 
 PostProcessor:
   num_top_queries: 300

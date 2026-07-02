@@ -376,7 +376,6 @@ class DEIMCriterion(nn.Module):
                 avg_factor=num_boxes,
             )
 
-            # 只有在模型蒸馏时才会执行下面的代码
             if "teacher_corners" in outputs:
                 pred_corners = outputs["pred_corners"].reshape(-1, (self.reg_max + 1))
                 target_corners = outputs["teacher_corners"].reshape(

@@ -15,11 +15,11 @@ import datetime
 os.environ.update(
     {
         "NCCL_DEBUG": "INFO",
-        "MKL_THREADING_LAYER": "INTEL",
-        "MKL_SERVICE_FORCE_INTEL": "1",
+        # "MKL_THREADING_LAYER": "INTEL",
+        # "MKL_SERVICE_FORCE_INTEL": "1",
         # "CUDA_VISIBLE_DEVICES": "0,1",
         # "PYTORCH_NVML_BASED_CUDA_CHECK": "1",
-        "CUDA_LAUNCH_BLOCKING": "1",
+        # "CUDA_LAUNCH_BLOCKING": "1",
         "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
         "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:512,garbage_collection_threshold:0.5",
         "COMET_API_KEY": "EoSgIYtwa6a5rKElgh9KD59xS",
@@ -234,7 +234,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # args.config = "./configs/custom_obb/deimv2_obb_sp.yml"  # commented for synthetic experiments
-    # args.config = "configs/custom_obb/synthetic_configs/synthetic_exp_020.yml"
+    args.config = "configs/custom_obb/synthetic_configs/synthetic_exp_020_undec.yml"
     # args.use_amp = False
     # model test part
     # args.test_only = False

@@ -8,6 +8,16 @@ use_focal_loss: True
 eval_spatial_size: [640, 640] # h w
 checkpoint_freq: 5    # save freq
 
+scaler:
+  type: GradScaler
+  enabled: true
+use_ema: true
+ema:
+  type: ModelEMA
+  decay: 0.9998
+  warmups: 500
+  start: 0
+
 DEIM:
   backbone: HGNetv2
   encoder: HybridEncoder

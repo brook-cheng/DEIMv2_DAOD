@@ -12,7 +12,6 @@ from typing import Iterable
 
 import torch
 import torch.amp
-from torch.utils.tensorboard import SummaryWriter
 from torch.cuda.amp.grad_scaler import GradScaler
 
 try:
@@ -24,6 +23,84 @@ from ..optim import ModelEMA, Warmup
 from ..data import CocoEvaluator
 from ..misc import MetricLogger, SmoothedValue, dist_utils
 from ..eval.obb_eval import obb_evaluate
+
+# ---------------------------------------------------------------------------
+#  Loss key parser: "loss_mal_aux_3" → ("loss_mal", "aux", 3)
+# ---------------------------------------------------------------------------
+import re
+
+# 后缀模式 → source 映射（按优先级：enc > aux > _dn_pre > dn > pre）
+_SUFFIX_PATTERNS = [
+    ("_enc_", "enc"),
+    ("_aux_", "aux"),
+    ("_dn_pre", "dn_pre"),
+    ("_dn_", "dn"),
+    ("_pre", "pre"),
+]
+
+
+def parse_loss_key(key: str) -> tuple[str, str, int | None]:
+    """Parse a criterion loss-dict key into (loss_family, source, layer_index).
+
+    Examples:
+        "loss_mal"         → ("loss_mal", "main", None)
+        "loss_mal_aux_3"   → ("loss_mal", "aux", 3)
+        "loss_kld_dn_1"    → ("loss_kld", "dn", 1)
+        "loss_bbox_enc_0"  → ("loss_bbox", "enc", 0)
+        "loss_mal_dn_pre"  → ("loss_mal", "dn_pre", None)
+        "loss_fgl_pre"     → ("loss_fgl", "pre", None)
+    """
+    for suffix, source in _SUFFIX_PATTERNS:
+        if suffix in key:
+            prefix = key[: key.index(suffix)]
+            idx_str = key[key.index(suffix) + len(suffix) :]
+            return (prefix, source, int(idx_str) if idx_str else None)
+    return (key, "main", None)
+
+
+# 梯度模块组映射：按参数名前缀聚合到 backbone / encoder / decoder / head
+_GRAD_GROUPS = {
+    "backbone": "backbone",
+    "encoder": "encoder",
+    "decoder": "decoder",
+    "head": ("class_embed", "bbox_embed", "enc_score_head", "enc_bbox_head"),
+}
+_GRAD_HIST_EVERY_N_EPOCH = 5
+
+
+def _log_gradient_stats(model: torch.nn.Module, comet_exp, epoch: int) -> None:
+    """按模块组聚合梯度统计量（norm/max/mean），替代逐参数直方图。
+
+    Called every _GRAD_HIST_EVERY_N_EPOCH epochs on the main process only.
+    每次上报 4 组 × 3 标量 = 12 次 API 调用，避免 rate limit。
+    """
+    from collections import defaultdict
+
+    group_grads = defaultdict(list)
+    for name, param in model.named_parameters():
+        if param.grad is None:
+            continue
+        grad_abs = param.grad.detach().cpu().float().abs()
+        for group_key, patterns in _GRAD_GROUPS.items():
+            if isinstance(patterns, str):
+                patterns = (patterns,)
+            if any(name.startswith(p) for p in patterns):
+                group_grads[group_key].append(grad_abs)
+                break
+
+    for group_key, grads in group_grads.items():
+        if not grads:
+            continue
+        all_grads = torch.cat([g.flatten() for g in grads])
+        comet_exp.log_metric(
+            f"grad/{group_key}/norm", all_grads.norm(2).item(), epoch=epoch
+        )
+        comet_exp.log_metric(
+            f"grad/{group_key}/max", all_grads.max().item(), epoch=epoch
+        )
+        comet_exp.log_metric(
+            f"grad/{group_key}/mean", all_grads.mean().item(), epoch=epoch
+        )
 
 
 def train_one_epoch(
@@ -45,7 +122,6 @@ def train_one_epoch(
     header = "Epoch: [{}]".format(epoch)
 
     print_freq = kwargs.get("print_freq", 10)
-    writer: SummaryWriter = kwargs.get("writer", None)
 
     ema: ModelEMA = kwargs.get("ema", None)
     scaler: GradScaler = kwargs.get("scaler", None)
@@ -110,7 +186,15 @@ def train_one_epoch(
 
             if max_norm > 0:
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+                grad_norm_before = torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), max_norm
+                )
+                grad_norm_after = min(grad_norm_before, max_norm)
+            else:
+                grad_norm_before = torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), float("inf")
+                )
+                grad_norm_after = grad_norm_before
 
             scaler.step(optimizer)
             scaler.update()
@@ -129,7 +213,16 @@ def train_one_epoch(
                 loss.backward()
 
                 if max_norm > 0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+                    grad_norm_before = torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), max_norm
+                    )
+                    grad_norm_after = min(grad_norm_before, max_norm)
+                else:
+                    grad_norm_before = torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), float("inf")
+                    )
+                    grad_norm_after = grad_norm_before
+
                 optimizer.step()
                 if kendall_optimizer is not None:
                     kendall_optimizer.step()
@@ -138,17 +231,28 @@ def train_one_epoch(
                     weights = kendall.get_weights()
                     if comet_exp:
                         for k, w in weights.items():
-                            comet_exp.log_metric(f"kendall_{k}", w, step=global_step)
-                    if writer:
-                        for k, w in weights.items():
-                            writer.add_scalar(f"Kendall/{k}", w, global_step)
+                            comet_exp.log_metric(f"kendall/{k}", w, step=global_step)
             else:
                 loss: torch.Tensor = sum(loss_dict.values())
                 loss.backward()
 
                 if max_norm > 0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
+                    grad_norm_before = torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), max_norm
+                    )
+                    grad_norm_after = min(grad_norm_before, max_norm)
+                else:
+                    grad_norm_before = torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), float("inf")
+                    )
+                    grad_norm_after = grad_norm_before
+
                 optimizer.step()
+
+            param_norm = (
+                sum(p.data.float().norm(2).item() ** 2 for p in model.parameters())
+                ** 0.5
+            )
 
             if ema is not None:
                 ema.update(model)
@@ -170,91 +274,89 @@ def train_one_epoch(
         metric_logger.update(loss=loss_value, **loss_dict_reduced)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
 
-        # 更新 tqdm 进度条信息
+        # -------- tqdm 进度条：显示主损失 --------
         if use_tqdm:
             postfix_dict = {
                 "lr": f'{optimizer.param_groups[0]["lr"]:.8f}',
-                "loss_total": f"{loss_value:.4f}",
-                "loss_mal": f'{loss_dict_reduced.get("loss_mal", 0):.4f}',
-                "loss_bbox": f'{loss_dict_reduced.get("loss_bbox", 0):.4f}',
+                "total": f"{loss_value:.4f}",
             }
-            iou_loss_key = (
-                "loss_kld" if "loss_kld" in loss_dict_reduced else "loss_giou"
-            )
-            postfix_dict[iou_loss_key] = f"{loss_dict_reduced.get(iou_loss_key, 0):.4f}"
-            if "loss_fgl" in loss_dict_reduced:
-                postfix_dict["loss_fgl"] = f'{loss_dict_reduced["loss_fgl"]:.4f}'
-            if "loss_ddf" in loss_dict_reduced:
-                postfix_dict["ddf"] = f'{loss_dict_reduced["loss_ddf"]:.4f}'
+            for k, v in loss_dict_reduced.items():
+                family, source, _ = parse_loss_key(k)
+                if source == "main":
+                    short_name = k.replace("loss_", "")
+                    postfix_dict[short_name] = f"{v:.4f}"
             data_loader_iter.set_postfix(postfix_dict)
 
-        if writer and dist_utils.is_main_process() and global_step % 10 == 0:
-            writer.add_scalar("Loss/total", loss_value.item(), global_step)
-            for j, pg in enumerate(optimizer.param_groups):
-                writer.add_scalar(f"Lr/pg_{j}", pg["lr"], global_step)
+        # -------- Comet batch 日志 --------
+        if comet_exp and dist_utils.is_main_process() and global_step % 50 == 0:
             for k, v in loss_dict_reduced.items():
-                writer.add_scalar(f"Loss/{k}", v.item(), global_step)
+                family, source, idx = parse_loss_key(k)
+                metric_name = f"{source}/{family}"
+                if idx is not None:
+                    if source in ("aux", "enc"):
+                        metric_name += f"/layer_{idx}"
+                    elif source in ("dn", "dn_pre"):
+                        metric_name += f"/group_{idx}"
+                comet_exp.log_metric(metric_name, v.item(), step=global_step)
 
-        if comet_exp and dist_utils.is_main_process() and global_step % 10 == 0:
-            for k, v in loss_dict_reduced.items():
-                comet_exp.log_metric(f"batch_{k}", v.item(), step=global_step)
+            comet_exp.log_metric("main/loss_total", loss_value.item(), step=global_step)
             comet_exp.log_metric(
-                "lr", optimizer.param_groups[0]["lr"], step=global_step
-            )
-            comet_exp.log_metric("loss_total", loss_value.item(), step=global_step)
-            comet_exp.log_metric(
-                "loss_mal", loss_dict_reduced.get("loss_mal", 0), step=global_step
+                "lr",
+                optimizer.param_groups[0]["lr"],
+                step=global_step,
             )
             comet_exp.log_metric(
-                "loss_bbox", loss_dict_reduced.get("loss_bbox", 0), step=global_step
+                "grad/norm/before_clip",
+                grad_norm_before,
+                step=global_step,
             )
             comet_exp.log_metric(
-                iou_loss_key, loss_dict_reduced.get(iou_loss_key, 0), step=global_step
+                "grad/norm/after_clip",
+                grad_norm_after,
+                step=global_step,
             )
-            if "loss_fgl" in loss_dict_reduced:
-                comet_exp.log_metric(
-                    "loss_fgl", loss_dict_reduced["loss_fgl"], step=global_step
-                )
-            if "loss_ddf" in loss_dict_reduced:
-                comet_exp.log_metric(
-                    "loss_ddf", loss_dict_reduced["loss_ddf"], step=global_step
-                )
+            comet_exp.log_metric("param/norm", param_norm, step=global_step)
 
     metric_logger.synchronize_between_processes()
-    print("\n" + "=" * 60)
-    print("Training Summary - Epoch {}".format(epoch))
-    print("=" * 60)
-    print(f"Total Loss: {metric_logger.loss.global_avg:.4f}")
-    print(f"Match Aware Loss: {metric_logger.loss_mal.global_avg:.4f}")
-    print(f"BBox Loss: {metric_logger.loss_bbox.global_avg:.4f}")
-    iou_loss_name = "KLD Loss" if hasattr(metric_logger, "loss_kld") else "GIoU Loss"
-    iou_loss_val = getattr(
-        metric_logger, "loss_kld", getattr(metric_logger, "loss_giou", None)
-    )
-    if iou_loss_val is not None:
-        print(f"{iou_loss_name}: {iou_loss_val.global_avg:.4f}")
-    print(f"Learning Rate: {metric_logger.lr.global_avg:.6f}")
-    print("=" * 60 + "\n")
+
+    if dist_utils.is_main_process():
+        print("\n" + "=" * 60)
+        print(f"Training Summary - Epoch {epoch}")
+        print("=" * 60)
+        for k, meter in metric_logger.meters.items():
+            if k == "loss":
+                print(f"  Total Loss:     {meter.global_avg:.4f}")
+            elif k == "lr":
+                print(f"  Learning Rate:  {meter.global_avg:.6f}")
+            elif k.startswith("loss_"):
+                family, source, _ = parse_loss_key(k)
+                if source == "main":
+                    label = k.replace("loss_", "").upper()
+                    print(f"  {label:16s} {meter.global_avg:.4f}")
+        print("=" * 60 + "\n")
 
     if comet_exp and dist_utils.is_main_process():
-        comet_exp.log_metric(
-            "epoch_loss_total", metric_logger.loss.global_avg, epoch=comet_step
-        )
-        comet_exp.log_metric(
-            "epoch_loss_mal", metric_logger.loss_mal.global_avg, epoch=comet_step
-        )
-        comet_exp.log_metric(
-            "epoch_loss_bbox", metric_logger.loss_bbox.global_avg, epoch=comet_step
-        )
-        if "loss_kld" in metric_logger.meters:
-            comet_exp.log_metric(
-                "epoch_loss_kld", metric_logger.loss_kld.global_avg, epoch=comet_step
-            )
-        elif "loss_giou" in metric_logger.meters:
-            comet_exp.log_metric(
-                "epoch_loss_giou", metric_logger.loss_giou.global_avg, epoch=comet_step
-            )
-        comet_exp.log_metric("epoch_lr", metric_logger.lr.global_avg, epoch=comet_step)
+        for k, meter in metric_logger.meters.items():
+            if k == "loss":
+                comet_exp.log_metric(
+                    "main/loss_total_epoch", meter.global_avg, epoch=comet_step
+                )
+            elif k == "lr":
+                comet_exp.log_metric("lr_epoch", meter.global_avg, epoch=comet_step)
+            elif k.startswith("loss_"):
+                family, source, idx = parse_loss_key(k)
+                metric_name = f"{source}/{family}"
+                if idx is not None:
+                    if source in ("aux", "enc"):
+                        metric_name += f"/layer_{idx}"
+                    elif source in ("dn", "dn_pre"):
+                        metric_name += f"/group_{idx}"
+                comet_exp.log_metric(
+                    f"{metric_name}_epoch", meter.global_avg, epoch=comet_step
+                )
+
+        if epoch > 0 and epoch % _GRAD_HIST_EVERY_N_EPOCH == 0:
+            _log_gradient_stats(model, comet_exp, comet_step)
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
