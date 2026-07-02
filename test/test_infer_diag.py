@@ -17,7 +17,9 @@ from engine.deim.obb_geometry import xywhr_to_xyxyxyxy
 from engine.core import YAMLConfig
 from engine.solver import TASKS
 
-OUTPUT_DIR = os.path.join(ROOT, "test", "outputs", "infer_diag", "density_020_undec")
+OUTPUT_DIR = os.path.join(
+    ROOT, "test", "outputs", "infer_diag", "density_020_undec_angle"
+)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # 按 class ID 固定颜色映射，同类目标颜色一致
@@ -108,7 +110,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--ckpt",
-        default=os.path.join(ROOT, "outputs/synthetic_exp_020_undec/last.pth"),
+        default=os.path.join(
+            ROOT, "outputs/synthetic_exp_020_undec/last_undec_angle.pth"
+        ),
     )
     parser.add_argument(
         "--config",
