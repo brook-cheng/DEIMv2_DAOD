@@ -123,7 +123,7 @@ optimizer:
 
 ### Loss
 DEIMCriterion:
-  weight_dict: {loss_mal: 4, loss_bbox: 1, loss_kld: 1, loss_fgl: 0.5}
+  weight_dict: {loss_mal: 4, loss_bbox: 1, loss_kld: 1, loss_fgl: 0.5,loss_ddf: 1.5}
   losses: ['mal', 'boxes', 'local']
   gamma: 1.0
   alpha: 0.75
