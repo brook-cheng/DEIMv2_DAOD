@@ -14,15 +14,15 @@ import datetime
 
 os.environ.update(
     {
-        "NCCL_DEBUG": "INFO",
-        # "MKL_THREADING_LAYER": "INTEL",
-        # "MKL_SERVICE_FORCE_INTEL": "1",
-        # "CUDA_VISIBLE_DEVICES": "0,1",
-        # "PYTORCH_NVML_BASED_CUDA_CHECK": "1",
-        # "CUDA_LAUNCH_BLOCKING": "1",
-        "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
-        "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:512,garbage_collection_threshold:0.5",
-        "COMET_API_KEY": "EoSgIYtwa6a5rKElgh9KD59xS",
+        # NCCL: WARN 即可，INFO 会为每次 collective 操作打印一行
+        "NCCL_DEBUG": os.environ.get("NCCL_DEBUG", "WARN"),
+        # CUDA 显存分配：expandable_segments 避免碎片化 OOM
+        "PYTORCH_CUDA_ALLOC_CONF": os.environ.get(
+            "PYTORCH_CUDA_ALLOC_CONF",
+            "expandable_segments:True,garbage_collection_threshold:0.6",
+        ),
+        "COMET_API_KEY": os.environ.get("COMET_API_KEY", "EoSgIYtwa6a5rKElgh9KD59xS"),
+        "COMET_LOGGING_CONSOLE": os.environ.get("COMET_LOGGING_CONSOLE", "WARNING"),
     }
 )
 
@@ -31,6 +31,11 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 import argparse
+
+try:
+    import comet_ml
+except ImportError:
+    pass
 
 from engine.misc import dist_utils
 from engine.core import YAMLConfig, yaml_utils
@@ -53,10 +58,11 @@ if debug:
 
 
 def init_comet_experiment(cfg: YAMLConfig) -> None:
-    """Initialize Comet ML experiment for training monitoring"""
+    """Initialize Comet ML experiment for training monitoring (main process only)."""
+    if int(os.environ.get("RANK", 0)) != 0:
+        cfg._comet_experiment = None
+        return
     try:
-        import comet_ml
-
         api_key = os.getenv("COMET_API_KEY")
         if "comet_project_name" in cfg.yaml_cfg:
             project_name = cfg.yaml_cfg["comet_project_name"]
@@ -181,7 +187,8 @@ def main(
 
     if hasattr(cfg, "_comet_experiment") and cfg._comet_experiment is not None:
         cfg._comet_experiment.end()
-        print("\nComet ML experiment ended\n")
+        if int(os.environ.get("RANK", 0)) == 0:
+            print("\nComet ML experiment ended\n")
 
     dist_utils.cleanup()
 

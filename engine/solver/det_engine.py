@@ -402,7 +402,7 @@ def evaluate(
 
         comet_exp = kwargs.get("comet_exp", None)
         comet_step = kwargs.get("comet_step", None)
-        if comet_exp:
+        if comet_exp and dist_utils.is_main_process():
             for k, v in stats.items():
                 comet_exp.log_metric(f"val_{k}", v, epoch=comet_step)
         return stats, None
@@ -493,7 +493,7 @@ def evaluate(
             print(metrics_dict)
             print("-" * 50)
 
-            if comet_exp is not None:
+            if comet_exp is not None and dist_utils.is_main_process():
                 comet_exp.log_metric("recall", metrics_dict["recall"], epoch=comet_step)
                 comet_exp.log_metric(
                     "precision", metrics_dict["precision"], epoch=comet_step
