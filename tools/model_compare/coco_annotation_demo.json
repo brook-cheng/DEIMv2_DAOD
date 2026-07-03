@@ -14,7 +14,13 @@
             "name": "GNU GENERAL PUBLIC LICENSE Version 3"
         }
     ],
-    "categories": [{"id": 1, "name": "bh_guagoutou", "supercategory": ""}],
+    "categories": [
+        {
+            "id": 1,
+            "name": "bh_guagoutou",
+            "supercategory": ""
+        }
+    ],
     "images": [
         {
             "license": 0,
@@ -53,30 +59,15 @@
         },
         {
             "id": 1,
-            "image_id": 2,
+            "image_id": 1,
             "category_id": 1,
             "bbox": [
-                76.08165900000002,
-                158.226756,
-                12.393107999999984,
-                15.000808000000006
+                66.05660950000001,
+                111.61706850000002,
+                5.960538999999997,
+                9.322034999999985
             ],
-            "area": 185.90663363126384,
-            "iscrowd": 0,
-            "ignore": 0,
-            "segmentation": []
-        },
-        {
-            "id": 2,
-            "image_id": 2,
-            "category_id": 1,
-            "bbox": [
-                101.218239,
-                207.652332,
-                11.829149999999998,
-                15.935111999999975
-            ],
-            "area": 188.4988301147997,
+            "area": 55.564353176864884,
             "iscrowd": 0,
             "ignore": 0,
             "segmentation": []
