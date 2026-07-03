@@ -126,17 +126,15 @@ def test_online_vs_offline_ap():
             with open(os.path.join(gt_dir, f"{name}.txt"), "w") as f:
                 f.writelines(lines)
 
-        for cls_id, cls_name in enumerate(DOTA_CLASSES):
-            det_lines = []
-            for i, name in enumerate(img_names):
-                pb = img_pred_boxes[i]; ps = img_pred_scores[i]; pl = img_pred_labels[i]
-                mask = pl == cls_id
-                for j in np.where(mask)[0]:
-                    v = xywhr_to_xyxyxyxy(torch.tensor(pb[j]).reshape(1, 5)).numpy().flatten()
-                    det_lines.append(f"{name} {ps[j]:.8f} " +
-                                     " ".join([f"{x:.8f}" for x in v]) + "\n")
-            with open(os.path.join(det_dir, f"Task1_{cls_name}.txt"), "w") as f:
-                f.writelines(det_lines)
+        for i, name in enumerate(img_names):
+            lines = []
+            pb = img_pred_boxes[i]; ps = img_pred_scores[i]; pl = img_pred_labels[i]
+            for j in range(len(pb)):
+                v = xywhr_to_xyxyxyxy(torch.tensor(pb[j]).reshape(1, 5)).numpy().flatten()
+                lines.append(" ".join([f"{x:.8f}" for x in v]) +
+                             f" {DOTA_CLASSES[int(pl[j])]} {ps[j]:.8f}\n")
+            with open(os.path.join(det_dir, f"{name}.txt"), "w") as f:
+                f.writelines(lines)
 
         result_offline = evaluate_dota(det_dir, gt_dir)
     finally:

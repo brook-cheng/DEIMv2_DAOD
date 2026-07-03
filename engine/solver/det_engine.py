@@ -227,11 +227,16 @@ def train_one_epoch(
                 if kendall_optimizer is not None:
                     kendall_optimizer.step()
 
-                if dist_utils.is_main_process() and global_step % 10 == 0:
+                if dist_utils.is_main_process() and global_step % 50 == 0:
                     weights = kendall.get_weights()
                     if comet_exp:
-                        for k, w in weights.items():
-                            comet_exp.log_metric(f"kendall/{k}", w, step=global_step)
+                        try:
+                            for k, w in weights.items():
+                                comet_exp.log_metric(
+                                    f"kendall/{k}", w, step=global_step
+                                )
+                        except Exception:
+                            pass
             else:
                 loss: torch.Tensor = sum(loss_dict.values())
                 loss.backward()
@@ -289,33 +294,32 @@ def train_one_epoch(
 
         # -------- Comet batch 日志 --------
         if comet_exp and dist_utils.is_main_process() and global_step % 50 == 0:
-            for k, v in loss_dict_reduced.items():
-                family, source, idx = parse_loss_key(k)
-                metric_name = f"{source}/{family}"
-                if idx is not None:
-                    if source in ("aux", "enc"):
-                        metric_name += f"/layer_{idx}"
-                    elif source in ("dn", "dn_pre"):
-                        metric_name += f"/group_{idx}"
-                comet_exp.log_metric(metric_name, v.item(), step=global_step)
+            try:
+                for k, v in loss_dict_reduced.items():
+                    family, source, idx = parse_loss_key(k)
+                    metric_name = f"{source}/{family}"
+                    if idx is not None:
+                        if source in ("aux", "enc"):
+                            metric_name += f"/layer_{idx}"
+                        elif source in ("dn", "dn_pre"):
+                            metric_name += f"/group_{idx}"
+                    comet_exp.log_metric(metric_name, v.item(), step=global_step)
 
-            comet_exp.log_metric("main/loss_total", loss_value.item(), step=global_step)
-            comet_exp.log_metric(
-                "lr",
-                optimizer.param_groups[0]["lr"],
-                step=global_step,
-            )
-            comet_exp.log_metric(
-                "grad/norm/before_clip",
-                grad_norm_before,
-                step=global_step,
-            )
-            comet_exp.log_metric(
-                "grad/norm/after_clip",
-                grad_norm_after,
-                step=global_step,
-            )
-            comet_exp.log_metric("param/norm", param_norm, step=global_step)
+                comet_exp.log_metric(
+                    "main/loss_total", loss_value.item(), step=global_step
+                )
+                comet_exp.log_metric(
+                    "lr", optimizer.param_groups[0]["lr"], step=global_step
+                )
+                comet_exp.log_metric(
+                    "grad/norm/before_clip", grad_norm_before, step=global_step
+                )
+                comet_exp.log_metric(
+                    "grad/norm/after_clip", grad_norm_after, step=global_step
+                )
+                comet_exp.log_metric("param/norm", param_norm, step=global_step)
+            except Exception:
+                pass
 
     metric_logger.synchronize_between_processes()
 
@@ -336,27 +340,30 @@ def train_one_epoch(
         print("=" * 60 + "\n")
 
     if comet_exp and dist_utils.is_main_process():
-        for k, meter in metric_logger.meters.items():
-            if k == "loss":
-                comet_exp.log_metric(
-                    "main/loss_total_epoch", meter.global_avg, epoch=comet_step
-                )
-            elif k == "lr":
-                comet_exp.log_metric("lr_epoch", meter.global_avg, epoch=comet_step)
-            elif k.startswith("loss_"):
-                family, source, idx = parse_loss_key(k)
-                metric_name = f"{source}/{family}"
-                if idx is not None:
-                    if source in ("aux", "enc"):
-                        metric_name += f"/layer_{idx}"
-                    elif source in ("dn", "dn_pre"):
-                        metric_name += f"/group_{idx}"
-                comet_exp.log_metric(
-                    f"{metric_name}_epoch", meter.global_avg, epoch=comet_step
-                )
+        try:
+            for k, meter in metric_logger.meters.items():
+                if k == "loss":
+                    comet_exp.log_metric(
+                        "main/loss_total_epoch", meter.global_avg, epoch=comet_step
+                    )
+                elif k == "lr":
+                    comet_exp.log_metric("lr_epoch", meter.global_avg, epoch=comet_step)
+                elif k.startswith("loss_"):
+                    family, source, idx = parse_loss_key(k)
+                    metric_name = f"{source}/{family}"
+                    if idx is not None:
+                        if source in ("aux", "enc"):
+                            metric_name += f"/layer_{idx}"
+                        elif source in ("dn", "dn_pre"):
+                            metric_name += f"/group_{idx}"
+                    comet_exp.log_metric(
+                        f"{metric_name}_epoch", meter.global_avg, epoch=comet_step
+                    )
 
-        if epoch > 0 and epoch % _GRAD_HIST_EVERY_N_EPOCH == 0:
-            _log_gradient_stats(model, comet_exp, comet_step)
+            if epoch > 0 and epoch % _GRAD_HIST_EVERY_N_EPOCH == 0:
+                _log_gradient_stats(model, comet_exp, comet_step)
+        except Exception:
+            pass
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
