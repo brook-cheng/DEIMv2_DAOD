@@ -18,7 +18,7 @@ import torch
 
 from deim_wapper.deimv2_det import DEIMv2Det
 from deim_wapper.deimv2_model_config import DEIMV2_VITL16P_CFG, DEIMV2_VITH16P_CFG
-from tools.label.coco_utils import (
+from tools.model_compare.coco_utils import (
     deimv2_outputs_to_coco_annotations,
     show_coco_annotations_on_image,
 )

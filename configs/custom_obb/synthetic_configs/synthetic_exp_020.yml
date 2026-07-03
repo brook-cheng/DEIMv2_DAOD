@@ -2,7 +2,7 @@ print_freq: 500
 output_dir: ./outputs/synthetic_exp_020
 checkpoint_freq: 10
 sync_bn: true
-find_unused_parameters: true
+find_unused_parameters: false
 scaler:
   type: GradScaler
   enabled: true

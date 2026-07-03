@@ -16,7 +16,7 @@ import numpy as np
 import json
 
 
-from tools.label.coco_utils import (
+from tools.model_compare.coco_utils import (
     deimv2_outputs_to_coco_annotations,
     show_coco_annotations_on_image,
     ultralytics_val_to_coco,

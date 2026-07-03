@@ -8,7 +8,7 @@ import sys
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.append(ROOT_DIR)
-from tools.label.coco_utils import (
+from tools.model_compare.coco_utils import (
     deimv2_outputs_to_coco_annotations,
     show_coco_annotations_on_image,
     ultralytics_val_to_coco,
