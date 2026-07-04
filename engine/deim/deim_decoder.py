@@ -348,10 +348,10 @@ class TransformerDecoder(nn.Module):
                 )
                 offset_output_detach = offset_output.detach()
                 pred_corners_undetach_offset = pred_offset
-                if i < len(self.gate_fusions):
-                    offset_output = self.gate_fusions[i](
-                        [output, offset_output], query=offset_output
-                    )
+                # if i < len(self.gate_fusions):
+                #     offset_output = self.gate_fusions[i](
+                #         [output, offset_output], query=offset_output
+                #     )
 
                 # cat (α,β,γ,δ)(ε,η)->(α,β,γ,δ,ε,η)
                 pred_corners_xywh = pred_corners.detach()
