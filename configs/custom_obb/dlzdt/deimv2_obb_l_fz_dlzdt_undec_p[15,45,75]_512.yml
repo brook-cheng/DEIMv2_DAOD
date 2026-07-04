@@ -8,17 +8,17 @@ __include__: [
 ]
 
 #### 项目配置
-output_dir: ./outputs/deimv2_obb_l_fz_dlzdt_undec_p[15,45,75]
+output_dir: ./outputs/deimv2_obb_l_fz_dlzdt_undec_p[15,45,75]_512
 comet_project_name: 'deimv2_obb_sp_dlzdt'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
 num_classes: 1
 
 ## DEIM LR-Scheduler
-epoches: 150 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
-warmup_iter: 15   # 0.1 * epoches
-flat_epoch: 90    # epoch // 2 + warmup_iter
-no_aug_epoch: 15
+epoches: 200 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+warmup_iter: 20   # 0.1 * epoches
+flat_epoch: 100    # epoch // 2 + warmup_iter
+no_aug_epoch: 40
 
 #### 设置训练数据
 ## Dense O2O: Mosaic + Mixup + CopyBlend
@@ -78,21 +78,21 @@ DINOv3STAsResAtten:
   weights_path: ./ckpts/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth
   interaction_indexes: []   # all layers will be used
   finetune: False
-  conv_inplane: 64 # dinov3_hidden_dim/4
-  hidden_dim: 256 # dinov3_hidden_dim*2/3
+  conv_inplane: 128 # dinov3_hidden_dim/4
+  hidden_dim: 512 # dinov3_hidden_dim*2/3
   adapter_type: 'sta'  # 'sta' or 'c3k2'
 
 ### encoder
 HybridEncoder:
-  in_channels: [256, 256, 256] #[hidden_dim,2*hidden_dim,4*hidden_dim]或[hidden_dim,hidden_dim,hidden_dim]
-  hidden_dim: 256
-  dim_feedforward: 1024 #4*hidden_dim
+  in_channels: [512, 512, 512] #[hidden_dim,2*hidden_dim,4*hidden_dim]或[hidden_dim,hidden_dim,hidden_dim]
+  hidden_dim: 512
+  dim_feedforward: 2048 #4*hidden_dim
 
 ### decoder
 DEIMTransformer:
-  feat_channels: [256, 256, 256] #hidden_dim
-  hidden_dim: 256 #hidden_dim
-  dim_feedforward: 2048 # hidden_dim*8
+  feat_channels: [512, 512, 512] #hidden_dim
+  hidden_dim: 512 #hidden_dim
+  dim_feedforward: 4096 # hidden_dim*8
   box_mode: obb
   decouple_angle: False
 
