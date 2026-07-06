@@ -11,8 +11,7 @@ import torchvision
 
 from ..core import register
 
-
-__all__ = ['PostProcessor']
+__all__ = ["PostProcessor"]
 
 
 def mod(a, b):
@@ -23,10 +22,10 @@ def mod(a, b):
 @register()
 class PostProcessor(nn.Module):
     __share__ = [
-        'num_classes',
-        'use_focal_loss',
-        'num_top_queries',
-        'remap_mscoco_category'
+        "num_classes",
+        "use_focal_loss",
+        "num_top_queries",
+        "remap_mscoco_category",
     ]
 
     def __init__(
@@ -35,7 +34,7 @@ class PostProcessor(nn.Module):
         use_focal_loss=True,
         num_top_queries=300,
         remap_mscoco_category=False,
-        box_mode='hbb'
+        box_mode="hbb",
     ) -> None:
         super().__init__()
         self.use_focal_loss = use_focal_loss
@@ -46,21 +45,25 @@ class PostProcessor(nn.Module):
         self.box_mode = box_mode
 
     def extra_repr(self) -> str:
-        return f'use_focal_loss={self.use_focal_loss}, num_classes={self.num_classes}, num_top_queries={self.num_top_queries}'
+        return f"use_focal_loss={self.use_focal_loss}, num_classes={self.num_classes}, num_top_queries={self.num_top_queries}"
 
     # def forward(self, outputs, orig_target_sizes):
     def forward(self, outputs, orig_target_sizes: torch.Tensor):
-        logits, boxes = outputs['pred_logits'], outputs['pred_boxes']
+        logits, boxes = outputs["pred_logits"], outputs["pred_boxes"]
         # orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
 
-        if self.box_mode=='hbb':
-            bbox_pred = torchvision.ops.box_convert(boxes, in_fmt='cxcywh', out_fmt='xyxy')
+        if self.box_mode == "hbb":
+            bbox_pred = torchvision.ops.box_convert(
+                boxes, in_fmt="cxcywh", out_fmt="xyxy"
+            )
             bbox_pred *= orig_target_sizes.repeat(1, 2).unsqueeze(1)
-        elif self.box_mode=='obb':
+        elif self.box_mode == "obb":
             # OBB: 保留 cxcywhθ，逐维缩放到像素
             img_w = orig_target_sizes[:, 0:1]
             img_h = orig_target_sizes[:, 1:2]
-            factor = torch.cat([img_w, img_h, img_w, img_h, torch.ones_like(img_w)], dim=-1).unsqueeze(1)
+            factor = torch.cat(
+                [img_w, img_h, img_w, img_h, torch.ones_like(img_w)], dim=-1
+            ).unsqueeze(1)
             bbox_pred = boxes * factor  # cx×W, cy×H, w×W, h×H, θ 不变(归一化到[0,π])
 
         if self.use_focal_loss:
@@ -69,7 +72,9 @@ class PostProcessor(nn.Module):
             # labels = index % self.num_classes
             labels = mod(index, self.num_classes)
             index = index // self.num_classes
-            boxes = bbox_pred.gather(dim=1, index=index.unsqueeze(-1).repeat(1, 1, bbox_pred.shape[-1]))
+            boxes = bbox_pred.gather(
+                dim=1, index=index.unsqueeze(-1).repeat(1, 1, bbox_pred.shape[-1])
+            )
 
         else:
             scores = F.softmax(logits)[:, :, :-1]
@@ -77,15 +82,23 @@ class PostProcessor(nn.Module):
             if scores.shape[1] > self.num_top_queries:
                 scores, index = torch.topk(scores, self.num_top_queries, dim=-1)
                 labels = torch.gather(labels, dim=1, index=index)
-                boxes = torch.gather(boxes, dim=1, index=index.unsqueeze(-1).tile(1, 1, boxes.shape[-1]))
+                boxes = torch.gather(
+                    boxes, dim=1, index=index.unsqueeze(-1).tile(1, 1, boxes.shape[-1])
+                )
 
         if self.deploy_mode:
             return labels, boxes, scores
 
         if self.remap_mscoco_category:
             from ..data.dataset import mscoco_label2category
-            labels = torch.tensor([mscoco_label2category[int(x.item())] for x in labels.flatten()])\
-                .to(boxes.device).reshape(labels.shape)
+
+            labels = (
+                torch.tensor(
+                    [mscoco_label2category[int(x.item())] for x in labels.flatten()]
+                )
+                .to(boxes.device)
+                .reshape(labels.shape)
+            )
 
         results = []
         for lab, box, sco in zip(labels, boxes, scores):
@@ -94,8 +107,9 @@ class PostProcessor(nn.Module):
 
         return results
 
-
-    def deploy(self, ):
+    def deploy(
+        self,
+    ):
         self.eval()
         self.deploy_mode = True
         return self

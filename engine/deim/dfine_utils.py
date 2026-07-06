@@ -244,17 +244,29 @@ def bbox2distance_obb(points, bbox, reg_max, reg_scale, up, eps=0.1):
 
     # 下面的计算与distance2bbox_obb中的互逆
     ext_left = (
-        ext_rect_cxcywh_pred[..., 0] - ext_rect_xyxy_gt[..., 0]
-    ) / pred_ext_rect_w_scaled - half_reg_scale
+        (ext_rect_cxcywh_pred[..., 0] - ext_rect_xyxy_gt[..., 0])
+        / pred_ext_rect_w_scaled
+        - half_reg_scale
+        + 1e-16
+    )
     ext_top = (
-        ext_rect_cxcywh_pred[..., 1] - ext_rect_xyxy_gt[..., 1]
-    ) / pred_ext_rect_h_sceled - half_reg_scale
+        (ext_rect_cxcywh_pred[..., 1] - ext_rect_xyxy_gt[..., 1])
+        / pred_ext_rect_h_sceled
+        - half_reg_scale
+        + 1e-16
+    )
     ext_right = (
-        ext_rect_xyxy_gt[..., 2] - ext_rect_cxcywh_pred[..., 0]
-    ) / pred_ext_rect_w_scaled - half_reg_scale
+        (ext_rect_xyxy_gt[..., 2] - ext_rect_cxcywh_pred[..., 0])
+        / pred_ext_rect_w_scaled
+        - half_reg_scale
+        + 1e-16
+    )
     ext_bottom = (
-        ext_rect_xyxy_gt[..., 3] - ext_rect_cxcywh_pred[..., 1]
-    ) / pred_ext_rect_h_sceled - half_reg_scale
+        (ext_rect_xyxy_gt[..., 3] - ext_rect_cxcywh_pred[..., 1])
+        / pred_ext_rect_h_sceled
+        - half_reg_scale
+        + 1e-16
+    )
 
     two_lens = (vertex_offsets_gt - vertex_offsets_pred) / (
         ext_rect_cxcywh_pred[..., 2:] / reg_scale + 1e-16

@@ -1041,7 +1041,7 @@ class DEIMTransformer(nn.Module):
         )
 
         # 为了方便后续处理，criterion/matcher/postprocessor 中均需要theta量纲为[0，pi]
-        # 这里调整输出theta的量纲
+        # 这里调整输出theta的量纲，[0,1]→[0,pi]
         if self.box_mode == "obb":
             out_bboxes = torch.cat(
                 [out_bboxes[..., :4], out_bboxes[..., 4:] * torch.pi], dim=-1
