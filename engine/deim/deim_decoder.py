@@ -166,9 +166,7 @@ class TransformerDecoder(nn.Module):
         )
         self.lqe_layers = nn.ModuleList(
             [
-                copy.deepcopy(
-                    LQE(4, 64, 2, reg_max, act=act, num_reg_dist=num_reg_dist)
-                )
+                copy.deepcopy(LQE(4, 64, 2, reg_max, act=act, num_reg_dist=4))
                 for _ in range(num_layers)
             ]
         )
@@ -354,7 +352,6 @@ class TransformerDecoder(nn.Module):
                 #     )
 
                 # cat (α,β,γ,δ)(ε,η)->(α,β,γ,δ,ε,η)
-                pred_corners_xywh = pred_corners.detach()
                 pred_corners = torch.concat([pred_corners, pred_offset], dim=-1)
 
             if self.box_mode == "hbb":
@@ -378,9 +375,11 @@ class TransformerDecoder(nn.Module):
 
             if self.training or i == self.eval_idx:
                 scores = score_head[i](output)
-                if self.decouple_angle:
+                if self.box_mode == "obb":
                     # 确保类别只和外接矩形相关
-                    scores = self.lqe_layers[i](scores, pred_corners_xywh)
+                    scores = self.lqe_layers[i](
+                        scores, pred_corners[..., : 4 * (self.reg_max + 1)]
+                    )
                 else:
                     scores = self.lqe_layers[i](scores, pred_corners)
                 dec_out_logits.append(scores)
