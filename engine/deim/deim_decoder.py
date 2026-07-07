@@ -146,6 +146,7 @@ class TransformerDecoder(nn.Module):
         num_reg_dist=4,
         box_mode="hbb",
         decouple_angle=False,
+        offset_scale_source="pre",
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -156,6 +157,7 @@ class TransformerDecoder(nn.Module):
         self.up, self.reg_scale, self.reg_max = up, reg_scale, reg_max
         self.box_mode = box_mode
         self.decouple_angle = decouple_angle
+        self.offset_scale_source = offset_scale_source
         self.num_offset_layers = num_layers
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
@@ -367,6 +369,7 @@ class TransformerDecoder(nn.Module):
                     ref_points_initial_scaled,
                     integral(pred_corners, project),
                     reg_scale,
+                    offset_scale_source=self.offset_scale_source,
                 )
                 inter_ref_bbox = torch.cat(
                     [inter_ref_bbox[..., :4], inter_ref_bbox[..., 4:] / torch.pi],
@@ -392,6 +395,15 @@ class TransformerDecoder(nn.Module):
 
             if self.decouple_angle:
                 # inter_ref_bbox:(x,y,w,h,r)
+                # ref_offset_detach / ref_points_detach are detached
+                # next-layer references, not the loss-bearing
+                # inter_ref_bbox appended to dec_out_bboxes above (plan
+                # Todo 6, MUST DO #4: do NOT clamp the loss-bearing tensor).
+                # These references are in OBB (cx, cy, w, h, theta) format,
+                # not (external_rect, vertex_offsets) format, so direct
+                # offset clamping is not applicable here. Offset-validity
+                # guarding is available at the geometry decode boundary via
+                # external_rect_to_oriented_box(clamp_offsets=True).
                 ref_points_detach = inter_ref_bbox[..., :4].detach()
                 ref_offset_detach = inter_ref_bbox.detach()
             else:
@@ -443,6 +455,7 @@ class DEIMTransformer(nn.Module):
         share_score_head=False,
         box_mode="hbb",
         decouple_angle=False,
+        offset_scale_source="pre",
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -466,6 +479,7 @@ class DEIMTransformer(nn.Module):
 
         self.box_mode = box_mode
         self.decouple_angle = decouple_angle
+        self.offset_scale_source = offset_scale_source
         self.num_r_layers = num_layers
         if self.box_mode == "obb":
 
@@ -535,6 +549,7 @@ class DEIMTransformer(nn.Module):
             ),
             box_mode=self.box_mode,
             decouple_angle=self.decouple_angle,
+            offset_scale_source=self.offset_scale_source,
         )
         # denoising
         self.num_denoising = num_denoising

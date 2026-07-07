@@ -15,6 +15,26 @@ import torch
 from torch import Tensor
 
 
+def periodic_angle_distance(pred: Tensor, target: Tensor) -> Tensor:
+    """Shortest distance on the pi-periodic angle domain (radians).
+
+    OBB orientations differing by a multiple of ``pi`` are equivalent,
+    so ``0`` and ``pi`` are the same orientation. Returns the shortest
+    periodic distance in ``[0, pi/2]``.
+
+    Args:
+        pred:   (...,) predicted angles (radians).
+        target: (...,) target angles (radians).
+
+    Returns:
+        (...,) shortest periodic distance in radians; ``pred`` and
+        ``target`` broadcast per PyTorch semantics.
+    """
+    diff = (pred - target).abs()
+    d = torch.remainder(diff, torch.pi)
+    return torch.minimum(d, torch.pi - d)
+
+
 def xywhr_to_xyxyxyxy(xywhr: Tensor) -> Tensor:
     """Convert OBB (cx, cy, w, h, theta) to four corner vertices.
 
@@ -112,8 +132,40 @@ def oriented_box_to_external_rect(obbs: Tensor) -> Tuple[Tensor, Tensor]:
     return external_rect, vertex_offsets
 
 
+def clamp_vertex_offsets_to_external_rect(
+    external_rect: Tensor, vertex_offsets: Tensor
+) -> Tensor:
+    """Clamp ``(epsilon, eta)`` vertex offsets into the valid range of the
+    external rectangle (spec section 9.1):
+
+        0 <= epsilon <= external_width
+        0 <= eta     <= external_height
+
+    Non-mutating: returns a new tensor; inputs are not modified in place.
+    Degenerate external rectangles (zero or negative width/height) clamp
+    the corresponding offset to zero. Intended for decode-time /
+    eval-safe paths only; do not apply to the loss-bearing
+    ``inter_ref_bbox`` tensor before loss computation (plan Todo 6).
+
+    Args:
+        external_rect:  (..., 4)  —  (x1, y1, x2, y2).
+        vertex_offsets: (..., 2)  —  (epsilon, eta).
+
+    Returns:
+        (..., 2)  —  clamped (epsilon, eta).
+    """
+    ext_w = (external_rect[..., 2] - external_rect[..., 0]).clamp(min=0)
+    ext_h = (external_rect[..., 3] - external_rect[..., 1]).clamp(min=0)
+    ep = vertex_offsets[..., 0].clamp(min=0).clamp(max=ext_w)
+    et = vertex_offsets[..., 1].clamp(min=0).clamp(max=ext_h)
+    return torch.stack([ep, et], dim=-1)
+
+
 def external_rect_to_oriented_box(
-    external_rect: Tensor, vertex_offsets: Tensor, eps=1e-9
+    external_rect: Tensor,
+    vertex_offsets: Tensor,
+    eps=1e-9,
+    clamp_offsets: bool = False,
 ) -> Tensor:
     """External rectangle + vertex offsets -> OBB.
 
@@ -129,10 +181,23 @@ def external_rect_to_oriented_box(
     Args:
         external_rect:   (..., 4)  —  (x1, y1, x2, y2).
         vertex_offsets:   (..., 2)  —  (epsilon, eta).
+        eps: numerical stability for edge-length sqrt.
+        clamp_offsets: when True, clamp ``(epsilon, eta)`` into
+            ``[0, external_width]`` / ``[0, external_height]`` via
+            ``clamp_vertex_offsets_to_external_rect`` before decoding.
+            Default ``False`` preserves the unguarded training decode
+            path (plan Todo 6: do not destroy gradients on the
+            loss-bearing tensor). Use ``True`` only on detached /
+            eval-safe decode paths.
 
     Returns:
         (..., 5)  —  (cx, cy, w, h, theta),θ belongs to [0,pi].
     """
+
+    if clamp_offsets:
+        vertex_offsets = clamp_vertex_offsets_to_external_rect(
+            external_rect, vertex_offsets
+        )
 
     x1 = external_rect[..., 0]
     y1 = external_rect[..., 1]

@@ -59,6 +59,13 @@ class PostProcessor(nn.Module):
             bbox_pred *= orig_target_sizes.repeat(1, 2).unsqueeze(1)
         elif self.box_mode == "obb":
             # OBB: 保留 cxcywhθ，逐维缩放到像素
+            # PostProcessor only sees 5D OBBs (cx, cy, w, h, theta); the
+            # (epsilon, eta) vertex offsets are consumed inside the decoder
+            # / dfine_utils decode boundary (external_rect_to_oriented_box)
+            # and are not available here. Offset-validity guarding is
+            # therefore applied at the geometry decode boundary via
+            # external_rect_to_oriented_box(clamp_offsets=True), not in the
+            # postprocessor (plan Todo 6, MUST DO #5).
             img_w = orig_target_sizes[:, 0:1]
             img_h = orig_target_sizes[:, 1:2]
             factor = torch.cat(

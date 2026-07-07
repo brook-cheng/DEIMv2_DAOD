@@ -1,8 +1,8 @@
 print_freq: 500
-output_dir: ./outputs/synthetic_exp_020_dec
+output_dir: ./outputs/ssynthetic_exp_020_undec_offset_post
 checkpoint_freq: 10
 sync_bn: true
-find_unused_parameters: false
+find_unused_parameters: true
 scaler:
   type: GradScaler
   enabled: true
@@ -245,11 +245,8 @@ DEIMTransformer:
   mlp_act: silu
   dim_feedforward: 2048
   box_mode: obb
-  decouple_angle: True
-  # ADR offset residual scale source (spec 7.1). 'pre' = pre-adjustment
-  # external rect (default); 'post' = post-adjustment ext rect (ablation).
-  # Must match DEIMCriterion.offset_scale_source to keep encode/decode inverse.
-  offset_scale_source: pre
+  decouple_angle: False
+  offset_scale_source: "pre"
 
 PostProcessor:
   num_top_queries: 300
@@ -259,6 +256,7 @@ lr_gamma: 0.5
 warmup_iter: 5
 flat_epoch: 18
 no_aug_epoch: 3
+
 DEIMCriterion:
   weight_dict:
     loss_mal: 4
@@ -289,17 +287,13 @@ DEIMCriterion:
     # 0.75~0.85 * epoches
     matcher_change_epoch: 60
     box_mode: obb
-    lambda_angle: 1.0
   box_mode: obb
   mal_iou_type: giou
   local_iou_type: giou
-  # ADR offset residual scale source (spec 7.1). Must match
-  # DEIMTransformer.offset_scale_source to keep encode/decode inverse.
-  offset_scale_source: pre
-  # Periodic angle L1 weight (spec 8.2). 1.0 = normalize angle by pi and
-  # weight it equally with spatial L1; 0.0 ablates the angle term.
-  lambda_angle: 1.0
+  offset_scale_source: "post"
+
 comet_project_name: deimv2_obb_synthetic
+
 DINOv3STAs:
   name: dinov3_vits16plus
   weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth

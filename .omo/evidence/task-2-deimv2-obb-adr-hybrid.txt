@@ -1,0 +1,115 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.7, pytest-9.0.2, pluggy-1.6.0 -- /home/cx/apps/miniconda3/bin/python
+cachedir: .pytest_cache
+rootdir: /mnt/d/cx/thired/deimv2_daod
+plugins: anyio-4.9.0
+collecting ... collected 25 items / 20 deselected / 5 selected
+
+test/test_obb_adr_geometry.py::test_periodic_seam_near_0_and_pi PASSED   [ 20%]
+test/test_obb_adr_geometry.py::test_periodic_seam_0_and_pi PASSED        [ 40%]
+test/test_obb_adr_geometry.py::test_periodic_midrange_unchanged PASSED   [ 60%]
+test/test_obb_adr_geometry.py::test_periodic_broadcasting PASSED         [ 80%]
+test/test_obb_adr_geometry.py::test_periodic_gradient_exists_for_non_boundary_points PASSED [100%]
+
+======================= 5 passed, 20 deselected in 3.05s =======================
+============================= test session starts ==============================
+platform linux -- Python 3.12.7, pytest-9.0.2, pluggy-1.6.0 -- /home/cx/apps/miniconda3/bin/python
+cachedir: .pytest_cache
+rootdir: /mnt/d/cx/thired/deimv2_daod
+plugins: anyio-4.9.0
+collecting ... collected 25 items
+
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[theta_near_0] PASSED [  4%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[theta_1e-6] PASSED [  8%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[theta_near_pi_over_2] PASSED [ 12%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[theta_pi_over_4] PASSED [ 16%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[theta_near_pi_minus_1e-3] PASSED [ 20%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[axis_aligned_w_gt_h] PASSED [ 24%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[axis_aligned_h_gt_w] PASSED [ 28%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[thin_long_horizontal] PASSED [ 32%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[thin_long_vertical] PASSED [ 36%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[thin_long_45deg] PASSED [ 40%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[square_like_pi_over_4] PASSED [ 44%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[square_like_axis_aligned] PASSED [ 48%]
+test/test_obb_adr_geometry.py::test_roundtrip_random_2000 PASSED         [ 52%]
+test/test_obb_adr_geometry.py::test_near_square_vertex_error_passes[0.3-0.3-0.7853981633974483] PASSED [ 56%]
+test/test_obb_adr_geometry.py::test_near_square_vertex_error_passes[0.3-0.299-0.7853981633974483] PASSED [ 60%]
+test/test_obb_adr_geometry.py::test_near_square_vertex_error_passes[0.3-0.3-0.0] PASSED [ 64%]
+test/test_obb_adr_geometry.py::test_near_square_vertex_error_passes[0.3-0.301-0.5235987755982988] PASSED [ 68%]
+test/test_obb_adr_geometry.py::test_near_square_vertex_error_passes[0.3-0.3-1.5707963267948966] PASSED [ 72%]
+test/test_obb_adr_geometry.py::test_near_square_parameter_theta_may_differ PASSED [ 76%]
+test/test_obb_adr_geometry.py::test_periodic_seam_near_0_and_pi PASSED   [ 80%]
+test/test_obb_adr_geometry.py::test_periodic_seam_0_and_pi PASSED        [ 84%]
+test/test_obb_adr_geometry.py::test_periodic_midrange_unchanged PASSED   [ 88%]
+test/test_obb_adr_geometry.py::test_periodic_broadcasting PASSED         [ 92%]
+test/test_obb_adr_geometry.py::test_periodic_gradient_exists_for_non_boundary_points PASSED [ 96%]
+test/test_obb_adr_geometry.py::test_imports_on_disk_repo_module PASSED   [100%]
+
+============================== 25 passed in 3.14s ==============================
+
+
+================================================================================
+TASK 2 — DIRTY-WORKTREE AND SCOPE STATUS
+================================================================================
+
+Changed files (this task only):
+  M  engine/deim/obb_geometry.py        — added periodic_angle_distance (lines 18-35)
+  M  test/test_obb_adr_geometry.py      — switched seam tests to production utility
+  ?? .omo/evidence/task-2-deimv2-obb-adr-hybrid.txt  — this evidence file
+
+Other dirty entries (NOT touched by this task; pre-existing from Todo 1 / orchestration):
+  M  .omo/boulder.json                  — orchestration state (framework-managed)
+  M  .omo/start-work/ledger.jsonl       — orchestration ledger (framework-managed)
+  ?? .omo/drafts/deimv2-obb-adr-hybrid.md  — plan draft (Todo 0/planning)
+  ?? .omo/evidence/task-1-deimv2-obb-adr-hybrid.txt — Todo 1 evidence
+  ?? .omo/plans/deimv2-obb-adr-hybrid.md — plan file
+  ?? docs/superpowers/specs/            — design spec
+  ?? test/test_obb_adr_geometry.py      — created in Todo 1, updated in Todo 2
+
+Scope fidelity:
+  - criterion (engine/deim/deim_criterion.py): NOT modified
+  - matcher (engine/deim/matcher.py): NOT modified
+  - dfine_utils, decoder, configs: NOT modified
+  - No Todo 3/4 changes (lambda_angle wiring not done — out of scope for Todo 2)
+  - No type suppressions (# type: ignore / cast / Any) introduced
+  - No commit performed
+
+TDD flow:
+  1. Ran Todo 1 tests — 25 passed (confirmed prior green state).
+  2. Identified absence-asserting test: test_periodic_helper_does_not_require_production_utility.
+  3. Modified tests to import production periodic_angle_distance; removed local
+     shortest_periodic_distance helper (formula duplication forbidden by MUST DO #4).
+  4. Confirmed RED: ImportError: cannot import name 'periodic_angle_distance'
+     (correct failure reason — missing production symbol).
+  5. Implemented periodic_angle_distance in engine/deim/obb_geometry.py.
+  6. Confirmed GREEN: 5 periodic tests pass; full suite 25 passed.
+
+Acceptance criteria verification (runtime):
+  - periodic_angle_distance(pi - 0.01, 0.01) = 0.0200 < 0.021  PASS
+  - ordinary normalized L1 same pair = 0.9936 > 0.9  PASS
+  - periodic_angle_distance(0, pi) = 0.0 < 1e-6  PASS (zero/tiny, not pi)
+  - broadcasting (3,1) x (1,3) -> (3,3)  PASS
+  - gradient at midrange (0.3 vs 0.5) = -1.0, finite, non-zero  PASS
+
+Formula: diff = (pred - target).abs(); d = torch.remainder(diff, pi); min(d, pi - d)
+  - pi-periodic: 0 and pi are equivalent (remainder maps pi -> 0)
+  - differentiable away from d==pi/2 cusp and diff==0 abs cusp
+  - vectorized, preserves PyTorch broadcast semantics
+  - returns radians in [0, pi/2]
+
+Code-size note:
+  - engine/deim/obb_geometry.py: 426 pure LOC (PRE-EXISTING > 250; file already
+    contained full geometry module + 300-line __main__ self-test before this task).
+    This task added only 3 pure LOC (the function body). Splitting the file is
+    out of scope for Todo 2 (plan restricts edits to adding the utility).
+  - test/test_obb_adr_geometry.py: 223 pure LOC (under 250 ceiling).
+  - periodic_angle_distance body: 3 pure LOC. Single responsibility.
+
+LSP / linter status:
+  - py_compile: PASS (both files)
+  - ruff / mypy / pyright: not installed in this environment; not blocking
+    (task MUST DO #6 requires py_compile + pytest, both pass).
+
+Stale-state guard:
+  - test_imports_on_disk_repo_module PASSED — confirms tests import the on-disk
+    repo engine/deim/obb_geometry.py, not a stale installed package.

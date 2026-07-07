@@ -15,6 +15,7 @@ import torchvision
 import copy
 
 from .dfine_utils import bbox2distance, bbox2distance_obb
+from .obb_geometry import periodic_angle_distance
 from .box_ops import (
     box_cxcywh_to_xyxy,
     box_iou,
@@ -56,6 +57,8 @@ class DEIMCriterion(nn.Module):
         mal_iou_type=None,
         local_iou_type=None,
         box_mode="hbb",
+        offset_scale_source="pre",
+        lambda_angle=1.0,
     ):
         """Create the criterion.
         Parameters:
@@ -85,6 +88,8 @@ class DEIMCriterion(nn.Module):
         self.local_iou_type = local_iou_type
         self.box_mode = box_mode
         self.num_reg_dist = 4 if self.box_mode == "hbb" else 6
+        self.offset_scale_source = offset_scale_source
+        self.lambda_angle = lambda_angle
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
@@ -253,14 +258,15 @@ class DEIMCriterion(nn.Module):
             loss_giou = loss_giou if boxes_weight is None else loss_giou * boxes_weight
             losses["loss_giou"] = loss_giou.sum() / num_boxes
         elif self.box_mode == "obb":
-            # 统一空间和角度量纲到[0,1]
-            src_boxes_l1 = torch.cat(
-                [src_boxes[..., :4], src_boxes[..., 4:] / torch.pi], dim=-1
+            spatial_l1 = F.l1_loss(
+                src_boxes[..., :4], target_boxes[..., :4], reduction="none"
             )
-            target_boxes_l1 = torch.cat(
-                [target_boxes[..., :4], target_boxes[..., 4:] / torch.pi], dim=-1
+            angle_term = (
+                self.lambda_angle
+                * periodic_angle_distance(src_boxes[..., 4:], target_boxes[..., 4:])
+                / torch.pi
             )
-            loss_bbox = F.l1_loss(src_boxes_l1, target_boxes_l1, reduction="none")
+            loss_bbox = torch.cat([spatial_l1, angle_term], dim=-1)
             losses["loss_bbox"] = loss_bbox.sum() / num_boxes
             loss_kld = kld_loss(src_boxes, target_boxes, reduction="none")
             losses["loss_kld"] = loss_kld.sum() / num_boxes
@@ -297,6 +303,7 @@ class DEIMCriterion(nn.Module):
                             self.reg_max,
                             outputs["reg_scale"],
                             outputs["up"],
+                            offset_scale_source=self.offset_scale_source,
                         )
                 if self.fgl_targets is None and "is_dn" not in outputs:
                     if self.box_mode == "hbb":
@@ -314,6 +321,7 @@ class DEIMCriterion(nn.Module):
                             self.reg_max,
                             outputs["reg_scale"],
                             outputs["up"],
+                            offset_scale_source=self.offset_scale_source,
                         )
 
             target_corners, weight_right, weight_left = (

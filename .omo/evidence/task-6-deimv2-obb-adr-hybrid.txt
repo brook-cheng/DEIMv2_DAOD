@@ -1,0 +1,246 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.7, pytest-9.0.2, pluggy-1.6.0 -- /home/cx/apps/miniconda3/bin/python
+cachedir: .pytest_cache
+rootdir: /mnt/d/cx/thired/deimv2_daod
+plugins: anyio-4.9.0
+collecting ... collected 110 items / 72 deselected / 38 selected
+
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[negative_epsilon] PASSED [  2%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[negative_eta] PASSED [  5%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[negative_both] PASSED [  7%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[epsilon_exceeds_width] PASSED [ 10%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[eta_exceeds_height] PASSED [ 13%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[both_exceed] PASSED [ 15%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[zero_width_rect] PASSED [ 18%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[zero_height_rect] PASSED [ 21%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[zero_size_rect] PASSED [ 23%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[zero_size_rect_with_invalid_offsets] PASSED [ 26%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[negative_epsilon] PASSED [ 28%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[negative_eta] PASSED [ 31%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[negative_both] PASSED [ 34%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[epsilon_exceeds_width] PASSED [ 36%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[eta_exceeds_height] PASSED [ 39%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[both_exceed] PASSED [ 42%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[zero_width_rect] PASSED [ 44%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[zero_height_rect] PASSED [ 47%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[zero_size_rect] PASSED [ 50%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[zero_size_rect_with_invalid_offsets] PASSED [ 52%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_preserves_valid_offsets PASSED [ 55%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_batch_broadcasts PASSED [ 57%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_default_is_unguarded PASSED [ 60%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[negative_epsilon] PASSED [ 63%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[negative_eta] PASSED [ 65%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[negative_both] PASSED [ 68%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[epsilon_exceeds_width] PASSED [ 71%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[eta_exceeds_height] PASSED [ 73%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[both_exceed] PASSED [ 76%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[zero_width_rect] PASSED [ 78%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[zero_height_rect] PASSED [ 81%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[zero_size_rect] PASSED [ 84%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[zero_size_rect_with_invalid_offsets] PASSED [ 86%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_equals_manual_clamp PASSED [ 89%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_unguarded_does_not_clamp PASSED [ 92%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_unguarded_remains_available_for_gradient PASSED [ 94%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_on_zero_size_rect_finite PASSED [ 97%]
+test/test_obb_adr_geometry.py::test_offset_validity_imports_on_disk_repo_module PASSED [100%]
+
+====================== 38 passed, 72 deselected in 3.21s =======================
+============================= test session starts ==============================
+platform linux -- Python 3.12.7, pytest-9.0.2, pluggy-1.6.0 -- /home/cx/apps/miniconda3/bin/python
+cachedir: .pytest_cache
+rootdir: /mnt/d/cx/thired/deimv2_daod
+plugins: anyio-4.9.0
+collecting ... collected 110 items
+
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[theta_near_0] PASSED [  0%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[theta_1e-6] PASSED [  1%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[theta_near_pi_over_2] PASSED [  2%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[theta_pi_over_4] PASSED [  3%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[theta_near_pi_minus_1e-3] PASSED [  4%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[axis_aligned_w_gt_h] PASSED [  5%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[axis_aligned_h_gt_w] PASSED [  6%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[thin_long_horizontal] PASSED [  7%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[thin_long_vertical] PASSED [  8%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[thin_long_45deg] PASSED [  9%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[square_like_pi_over_4] PASSED [ 10%]
+test/test_obb_adr_geometry.py::test_roundtrip_vertex_error[square_like_axis_aligned] PASSED [ 10%]
+test/test_obb_adr_geometry.py::test_roundtrip_random_2000 PASSED         [ 11%]
+test/test_obb_adr_geometry.py::test_near_square_vertex_error_passes[0.3-0.3-0.7853981633974483] PASSED [ 12%]
+test/test_obb_adr_geometry.py::test_near_square_vertex_error_passes[0.3-0.299-0.7853981633974483] PASSED [ 13%]
+test/test_obb_adr_geometry.py::test_near_square_vertex_error_passes[0.3-0.3-0.0] PASSED [ 14%]
+test/test_obb_adr_geometry.py::test_near_square_vertex_error_passes[0.3-0.301-0.5235987755982988] PASSED [ 15%]
+test/test_obb_adr_geometry.py::test_near_square_vertex_error_passes[0.3-0.3-1.5707963267948966] PASSED [ 16%]
+test/test_obb_adr_geometry.py::test_near_square_parameter_theta_may_differ PASSED [ 17%]
+test/test_obb_adr_geometry.py::test_periodic_seam_near_0_and_pi PASSED   [ 18%]
+test/test_obb_adr_geometry.py::test_periodic_seam_0_and_pi PASSED        [ 19%]
+test/test_obb_adr_geometry.py::test_periodic_midrange_unchanged PASSED   [ 20%]
+test/test_obb_adr_geometry.py::test_periodic_broadcasting PASSED         [ 20%]
+test/test_obb_adr_geometry.py::test_periodic_gradient_exists_for_non_boundary_points PASSED [ 21%]
+test/test_obb_adr_geometry.py::test_imports_on_disk_repo_module PASSED   [ 22%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_decode_preserves_current_behavior[horiz_to_45] PASSED [ 23%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_decode_preserves_current_behavior[shifted] PASSED [ 24%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_decode_preserves_current_behavior[rotated] PASSED [ 25%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_decode_preserves_current_behavior[theta_near_0] PASSED [ 26%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_decode_preserves_current_behavior[theta_near_pi] PASSED [ 27%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_encode_preserves_current_behavior[horiz_to_45] PASSED [ 28%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_encode_preserves_current_behavior[shifted] PASSED [ 29%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_encode_preserves_current_behavior[rotated] PASSED [ 30%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_encode_preserves_current_behavior[theta_near_0] PASSED [ 30%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_encode_preserves_current_behavior[theta_near_pi] PASSED [ 31%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_decode_produces_finite_obb[horiz_to_45] PASSED [ 32%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_decode_produces_finite_obb[shifted] PASSED [ 33%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_decode_produces_finite_obb[rotated] PASSED [ 34%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_decode_produces_finite_obb[theta_near_0] PASSED [ 35%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_decode_produces_finite_obb[theta_near_pi] PASSED [ 36%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_encode_produces_finite_distances[horiz_to_45] PASSED [ 37%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_encode_produces_finite_distances[shifted] PASSED [ 38%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_encode_produces_finite_distances[rotated] PASSED [ 39%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_encode_produces_finite_distances[theta_near_0] PASSED [ 40%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_encode_produces_finite_distances[theta_near_pi] PASSED [ 40%]
+test/test_obb_adr_geometry.py::test_offset_scale_invalid_raises_valueerror_decode PASSED [ 41%]
+test/test_obb_adr_geometry.py::test_offset_scale_invalid_raises_valueerror_encode PASSED [ 42%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_inversion_roundtrip[horiz_to_45] PASSED [ 43%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_inversion_roundtrip[shifted] PASSED [ 44%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_inversion_roundtrip[rotated] PASSED [ 45%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_inversion_roundtrip[theta_near_0] PASSED [ 46%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_inversion_roundtrip[theta_near_pi] PASSED [ 47%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_inversion_roundtrip[horiz_to_45] PASSED [ 48%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_inversion_roundtrip[shifted] PASSED [ 49%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_inversion_roundtrip[rotated] PASSED [ 50%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_inversion_roundtrip[theta_near_0] PASSED [ 50%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_inversion_roundtrip[theta_near_pi] PASSED [ 51%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[horiz_to_45] PASSED [ 52%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[shifted] PASSED [ 53%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[rotated] PASSED [ 54%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[theta_near_0] PASSED [ 55%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[theta_near_pi] PASSED [ 56%]
+test/test_obb_adr_geometry.py::test_offset_scale_random_mismatch_increases_error PASSED [ 57%]
+test/test_obb_adr_geometry.py::test_criterion_obb_seam_angle_contribution_small PASSED [ 58%]
+test/test_obb_adr_geometry.py::test_criterion_obb_lambda_angle_zero_zeros_angle_only PASSED [ 59%]
+test/test_obb_adr_geometry.py::test_criterion_hbb_uses_ordinary_l1_unaffected PASSED [ 60%]
+test/test_obb_adr_geometry.py::test_criterion_obb_loss_kld_returned PASSED [ 60%]
+test/test_obb_adr_geometry.py::test_criterion_imports_on_disk_repo_module PASSED [ 61%]
+test/test_obb_adr_geometry.py::test_matcher_seam_obeys_periodic_angle PASSED [ 62%]
+test/test_obb_adr_geometry.py::test_matcher_seam_lambda_angle_zero_disables_angle PASSED [ 63%]
+test/test_obb_adr_geometry.py::test_matcher_change_matcher_post_epoch_probiou_only PASSED [ 64%]
+test/test_obb_adr_geometry.py::test_matcher_imports_on_disk_repo_module PASSED [ 65%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[negative_epsilon] PASSED [ 66%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[negative_eta] PASSED [ 67%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[negative_both] PASSED [ 68%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[epsilon_exceeds_width] PASSED [ 69%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[eta_exceeds_height] PASSED [ 70%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[both_exceed] PASSED [ 70%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[zero_width_rect] PASSED [ 71%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[zero_height_rect] PASSED [ 72%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[zero_size_rect] PASSED [ 73%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_clamps_invalid[zero_size_rect_with_invalid_offsets] PASSED [ 74%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[negative_epsilon] PASSED [ 75%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[negative_eta] PASSED [ 76%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[negative_both] PASSED [ 77%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[epsilon_exceeds_width] PASSED [ 78%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[eta_exceeds_height] PASSED [ 79%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[both_exceed] PASSED [ 80%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[zero_width_rect] PASSED [ 80%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[zero_height_rect] PASSED [ 81%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[zero_size_rect] PASSED [ 82%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_does_not_mutate_inputs[zero_size_rect_with_invalid_offsets] PASSED [ 83%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_preserves_valid_offsets PASSED [ 84%]
+test/test_obb_adr_geometry.py::test_offset_validity_clamp_helper_batch_broadcasts PASSED [ 85%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_default_is_unguarded PASSED [ 86%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[negative_epsilon] PASSED [ 87%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[negative_eta] PASSED [ 88%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[negative_both] PASSED [ 89%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[epsilon_exceeds_width] PASSED [ 90%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[eta_exceeds_height] PASSED [ 90%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[both_exceed] PASSED [ 91%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[zero_width_rect] PASSED [ 92%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[zero_height_rect] PASSED [ 93%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[zero_size_rect] PASSED [ 94%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_produces_finite_obb[zero_size_rect_with_invalid_offsets] PASSED [ 95%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_equals_manual_clamp PASSED [ 96%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_unguarded_does_not_clamp PASSED [ 97%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_unguarded_remains_available_for_gradient PASSED [ 98%]
+test/test_obb_adr_geometry.py::test_offset_validity_decode_guarded_on_zero_size_rect_finite PASSED [ 99%]
+test/test_obb_adr_geometry.py::test_offset_validity_imports_on_disk_repo_module PASSED [100%]
+
+============================= 110 passed in 3.03s ==============================
+
+================================================================
+DIRTY WORKTREE STATUS (task-6-deimv2-obb-adr-hybrid)
+================================================================
+Date: 2026-07-07 06:19:00 UTC
+
+--- git status (short) ---
+ M .omo/boulder.json
+ M .omo/start-work/ledger.jsonl
+ M configs/custom_obb/synthetic_configs/synthetic_exp_020_dec.yml
+ M engine/deim/deim_criterion.py
+ M engine/deim/deim_decoder.py
+ M engine/deim/dfine_utils.py
+ M engine/deim/matcher.py
+ M engine/deim/obb_geometry.py
+ M engine/deim/postprocessor.py
+?? .omo/drafts/deimv2-obb-adr-hybrid.md
+?? .omo/evidence/task-1-deimv2-obb-adr-hybrid.txt
+?? .omo/evidence/task-2-deimv2-obb-adr-hybrid.txt
+?? .omo/evidence/task-3-deimv2-obb-adr-hybrid.txt
+?? .omo/evidence/task-4-deimv2-obb-adr-hybrid.txt
+?? .omo/evidence/task-5-deimv2-obb-adr-hybrid.txt
+?? .omo/evidence/task-6-deimv2-obb-adr-hybrid.txt
+?? .omo/plans/deimv2-obb-adr-hybrid.md
+?? docs/superpowers/specs/
+?? test/test_obb_adr_geometry.py
+
+--- Changed files for this task ---
+.omo/boulder.json
+.omo/start-work/ledger.jsonl
+configs/custom_obb/synthetic_configs/synthetic_exp_020_dec.yml
+engine/deim/deim_criterion.py
+engine/deim/deim_decoder.py
+engine/deim/dfine_utils.py
+engine/deim/matcher.py
+engine/deim/obb_geometry.py
+engine/deim/postprocessor.py
+
+--- Scope confirmation ---
+Allowed files for Todo 6:
+  engine/deim/obb_geometry.py
+  engine/deim/deim_decoder.py
+  engine/deim/postprocessor.py
+  test/test_obb_adr_geometry.py
+  .omo/evidence/task-6-deimv2-obb-adr-hybrid.txt
+
+Actual changed files (excluding evidence):
+.omo/boulder.json
+.omo/start-work/ledger.jsonl
+configs/custom_obb/synthetic_configs/synthetic_exp_020_dec.yml
+engine/deim/deim_criterion.py
+engine/deim/deim_decoder.py
+engine/deim/dfine_utils.py
+engine/deim/matcher.py
+engine/deim/obb_geometry.py
+engine/deim/postprocessor.py
+
+--- py_compile result ---
+py_compile: OK (all 4 files)
+
+--- Test summary ---
+offset_validity targeted: 38 passed, 0 failed
+full test file:           110 passed, 0 failed
+
+--- Task 6 specific changes (MY edits only) ---
+Files I edited for Todo 6:
+  engine/deim/obb_geometry.py      - added clamp_vertex_offsets_to_external_rect() helper + clamp_offsets param
+  engine/deim/deim_decoder.py      - added doc comment on detached ref path (no code logic change)
+  engine/deim/postprocessor.py     - added doc comment on OBB branch (no code logic change)
+  test/test_obb_adr_geometry.py    - added 38 offset_validity tests + import of new helper
+  .omo/evidence/task-6-...txt      - this evidence file
+
+Other dirty files (from prior Todos 1-5, NOT touched by me):
+  .omo/boulder.json, .omo/start-work/ledger.jsonl
+  configs/custom_obb/synthetic_configs/synthetic_exp_020_dec.yml
+  engine/deim/deim_criterion.py (Todo 3)
+  engine/deim/dfine_utils.py (Todo 5)
+  engine/deim/matcher.py (Todo 4)
+
+Verification: only allowed files were edited for this task.

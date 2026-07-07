@@ -16,6 +16,7 @@ import math
 from .box_ops import box_cxcywh_to_xyxy, generalized_box_iou, box_iou, ciou
 from .obb_ops import batch_probiou
 from .chamfer_cost import chamfer_cost_obb
+from .obb_geometry import periodic_angle_distance
 
 from ..core import register
 import numpy as np
@@ -45,6 +46,7 @@ class HungarianMatcher(nn.Module):
         matcher_change_epoch=10000,
         box_mode="hbb",
         angle_factor=math.pi,
+        lambda_angle=1.0,
     ):
         """Creates the matcher
 
@@ -77,6 +79,7 @@ class HungarianMatcher(nn.Module):
         self.gamma = gamma
         self.box_mode = box_mode
         self.angle_factor = angle_factor
+        self.lambda_angle = lambda_angle
 
         if self.box_mode == "hbb":
             assert self.cost_class != 0 or self.cost_bbox != 0 or self.cost_giou != 0
@@ -167,9 +170,14 @@ class HungarianMatcher(nn.Module):
             else:
                 cost_class = -out_prob[:, tgt_ids]
             if self.box_mode == "obb":
-                # θ 维度除以 angle_factor(π)，使 5 个维度量纲一致
-                factor = tgt_bbox.new_tensor([1, 1, 1, 1, 1.0 / self.angle_factor])
-                cost_bbox = torch.cdist(out_bbox * factor, tgt_bbox * factor, p=1)
+                spatial_cost = torch.cdist(out_bbox[..., :4], tgt_bbox[..., :4], p=1)
+                angle_cost = (
+                    periodic_angle_distance(
+                        out_bbox[:, None, 4:], tgt_bbox[None, :, 4:]
+                    ).squeeze(-1)
+                    / self.angle_factor
+                )
+                cost_bbox = spatial_cost + self.lambda_angle * angle_cost
                 cost_probiou = -batch_probiou(out_bbox, tgt_bbox, eps=1e-8)
                 C = (
                     self.cost_bbox * cost_bbox

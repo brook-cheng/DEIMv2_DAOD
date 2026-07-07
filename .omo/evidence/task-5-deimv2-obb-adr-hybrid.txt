@@ -1,0 +1,133 @@
+=== Task 5: Resolve ADR offset scale source with shared configurable default ===
+
+## Commands
+
+### py_compile
+```
+py_compile OK
+```
+
+### pytest (targeted: inversion or offset_scale)
+```
+============================= test session starts ==============================
+platform linux -- Python 3.12.7, pytest-9.0.2, pluggy-1.6.0 -- /home/cx/apps/miniconda3/bin/python
+cachedir: .pytest_cache
+rootdir: /mnt/d/cx/thired/deimv2_daod
+plugins: anyio-4.9.0
+collecting ... collected 63 items / 25 deselected / 38 selected
+
+test/test_obb_adr_geometry.py::test_offset_scale_pre_decode_preserves_current_behavior[horiz_to_45] PASSED [  2%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_decode_preserves_current_behavior[shifted] PASSED [  5%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_decode_preserves_current_behavior[rotated] PASSED [  7%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_decode_preserves_current_behavior[theta_near_0] PASSED [ 10%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_decode_preserves_current_behavior[theta_near_pi] PASSED [ 13%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_encode_preserves_current_behavior[horiz_to_45] PASSED [ 15%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_encode_preserves_current_behavior[shifted] PASSED [ 18%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_encode_preserves_current_behavior[rotated] PASSED [ 21%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_encode_preserves_current_behavior[theta_near_0] PASSED [ 23%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_encode_preserves_current_behavior[theta_near_pi] PASSED [ 26%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_decode_produces_finite_obb[horiz_to_45] PASSED [ 28%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_decode_produces_finite_obb[shifted] PASSED [ 31%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_decode_produces_finite_obb[rotated] PASSED [ 34%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_decode_produces_finite_obb[theta_near_0] PASSED [ 36%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_decode_produces_finite_obb[theta_near_pi] PASSED [ 39%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_encode_produces_finite_distances[horiz_to_45] PASSED [ 42%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_encode_produces_finite_distances[shifted] PASSED [ 44%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_encode_produces_finite_distances[rotated] PASSED [ 47%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_encode_produces_finite_distances[theta_near_0] PASSED [ 50%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_encode_produces_finite_distances[theta_near_pi] PASSED [ 52%]
+test/test_obb_adr_geometry.py::test_offset_scale_invalid_raises_valueerror_decode PASSED [ 55%]
+test/test_obb_adr_geometry.py::test_offset_scale_invalid_raises_valueerror_encode PASSED [ 57%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_inversion_roundtrip[horiz_to_45] PASSED [ 60%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_inversion_roundtrip[shifted] PASSED [ 63%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_inversion_roundtrip[rotated] PASSED [ 65%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_inversion_roundtrip[theta_near_0] PASSED [ 68%]
+test/test_obb_adr_geometry.py::test_offset_scale_pre_inversion_roundtrip[theta_near_pi] PASSED [ 71%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_inversion_roundtrip[horiz_to_45] PASSED [ 73%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_inversion_roundtrip[shifted] PASSED [ 76%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_inversion_roundtrip[rotated] PASSED [ 78%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_inversion_roundtrip[theta_near_0] PASSED [ 81%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_inversion_roundtrip[theta_near_pi] PASSED [ 84%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[horiz_to_45] PASSED [ 86%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[shifted] PASSED [ 89%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[rotated] PASSED [ 92%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[theta_near_0] PASSED [ 94%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[theta_near_pi] PASSED [ 97%]
+test/test_obb_adr_geometry.py::test_offset_scale_random_mismatch_increases_error PASSED [100%]
+
+====================== 38 passed, 25 deselected in 3.05s =======================
+```
+
+### pytest (full file — confirm no regressions)
+```
+test/test_obb_adr_geometry.py::test_offset_scale_post_inversion_roundtrip[theta_near_0] PASSED [ 88%]
+test/test_obb_adr_geometry.py::test_offset_scale_post_inversion_roundtrip[theta_near_pi] PASSED [ 90%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[horiz_to_45] PASSED [ 92%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[shifted] PASSED [ 93%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[rotated] PASSED [ 95%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[theta_near_0] PASSED [ 96%]
+test/test_obb_adr_geometry.py::test_offset_scale_mismatch_increases_inversion_error[theta_near_pi] PASSED [ 98%]
+test/test_obb_adr_geometry.py::test_offset_scale_random_mismatch_increases_error PASSED [100%]
+
+============================== 63 passed in 3.06s ==============================
+```
+
+## Dirty worktree status
+```
+ M .omo/boulder.json
+ M .omo/start-work/ledger.jsonl
+ M configs/custom_obb/synthetic_configs/synthetic_exp_020_dec.yml
+ M engine/deim/deim_criterion.py
+ M engine/deim/deim_decoder.py
+ M engine/deim/dfine_utils.py
+ M engine/deim/obb_geometry.py
+?? .omo/drafts/deimv2-obb-adr-hybrid.md
+?? .omo/evidence/task-1-deimv2-obb-adr-hybrid.txt
+?? .omo/evidence/task-2-deimv2-obb-adr-hybrid.txt
+?? .omo/evidence/task-5-deimv2-obb-adr-hybrid.txt
+?? .omo/plans/deimv2-obb-adr-hybrid.md
+?? docs/superpowers/specs/
+?? test/test_obb_adr_geometry.py
+```
+
+## Changed files diff stat
+```
+ .omo/boulder.json                                  | 10 +++-
+ .omo/start-work/ledger.jsonl                       |  1 +
+ .../synthetic_configs/synthetic_exp_020_dec.yml    |  7 +++
+ engine/deim/deim_criterion.py                      |  4 ++
+ engine/deim/deim_decoder.py                        |  6 +++
+ engine/deim/dfine_utils.py                         | 60 +++++++++++++++++-----
+ engine/deim/obb_geometry.py                        | 20 ++++++++
+ 7 files changed, 95 insertions(+), 13 deletions(-)
+```
+
+## Scope status
+
+Allowed files for Todo 5:
+  engine/deim/dfine_utils.py            — edited (offset_scale_source param + pre/post modes)
+  engine/deim/deim_decoder.py           — edited (thread param through constructors + call site)
+  engine/deim/deim_criterion.py         — edited (add param to constructor + both call sites)
+  configs/custom_obb/synthetic_configs/synthetic_exp_020_dec.yml — edited (offset_scale_source: pre in both DEIMTransformer and DEIMCriterion)
+  test/test_obb_adr_geometry.py         — edited (38 new offset_scale tests + imports)
+  .omo/evidence/task-5-deimv2-obb-adr-hybrid.txt — this file
+
+Files NOT owned by Todo 5 (changed by other todos, not by this task):
+  engine/deim/obb_geometry.py           — modified by Todo 2 (periodic_angle_distance), NOT by this task
+  .omo/boulder.json, .omo/start-work/ledger.jsonl — omo state, NOT by this task
+
+## Todo 2 dependency
+
+Todo 2 (periodic_angle_distance utility) was completed during this task's execution.
+The test file imports periodic_angle_distance directly from engine.deim.obb_geometry.
+All 63 tests (25 pre-existing + 38 new offset_scale) pass.
+
+## Notes
+
+- offset_scale_source='pre' is the default and preserves current decode/encode behavior exactly (torch.equal).
+- offset_scale_source='post' is accepted, produces finite OBBs/distances, and is a consistent inverse (post/post roundtrip < 1e-4).
+- Invalid offset_scale_source raises ValueError with message 'offset_scale_source must be ...'.
+- Mismatched encode/decode scale (pre-encode + post-decode or vice versa) produces strictly larger inversion error than matched pair (demonstrated in 5 parametrized cases + 200 random cases).
+- The TODO comment in dfine_utils.py:211 is resolved — replaced with explicit pre/post branch logic and spec 7.1 cross-reference.
+- Config: offset_scale_source: pre added to both DEIMTransformer and DEIMCriterion sections with cross-reference comments documenting the encode/decode invariant.
+- Public OBB output format unchanged (5-dof cx,cy,w,h,theta).
