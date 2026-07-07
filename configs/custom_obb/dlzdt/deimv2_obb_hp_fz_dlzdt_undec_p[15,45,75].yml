@@ -15,15 +15,15 @@ checkpoint_freq: 10    # save freq
 num_classes: 1
 
 ## DEIM LR-Scheduler
-epoches: 150 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
-warmup_iter: 15   # 0.1 * epoches
-flat_epoch: 90    # epoch // 2 + warmup_iter
-no_aug_epoch: 15
+epoches: 200 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+warmup_iter: 20   # 0.1 * epoches
+flat_epoch: 100    # epoch // 2 + warmup_iter
+no_aug_epoch: 20
 
 #### 设置训练数据
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
-  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
+  total_batch_size: 8 # total batch size equals to gpu_nums*batch_size
   num_workers: 2
   dataset:
     img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/train
