@@ -15,7 +15,7 @@ import torch
 from torch import Tensor
 
 
-def periodic_angle_distance(pred: Tensor, target: Tensor) -> Tensor:
+def periodic_angle_distance(pred: Tensor, target: Tensor, with_signal=False) -> Tensor:
     """Shortest distance on the pi-periodic angle domain (radians).
 
     OBB orientations differing by a multiple of ``pi`` are equivalent,
@@ -30,9 +30,13 @@ def periodic_angle_distance(pred: Tensor, target: Tensor) -> Tensor:
         (...,) shortest periodic distance in radians; ``pred`` and
         ``target`` broadcast per PyTorch semantics.
     """
-    diff = (pred - target).abs()
-    d = torch.remainder(diff, torch.pi)
-    return torch.minimum(d, torch.pi - d)
+    if not with_signal:
+        diff = (pred - target).abs()
+        d = torch.remainder(diff, torch.pi)
+        return torch.minimum(d, torch.pi - d)
+    else:
+        diff = target - pred
+        return torch.remainder(diff + torch.pi / 2, torch.pi) - torch.pi / 2
 
 
 def xywhr_to_xyxyxyxy(xywhr: Tensor) -> Tensor:

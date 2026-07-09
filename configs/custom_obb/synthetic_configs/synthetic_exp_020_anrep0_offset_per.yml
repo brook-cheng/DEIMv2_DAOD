@@ -1,9 +1,9 @@
 print_freq: 500
-output_dir: ./outputs/synthetic_exp_decouple_020
+output_dir: ./outputs/synthetic_exp_020_anrep0_offset_per
+comet_project_name: deimv2_obb_synthetic
 checkpoint_freq: 10
 sync_bn: true
 find_unused_parameters: true
-use_amp: true
 scaler:
   type: GradScaler
   enabled: true
@@ -13,6 +13,7 @@ ema:
   decay: 0.9998
   warmups: 500
   start: 0
+
 train_dataloader:
   dataset:
     transforms:
@@ -77,9 +78,9 @@ train_dataloader:
       type: Compose
       mosaic_prob: 0.5
     type: DotaDataset
-    img_folder: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/train
-    ann_folder: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/train
-    classes_file: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/classes.txt
+    img_folder: //mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/train
+    ann_folder: //mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/train
+    classes_file: //mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/classes.txt
     format: DOTA
   collate_fn:
     type: BatchImageCollateFunction
@@ -106,6 +107,7 @@ train_dataloader:
   num_workers: 2
   type: DataLoader
   drop_last: true
+
 val_dataloader:
   dataset:
     transforms:
@@ -133,39 +135,42 @@ val_dataloader:
         - 0.225
       type: Compose
     type: DotaDataset
-    img_folder: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/val
-    ann_folder: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/val
-    classes_file: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/classes.txt
+    img_folder: //mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/val
+    ann_folder: //mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/val
+    classes_file: //mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/classes.txt
     format: DOTA
   shuffle: true
-  total_batch_size: 8
+  total_batch_size: 2
   num_workers: 2
   type: DataLoader
   drop_last: true
   collate_fn:
     type: BatchImageCollateFunction
-epoches: 30
+epoches: 80
 clip_max_norm: 0.1
+
 optimizer:
   type: AdamW
   params:
   - params: ^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$
-    lr: 1.0e-05
+    lr: 2.0e-05
   - params: ^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$
-    lr: 1.0e-05
+    lr: 2.0e-05
     weight_decay: 0.0
   - params: ^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$
     weight_decay: 0.0
-  lr: 0.0005
+  lr: 0.001
   betas:
   - 0.9
   - 0.999
   weight_decay: 0.000125
+
 lr_scheduler:
   type: MultiStepLR
   milestones:
   - 500
   gamma: 0.1
+
 lr_warmup_scheduler:
   type: LinearWarmup
   warmup_duration: 250
@@ -178,10 +183,12 @@ use_focal_loss: true
 eval_spatial_size:
 - 256
 - 256
+
 DEIM:
   backbone: DINOv3STAsResAtten
   encoder: HybridEncoder
   decoder: DEIMTransformer
+
 HGNetv2:
   name: B4
   return_idx:
@@ -193,6 +200,7 @@ HGNetv2:
   freeze_norm: false
   pretrained: true
   local_model_dir: ./weight/hgnetv2/
+
 HybridEncoder:
   in_channels:
   - 256
@@ -216,6 +224,7 @@ HybridEncoder:
   version: deim
   csp_type: csp2
   fuse_op: sum
+
 DEIMTransformer:
   feat_channels:
   - 256
@@ -226,7 +235,6 @@ DEIMTransformer:
   - 16
   - 32
   hidden_dim: 256
-  num_levels: 3
   num_layers: 6
   eval_idx: -1
   num_queries: 300
@@ -246,9 +254,10 @@ DEIMTransformer:
   mlp_act: silu
   dim_feedforward: 2048
   box_mode: obb
-  angle_rep: True
-  angle_step: 10
-  num_r_layers: 6
+  angle_rep: 0
+  offset_scale_source: "pre"
+
+
 PostProcessor:
   num_top_queries: 300
   box_mode: obb
@@ -257,6 +266,7 @@ lr_gamma: 0.5
 warmup_iter: 5
 flat_epoch: 18
 no_aug_epoch: 3
+
 DEIMCriterion:
   weight_dict:
     loss_mal: 4
@@ -285,12 +295,14 @@ DEIMCriterion:
     change_matcher: true
     iou_order_alpha: 4.0
     # 0.75~0.85 * epoches
-    matcher_change_epoch: 22
+    matcher_change_epoch: 60
     box_mode: obb
   box_mode: obb
   mal_iou_type: giou
   local_iou_type: giou
-comet_project_name: deimv2_obb_synthetic
+  offset_scale_source: "pre"
+  obbox_rep_dim: 6
+
 DINOv3STAs:
   name: dinov3_vits16plus
   weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
@@ -301,15 +313,16 @@ DINOv3STAs:
   finetune: true
   conv_inplane: 64
   hidden_dim: 256
+
 DINOv3STAsResAtten:
   name: dinov3_vits16plus
-  weights_path: /home/cx/win_dir/thired/DEIMv2_DAOD/ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
+  weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
   interaction_indexes: []
   finetune: false
   conv_inplane: 64
   hidden_dim: 256
   adapter_type: sta
-KendallWeighting:
-  enabled: true
-  sigma_lr: 0.001
-  init_log_sigma: 0.0
+# KendallWeighting:
+#   enabled: true
+#   sigma_lr: 0.001
+#   init_log_sigma: 0.0

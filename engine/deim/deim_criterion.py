@@ -59,6 +59,7 @@ class DEIMCriterion(nn.Module):
         box_mode="hbb",
         offset_scale_source="pre",
         lambda_angle=1.0,
+        obbox_rep_dim=6,
     ):
         """Create the criterion.
         Parameters:
@@ -87,9 +88,10 @@ class DEIMCriterion(nn.Module):
         self.mal_iou_type = mal_iou_type
         self.local_iou_type = local_iou_type
         self.box_mode = box_mode
-        self.num_reg_dist = 4 if self.box_mode == "hbb" else 6
+        self.num_reg_dist = 4 if self.box_mode == "hbb" else obbox_rep_dim
         self.offset_scale_source = offset_scale_source
         self.lambda_angle = lambda_angle
+        self.obbox_rep_dim = obbox_rep_dim
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
@@ -304,6 +306,7 @@ class DEIMCriterion(nn.Module):
                             outputs["reg_scale"],
                             outputs["up"],
                             offset_scale_source=self.offset_scale_source,
+                            obbox_rep_dim=self.obbox_rep_dim,
                         )
                 if self.fgl_targets is None and "is_dn" not in outputs:
                     if self.box_mode == "hbb":
@@ -322,6 +325,7 @@ class DEIMCriterion(nn.Module):
                             outputs["reg_scale"],
                             outputs["up"],
                             offset_scale_source=self.offset_scale_source,
+                            obbox_rep_dim=self.obbox_rep_dim,
                         )
 
             target_corners, weight_right, weight_left = (

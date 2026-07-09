@@ -1,6 +1,6 @@
 """Decouple-angle reference path smoke tests (plan Todo 7).
 
-Audit-driven tests verifying that the ``decouple_angle=True`` OBB decoder
+Audit-driven tests verifying that the ``angle_rep=True`` OBB decoder
 reference path keeps reference-point dimensionality deliberate and finite
 across decoder layers.
 
@@ -29,10 +29,10 @@ from engine.deim.dfine_decoder import MSDeformableAttention
 from engine.deim.deim_decoder import DEIMTransformer
 from engine.deim.obb_geometry import external_rect_to_oriented_box
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_msdeform_value(bs, num_head, head_dim, spatial_shapes):
     """Build the per-level ``value`` list MSDeformableAttention expects.
@@ -49,6 +49,7 @@ def _make_msdeform_value(bs, num_head, head_dim, spatial_shapes):
 # ---------------------------------------------------------------------------
 # Test 1: MSDeformableAttention consumes theta (5th dim), does not ignore it
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("seed", [0])
 def test_msdeform_attn_decouple_angle_reference_consumes_theta(seed):
@@ -83,9 +84,7 @@ def test_msdeform_attn_decouple_angle_reference_consumes_theta(seed):
     attn.eval()
 
     query = torch.randn(bs, n_queries, embed_dim)
-    value = _make_msdeform_value(
-        bs, num_heads, embed_dim // num_heads, spatial_shapes
-    )
+    value = _make_msdeform_value(bs, num_heads, embed_dim // num_heads, spatial_shapes)
 
     # The decoder always passes reference_points with n_levels=1 in dim 2
     # (via ref_points_detach.unsqueeze(2), see deim_decoder.py:284,326).
@@ -112,13 +111,11 @@ def test_msdeform_attn_decouple_angle_reference_consumes_theta(seed):
     assert out_6d.shape == (bs, n_queries, embed_dim)
 
     # --- 5-dim and 6-dim converge when 6-dim converts to the same OBB ---
-    ref_6d_as_obb = external_rect_to_oriented_box(
-        ref_6d[..., :4], ref_6d[..., 4:]
-    )
+    ref_6d_as_obb = external_rect_to_oriented_box(ref_6d[..., :4], ref_6d[..., 4:])
     out_6d_as_5d = attn(query, ref_6d_as_obb, value, spatial_shapes)
-    assert torch.allclose(out_6d, out_6d_as_5d, atol=1e-6), (
-        "6-dim ADR path and equivalent 5-dim OBB path must converge"
-    )
+    assert torch.allclose(
+        out_6d, out_6d_as_5d, atol=1e-6
+    ), "6-dim ADR path and equivalent 5-dim OBB path must converge"
 
     # --- theta is consumed: changing 5th dim changes output ---
     ref_5d_rotated = ref_5d.clone()
@@ -137,16 +134,17 @@ def test_msdeform_attn_decouple_angle_reference_consumes_theta(seed):
 
 
 # ---------------------------------------------------------------------------
-# Test 2: DEIMTransformer decouple_angle=True forward produces finite OBB
+# Test 2: DEIMTransformer angle_rep=True forward produces finite OBB
 #         outputs with consistent reference dimensionality
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("seed", [0])
 def test_decouple_angle_reference_dimensionality_consistent(seed):
     """Verify the full decouple-angle decoder forward path.
 
     Given: a minimal DEIMTransformer with box_mode="obb",
-           decouple_angle=True, 3 decoder layers, small hidden_dim, CPU.
+           angle_rep=True, 3 decoder layers, small hidden_dim, CPU.
     When:  forward is called in eval mode with synthetic multi-scale feats.
     Then:
       - out_bboxes (pred_boxes) is finite, last-dim == 5 (OBB).
@@ -194,7 +192,7 @@ def test_decouple_angle_reference_dimensionality_consistent(seed):
         share_bbox_head=False,
         share_score_head=False,
         box_mode="obb",
-        decouple_angle=True,
+        angle_rep=True,
         offset_scale_source="pre",
     )
     # Use training mode so the output dict includes pred_corners and
@@ -206,10 +204,7 @@ def test_decouple_angle_reference_dimensionality_consistent(seed):
     model.train()
 
     # Synthetic multi-scale features matching eval_spatial_size and strides.
-    feats = [
-        torch.randn(1, hidden_dim, eval_h // s, eval_w // s)
-        for s in feat_strides
-    ]
+    feats = [torch.randn(1, hidden_dim, eval_h // s, eval_w // s) for s in feat_strides]
 
     with torch.no_grad():
         outputs = model(feats)
@@ -230,13 +225,13 @@ def test_decouple_angle_reference_dimensionality_consistent(seed):
 
     # --- dimensionality consistency ---
     # pred_boxes: (n_layers or 1, bs, n_queries, 5) — OBB (cx, cy, w, h, theta)
-    assert out_bboxes.shape[-1] == 5, (
-        f"pred_boxes last-dim must be 5 (OBB), got {out_bboxes.shape[-1]}"
-    )
+    assert (
+        out_bboxes.shape[-1] == 5
+    ), f"pred_boxes last-dim must be 5 (OBB), got {out_bboxes.shape[-1]}"
     # ref_points: same OBB dim
-    assert out_refs.shape[-1] == 5, (
-        f"ref_points last-dim must be 5 (OBB), got {out_refs.shape[-1]}"
-    )
+    assert (
+        out_refs.shape[-1] == 5
+    ), f"ref_points last-dim must be 5 (OBB), got {out_refs.shape[-1]}"
     # pred_corners: (n_layers or 1, bs, n_queries, 6*(reg_max+1)) — ADR 6-dof
     expected_corners_dim = 6 * (reg_max + 1)
     assert out_corners.shape[-1] == expected_corners_dim, (

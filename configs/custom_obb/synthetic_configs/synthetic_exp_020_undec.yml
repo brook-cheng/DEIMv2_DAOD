@@ -245,7 +245,7 @@ DEIMTransformer:
   mlp_act: silu
   dim_feedforward: 2048
   box_mode: obb
-  decouple_angle: False
+  angle_rep: 0
 
 PostProcessor:
   num_top_queries: 300

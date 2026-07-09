@@ -245,7 +245,7 @@ DEIMTransformer:
   mlp_act: silu
   dim_feedforward: 2048
   box_mode: obb
-  decouple_angle: True
+  angle_rep: True
   # ADR offset residual scale source (spec 7.1). 'pre' = pre-adjustment
   # external rect (default); 'post' = post-adjustment ext rect (ablation).
   # Must match DEIMCriterion.offset_scale_source to keep encode/decode inverse.
