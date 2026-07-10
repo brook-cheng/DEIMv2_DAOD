@@ -24,9 +24,7 @@ from typing import Dict, List, Optional
 from tools.model_compare.obb_utils import draw_obb_polygons, parse_dota_line
 
 
-def _load_image_annotations(
-    gt_dir: str, det_dirs: List[str], img_name: str
-) -> tuple:
+def _load_image_annotations(gt_dir: str, det_dirs: List[str], img_name: str) -> tuple:
     """Load GT and all model predictions for a single image.
 
     Returns:
@@ -100,7 +98,7 @@ def draw_obb_compare(
 
     # color palette: GT = green, models = rainbow
     colors = plt.cm.tab10(np.linspace(0, 1, max(num_models + 1, 10)))
-    gt_color = (0, 200, 0)  # green for GT
+    gt_color = tuple((colors[0][:3] * 255).astype(np.uint8).tolist())  # green for GT
     model_colors = [
         tuple(int(c * 255) for c in colors[i + 1][:3]) for i in range(num_models)
     ]
@@ -113,9 +111,7 @@ def draw_obb_compare(
     print(f"Processing {len(img_names)} images, {num_models} model(s)")
 
     try:
-        font = ImageFont.truetype(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24
-        )
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
     except Exception:
         font = ImageFont.load_default()
 
@@ -147,12 +143,16 @@ def draw_obb_compare(
 
         # draw GT
         if gt_anns:
-            image = draw_obb_polygons(image, gt_anns, gt_color, line_width=3, alpha=0.15)
+            image = draw_obb_polygons(
+                image, gt_anns, gt_color, line_width=3, alpha=0, font=font
+            )
 
         # draw models
         for anns, color in zip(model_anns_list, model_colors):
             if anns:
-                image = draw_obb_polygons(image, anns, color, line_width=2, alpha=0.1)
+                image = draw_obb_polygons(
+                    image, anns, color, line_width=2, alpha=0, font=font
+                )
 
         # legend
         draw = ImageDraw.Draw(image)
@@ -162,7 +162,9 @@ def draw_obb_compare(
 
         legend_items = [("GT", gt_color)] + list(zip(model_names, model_colors))
         for name, color in legend_items:
-            draw.rectangle([x, y, x + 40, y + box_h], fill=color, outline=(255, 255, 255))
+            draw.rectangle(
+                [x, y, x + 40, y + box_h], fill=color, outline=(255, 255, 255)
+            )
             draw.text((x + 46, y + 2), name, fill=(255, 255, 255), font=font)
             y += gap
 
@@ -197,13 +199,14 @@ if __name__ == "__main__":
     det_dir = os.path.join(demo_dir, "det")
     os.makedirs(det_dir, exist_ok=True)
     import shutil
+
     shutil.copy(
         os.path.join(demo_dir, "dota_annotation_obb_demo.txt"),
         os.path.join(det_dir, "demo.txt"),
     )
 
     draw_obb_compare(
-        img_dir=demo_dir,   # no real images, will warn
+        img_dir=demo_dir,  # no real images, will warn
         gt_dir=gt_dir,
         det_dirs=[det_dir],
         output_dir=os.path.join(demo_dir, "output_draw"),

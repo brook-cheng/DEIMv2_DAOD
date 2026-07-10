@@ -27,23 +27,24 @@ from tools.model_compare.obb_utils import (
 from tools.model_compare.model_metrics_compare_obb import compare_obb_models
 from tools.model_compare.model_draw_compare_obb import draw_obb_compare
 
-
 # ── Paths ──
 BASE_DATA = "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val"
-IMG_DIR   = os.path.join(BASE_DATA, "images", "val")
-GT_YOLO_DIR = os.path.join(BASE_DATA, "labels", "val")       # YOLO-OBB format labels
+IMG_DIR = os.path.join(BASE_DATA, "images", "val")
+GT_YOLO_DIR = os.path.join(BASE_DATA, "labels", "val")  # YOLO-OBB format labels
 CLASSES_TXT = os.path.join(BASE_DATA, "classes.txt")
 DEIMV2_DOTA_DIR = "./test/data/outputs/dlzdt_obb_res"
 
 YOLO_PRED_JSON = "/mnt/d/cx/thired/ultralytics_update/runs/dlazdt_obb_val/yolo_train_1280_2026_5_31/val2/predictions.json"
 
 OUTPUT_ROOT = "./test/data/outputs/dlzdt_obb_compare"
-GT_DOTA_DIR     = os.path.join(OUTPUT_ROOT, "gt_dota")
-YOLO_DOTA_DIR   = os.path.join(OUTPUT_ROOT, "yolo_dota")
-VISUAL_DIR      = os.path.join(OUTPUT_ROOT, "comparison_images")
+GT_DOTA_DIR = os.path.join(OUTPUT_ROOT, "gt_dota")
+YOLO_DOTA_DIR = os.path.join(OUTPUT_ROOT, "yolo_dota")
+VISUAL_DIR = os.path.join(OUTPUT_ROOT, "comparison_images")
 
 
-def yolo_gt_to_dota(gt_yolo_dir: str, img_dir: str, output_dota_dir: str, class_names: list):
+def yolo_gt_to_dota(
+    gt_yolo_dir: str, img_dir: str, output_dota_dir: str, class_names: list
+):
     """Convert YOLO-OBB GT labels (xywhr normalized) to DOTA 8-coord per-image txt.
 
     YOLO label format: class_id cx cy w h angle  (all normalized to [0,1], angle in radians)
@@ -78,17 +79,33 @@ def yolo_gt_to_dota(gt_yolo_dir: str, img_dir: str, output_dota_dir: str, class_
                 if len(parts) < 6:
                     continue
                 cls_id = int(parts[0])
-                cx = float(parts[1]) * img_w
-                cy = float(parts[2]) * img_h
-                w  = float(parts[3]) * img_w
-                h  = float(parts[4]) * img_h
-                theta = float(parts[5])  # radians, already correct
+                # cx = float(parts[1]) * img_w
+                # cy = float(parts[2]) * img_h
+                # w = float(parts[3]) * img_w
+                # h = float(parts[4]) * img_h
+                # theta = float(parts[5])  # radians, already correct
 
-                # xywhr → 8-coord
-                t = torch.tensor([[cx, cy, w, h, theta]], dtype=torch.float32)
-                poly = xywhr_to_xyxyxyxy(t).numpy().flatten()
+                # # xywhr → 8-coord
+                # t = torch.tensor([[cx, cy, w, h, theta]], dtype=torch.float32)
+                # poly = xywhr_to_xyxyxyxy(t).numpy().flatten()
+                poly = np.array(
+                    [
+                        float(parts[1]) * img_w,
+                        float(parts[2]) * img_h,
+                        float(parts[3]) * img_w,
+                        float(parts[4]) * img_h,
+                        float(parts[5]) * img_w,
+                        float(parts[6]) * img_h,
+                        float(parts[7]) * img_w,
+                        float(parts[8]) * img_h,
+                    ]
+                )
 
-                cls_name = class_names[cls_id] if cls_id < len(class_names) else f"class_{cls_id}"
+                cls_name = (
+                    class_names[cls_id]
+                    if cls_id < len(class_names)
+                    else f"class_{cls_id}"
+                )
                 lines.append(" ".join([f"{x:.6f}" for x in poly]) + f" {cls_name} 0")
 
         if lines:
@@ -119,7 +136,9 @@ def main():
     print("=" * 60)
     if os.path.exists(YOLO_DOTA_DIR):
         shutil.rmtree(YOLO_DOTA_DIR)
-    category_map = {i + 1: name for i, name in enumerate(class_names)}  # YOLO uses 1-indexed
+    category_map = {
+        i + 1: name for i, name in enumerate(class_names)
+    }  # YOLO uses 1-indexed
     written = ultralytics_obb_json_to_dota(
         YOLO_PRED_JSON, YOLO_DOTA_DIR, category_map, score_threshold=0.01
     )

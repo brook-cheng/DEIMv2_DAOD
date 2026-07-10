@@ -17,8 +17,9 @@ from engine.deim.obb_geometry import xywhr_to_xyxyxyxy
 from engine.core import YAMLConfig
 from engine.solver import TASKS
 
+ANGLE_REP = 3
 OUTPUT_DIR = os.path.join(
-    ROOT, "test", "outputs", "infer_diag", "density_020_undec_angle"
+    ROOT, "test", "outputs", "infer_diag", f"density_020_anrep{ANGLE_REP}"
 )
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -111,16 +112,17 @@ def main():
     parser.add_argument(
         "--ckpt",
         default=os.path.join(
-            ROOT, "outputs/synthetic_exp_020_undec/last_undec_angle.pth"
+            ROOT, f"outputs/synthetic_exp_020_anrep{ANGLE_REP}_offset_per/last.pth"
         ),
     )
     parser.add_argument(
         "--config",
         default=os.path.join(
-            ROOT, "configs/custom_obb/synthetic_configs/synthetic_exp_020_undec.yml"
+            ROOT,
+            f"configs/custom_obb/synthetic_configs/synthetic_exp_020_anrep{ANGLE_REP}_offset_per.yml",
         ),
     )
-    parser.add_argument("--num", type=int, default=4, help="推理图片数")
+    parser.add_argument("--num", type=int, default=100, help="推理图片数")
     parser.add_argument("--conf", type=float, default=0.5, help="预测框置信度阈值")
     parser.add_argument(
         "--conf-step", type=float, default=0.2, help="置信度分段步长（0-1 之间）"
@@ -202,10 +204,10 @@ def main():
             img_pil = Image.fromarray(img_v)
 
             # GT 框（绿色粗线）
-            img_gt = img_pil.copy()
-            draw_gt = ImageDraw.Draw(img_gt)
-            draw_obb(draw_gt, gt_boxes_px, gt_labels, width=3)
-            img_gt.save(os.path.join(OUTPUT_DIR, f"img{processed-1:02d}_gt.jpg"))
+            # img_gt = img_pil.copy()
+            # draw_gt = ImageDraw.Draw(img_gt)
+            # draw_obb(draw_gt, gt_boxes_px, gt_labels, width=3)
+            # img_gt.save(os.path.join(OUTPUT_DIR, f"img{processed-1:02d}_gt.jpg"))
 
             # 预测框（红色，过滤低置信度）
             img_pred = img_pil.copy()
@@ -227,17 +229,17 @@ def main():
             )
 
             # GT + Pred 叠加
-            img_both = img_pil.copy()
-            draw_both = ImageDraw.Draw(img_both)
-            draw_obb(draw_both, gt_boxes_px, gt_labels, width=3)
-            draw_obb(
-                draw_both,
-                pred_boxes_filt,
-                pred_labels_filt,
-                pred_scores_filt,
-                width=1,
-            )
-            img_both.save(os.path.join(OUTPUT_DIR, f"img{processed-1:02d}_both.jpg"))
+            # img_both = img_pil.copy()
+            # draw_both = ImageDraw.Draw(img_both)
+            # draw_obb(draw_both, gt_boxes_px, gt_labels, width=3)
+            # draw_obb(
+            #     draw_both,
+            #     pred_boxes_filt,
+            #     pred_labels_filt,
+            #     pred_scores_filt,
+            #     width=1,
+            # )
+            # img_both.save(os.path.join(OUTPUT_DIR, f"img{processed-1:02d}_both.jpg"))
 
     # ── 全局统计 ──
     all_s = np.concatenate(all_scores) if all_scores else np.array([])

@@ -16,7 +16,6 @@ import numpy as np
 import torch
 from ..deim.obb_ops import batch_probiou
 
-
 # Standard COCO/IoU vector: 0.50, 0.55, ..., 0.95
 DEFAULT_IOUV = (0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95)
 
@@ -47,28 +46,86 @@ def match_predictions(pred_classes, true_classes, iou, iouv):
     Greedy one-to-one matching per IoU threshold: pairs sorted by IoU desc,
     then unique detection and unique label are kept.
 
+    Accepts both torch tensors and numpy arrays. If inputs are tensors,
+    matching is done on-device; output is always numpy for compatibility
+    with ap_per_class.
+
     Args:
-        pred_classes: 1-D tensor of predicted class ids (N,).
-        true_classes: 1-D tensor of GT class ids (M,).
-        iou: NxM IoU matrix (float).
-        iouv: list/tensor of IoU thresholds.
+        pred_classes: 1-D predicted class ids (N,).
+        true_classes: 1-D GT class ids (M,).
+        iou: (M, N) IoU matrix.
+        iouv: list/tuple of IoU thresholds.
 
     Returns:
-        correct: (N, len(iouv)) boolean array; True if detection i is a TP at threshold j.
+        correct: (N, len(iouv)) numpy boolean array.
     """
-    correct = np.zeros((pred_classes.shape[0], len(iouv)), dtype=bool)
-    correct_class = true_classes[:, None] == pred_classes
-    iou = (iou * correct_class).cpu().numpy() if hasattr(iou, "cpu") else np.asarray(iou) * correct_class.cpu().numpy()
-    for j, thr in enumerate(list(iouv)):
-        matches = np.nonzero(iou >= thr)
-        matches = np.array(matches).T  # (k, 2): rows=gt_idx, cols=det_idx
-        if matches.shape[0]:
+    use_torch = isinstance(iou, torch.Tensor)
+    # use_torch = False
+
+    if use_torch:
+        n_pred = pred_classes.shape[0]
+        n_iou = len(iouv)
+        correct = torch.zeros((n_pred, n_iou), dtype=torch.bool, device=iou.device)
+
+        # Class mask: (M, N)
+        correct_class = (true_classes[:, None] == pred_classes[None, :]).to(iou.dtype)
+        iou_masked = iou * correct_class
+
+        for j, thr in enumerate(iouv):
+            matches = torch.nonzero(iou_masked >= thr, as_tuple=False)  # (k, 2)
+            if matches.shape[0] == 0:
+                continue
             if matches.shape[0] > 1:
-                matches = matches[iou[matches[:, 0], matches[:, 1]].argsort()[::-1]]
-                matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
-                matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
-            correct[matches[:, 1].astype(int), j] = True
-    return correct
+                # Sort by IoU descending
+                iou_vals = iou_masked[matches[:, 0], matches[:, 1]]
+                order = iou_vals.argsort(descending=True)
+                matches = matches[order]
+                # Dedup by det_idx (col 1): keep first occurrence (highest IoU)
+                _, unique_det = torch.unique(matches[:, 1], return_inverse=True)
+                keep_det = torch.zeros(
+                    matches.shape[0], dtype=torch.bool, device=iou.device
+                )
+                seen_det = set()
+                for i in range(matches.shape[0]):
+                    d = matches[i, 1].item()
+                    if d not in seen_det:
+                        keep_det[i] = True
+                        seen_det.add(d)
+                matches = matches[keep_det]
+                # Dedup by gt_idx (col 0): keep first occurrence
+                keep_gt = torch.zeros(
+                    matches.shape[0], dtype=torch.bool, device=iou.device
+                )
+                seen_gt = set()
+                for i in range(matches.shape[0]):
+                    g = matches[i, 0].item()
+                    if g not in seen_gt:
+                        keep_gt[i] = True
+                        seen_gt.add(g)
+                matches = matches[keep_gt]
+            correct[matches[:, 1].long(), j] = True
+
+        return correct.cpu().numpy()
+    else:
+        # Numpy path (backward compatibility)
+        correct = np.zeros((pred_classes.shape[0], len(iouv)), dtype=bool)
+        correct_class = true_classes[:, None] == pred_classes
+        iou_arr = np.asarray(iou) * correct_class
+        for j, thr in enumerate(list(iouv)):
+            matches = np.nonzero(iou_arr >= thr)
+            matches = np.array(matches).T
+            if matches.shape[0]:
+                if matches.shape[0] > 1:
+                    matches = matches[
+                        iou_arr[matches[:, 0], matches[:, 1]].argsort()[::-1]
+                    ]
+                    matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
+                    matches = matches[
+                        iou_arr[matches[:, 0], matches[:, 1]].argsort()[::-1]
+                    ]
+                    matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
+                correct[matches[:, 1].astype(int), j] = True
+        return correct
 
 
 def ap_per_class(tp, conf, pred_cls, target_cls, eps=1e-16):
@@ -123,14 +180,19 @@ def ap_per_class(tp, conf, pred_cls, target_cls, eps=1e-16):
     fp_count = (tp_count / (p + eps) - tp_count).round()
 
     return {
-        "p": p, "r": r, "f1": f1,
+        "p": p,
+        "r": r,
+        "f1": f1,
         "ap": ap,
         "ap50": ap[:, 0] if ap.shape[1] > 0 else np.zeros(nc),
         "ap75": ap[:, 5] if ap.shape[1] > 5 else np.zeros(nc),
         "map50_95": ap.mean(1) if ap.size else np.zeros(nc),
-        "tp_count": tp_count, "fp_count": fp_count,
+        "tp_count": tp_count,
+        "fp_count": fp_count,
         "unique_classes": unique_classes.astype(int),
-        "p_curve": p_curve, "r_curve": r_curve, "f1_curve": f1_curve,
+        "p_curve": p_curve,
+        "r_curve": r_curve,
+        "f1_curve": f1_curve,
         "x": x,
     }
 
@@ -143,12 +205,13 @@ def obb_evaluate(
     device,
     iou_thrs=DEFAULT_IOUV,
     num_classes=15,
-    conf_thresh=None,
+    conf_thresh=0.01,
 ):
     """Online OBB evaluation using the standard mAP@0.5:0.95 approach.
 
-    Per-image detection vs GT IoU uses batch_probiou. Detections are not
-    pre-filtered by confidence — the full PR curve is built by sorting by
+    Per-image detection vs GT IoU uses batch_probiou. Low-confidence
+    predictions below ``conf_thresh`` are filtered before IoU computation;
+    the full PR curve is built from the remaining detections by sorting by
     score, and precision/recall are reported at the max-F1 point on the curve.
 
     Args:
@@ -158,21 +221,23 @@ def obb_evaluate(
         device: torch.device.
         iou_thrs: tuple of IoU thresholds for AP. Default COCO = 0.5..0.95.
         num_classes: number of classes.
-        conf_thresh: kept for backward-compat; not used (max-F1 point autoREPORTs P/R).
+        conf_thresh: minimum confidence score to keep a prediction before
+            IoU computation. Predictions below this threshold are skipped
+            (they cannot be TP at any IoU threshold since they sort to the
+            bottom of the PR curve). Set to None or 0 to disable filtering.
 
     Returns:
         dict with AP50, AP75, mAP (mAP50-95), mAP50, precision, recall, f1,
         and per-class breakdown keyed by `class_<id>_*`.
     """
-    del conf_thresh  # standard approach reports P/R at max-F1; no pre-filter needed
     model.eval()
     postprocessor.eval()
     iou_thrs = tuple(iou_thrs)
 
-    all_tp = []         # list of (Mi, n_iou) bool
-    all_conf = []       # list of (Mi,)
-    all_pred_cls = []   # list of (Mi,)
-    all_target_cls = [] # list of (M_gt,) per image
+    all_tp = []  # list of (Mi, n_iou) bool
+    all_conf = []  # list of (Mi,)
+    all_pred_cls = []  # list of (Mi,)
+    all_target_cls = []  # list of (M_gt,) per image
     seen_imgs = 0
 
     for samples, targets in data_loader:
@@ -184,52 +249,84 @@ def obb_evaluate(
 
         for res, tgt, orig_sz in zip(results, targets, orig_sizes):
             seen_imgs += 1
-            pred_boxes = res["boxes"].cpu().numpy()
-            pred_scores = res["scores"].cpu().numpy()
-            pred_labels = res["labels"].cpu().numpy().astype(np.int64)
-            gt_boxes = tgt["boxes"].cpu().numpy()
-            gt_labels = tgt["labels"].cpu().numpy().astype(np.int64)
 
-            ow, oh = orig_sz.cpu().numpy()
-            if len(gt_boxes) > 0:
-                gt_boxes[:, 0] *= ow
-                gt_boxes[:, 1] *= oh
-                gt_boxes[:, 2] *= ow
-                gt_boxes[:, 3] *= oh
+            # Keep tensors on device — no .cpu().numpy() round-trip
+            pred_boxes = res["boxes"]  # (N, 5) on device
+            pred_scores = res["scores"]  # (N,) on device
+            pred_labels = res["labels"]  # (N,) on device
+            gt_boxes = tgt["boxes"]  # (M, 5) on device
+            gt_labels = tgt["labels"]  # (M,) on device
 
-            all_target_cls.append(gt_labels)
+            # Scale GT boxes to pixel coords (on device)
+            ow, oh = orig_sz[0].item(), orig_sz[1].item()
+            if gt_boxes.shape[0] > 0:
+                scale = torch.tensor(
+                    [ow, oh, ow, oh, 1.0],
+                    device=gt_boxes.device,
+                    dtype=gt_boxes.dtype,
+                )
+                gt_boxes = gt_boxes * scale
 
-            if pred_labels.shape[0] == 0:
+            all_target_cls.append(gt_labels.cpu().numpy().astype(np.int64))
+
+            if pred_boxes.shape[0] == 0:
                 all_tp.append(np.zeros((0, len(iou_thrs)), dtype=bool))
                 all_conf.append(np.zeros(0))
                 all_pred_cls.append(np.zeros(0, dtype=np.int64))
                 continue
 
+            # Confidence pre-filter (on device)
+            if conf_thresh is not None and conf_thresh > 0:
+                conf_mask = pred_scores > conf_thresh
+                pred_boxes = pred_boxes[conf_mask]
+                pred_scores = pred_scores[conf_mask]
+                pred_labels = pred_labels[conf_mask]
+
+                if pred_boxes.shape[0] == 0:
+                    all_tp.append(np.zeros((0, len(iou_thrs)), dtype=bool))
+                    all_conf.append(np.zeros(0))
+                    all_pred_cls.append(np.zeros(0, dtype=np.int64))
+                    continue
+
             if gt_boxes.shape[0] == 0:
-                # all preds are FP at every IoU threshold
-                correct = np.zeros((pred_labels.shape[0], len(iou_thrs)), dtype=bool)
+                n_pred = pred_boxes.shape[0]
+                correct = np.zeros((n_pred, len(iou_thrs)), dtype=bool)
                 all_tp.append(correct)
-                all_conf.append(pred_scores)
-                all_pred_cls.append(pred_labels)
+                all_conf.append(pred_scores.cpu().numpy())
+                all_pred_cls.append(pred_labels.cpu().numpy().astype(np.int64))
                 continue
 
-            det_t = torch.tensor(pred_boxes[:, :5], dtype=torch.float32)
-            gt_t = torch.tensor(gt_boxes, dtype=torch.float32)
-            iou = batch_probiou(gt_t, det_t)  # (M_gt, N_pred) — row=gt, col=pred
+            # IoU computation — tensors already on device, no rebuild
+            iou = batch_probiou(gt_boxes, pred_boxes[:, :5])  # (M, N)
+
             correct = match_predictions(
-                torch.tensor(pred_labels),
-                torch.tensor(gt_labels),
+                pred_labels,
+                gt_labels,
                 iou,
                 iou_thrs,
             )
-            all_tp.append(correct)
-            all_conf.append(pred_scores)
-            all_pred_cls.append(pred_labels)
 
-    tp_cat = np.concatenate(all_tp, axis=0) if all_tp else np.zeros((0, len(iou_thrs)), dtype=bool)
+            # Only convert to numpy at the final append
+            all_tp.append(
+                correct if isinstance(correct, np.ndarray) else correct.cpu().numpy()
+            )
+            all_conf.append(pred_scores.cpu().numpy())
+            all_pred_cls.append(pred_labels.cpu().numpy().astype(np.int64))
+
+    tp_cat = (
+        np.concatenate(all_tp, axis=0)
+        if all_tp
+        else np.zeros((0, len(iou_thrs)), dtype=bool)
+    )
     conf_cat = np.concatenate(all_conf) if all_conf else np.zeros(0)
-    pred_cls_cat = np.concatenate(all_pred_cls) if all_pred_cls else np.zeros(0, dtype=np.int64)
-    target_cls_cat = np.concatenate(all_target_cls) if all_target_cls else np.zeros(0, dtype=np.int64)
+    pred_cls_cat = (
+        np.concatenate(all_pred_cls) if all_pred_cls else np.zeros(0, dtype=np.int64)
+    )
+    target_cls_cat = (
+        np.concatenate(all_target_cls)
+        if all_target_cls
+        else np.zeros(0, dtype=np.int64)
+    )
 
     stats = ap_per_class(tp_cat, conf_cat, pred_cls_cat, target_cls_cat)
 
@@ -240,16 +337,16 @@ def obb_evaluate(
     unique_classes = stats["unique_classes"]
 
     results = {
-        "AP50":       float(np.mean(ap50)) if len(ap50) else 0.0,
-        "AP75":       float(np.mean(ap75)) if len(ap75) else 0.0,
-        "mAP":        float(np.mean(map50_95)) if len(map50_95) else 0.0,
-        "mAP50":      float(np.mean(ap50)) if len(ap50) else 0.0,
-        "mAP50_95":   float(np.mean(map50_95)) if len(map50_95) else 0.0,
-        "precision":  float(np.mean(p)) if len(p) else 0.0,
-        "recall":     float(np.mean(r)) if len(r) else 0.0,
-        "f1":         float(np.mean(f1)) if len(f1) else 0.0,
-        "seen":       int(seen_imgs),
-        "n_classes":  int(len(unique_classes)),
+        "AP50": float(np.mean(ap50)) if len(ap50) else 0.0,
+        "AP75": float(np.mean(ap75)) if len(ap75) else 0.0,
+        "mAP": float(np.mean(map50_95)) if len(map50_95) else 0.0,
+        "mAP50": float(np.mean(ap50)) if len(ap50) else 0.0,
+        "mAP50_95": float(np.mean(map50_95)) if len(map50_95) else 0.0,
+        "precision": float(np.mean(p)) if len(p) else 0.0,
+        "recall": float(np.mean(r)) if len(r) else 0.0,
+        "f1": float(np.mean(f1)) if len(f1) else 0.0,
+        "seen": int(seen_imgs),
+        "n_classes": int(len(unique_classes)),
     }
 
     for i, c in enumerate(unique_classes):

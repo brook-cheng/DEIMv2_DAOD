@@ -73,6 +73,7 @@ def infer_obb_and_export(
     max_det: int = 300,
     score_threshold: float = 0.0,
     device: str = "cuda:0",
+    angle_rep=0,
 ):
     """Run OBB inference on all images and export to DOTA per-image format.
 
@@ -98,7 +99,11 @@ def infer_obb_and_export(
             "hidden_dim": 256,
         },
         "HybridEncoder": {
-            "in_channels": [256, 256, 256],  # DINOv3-STAs-ResAtten projects all layers to hidden_dim
+            "in_channels": [
+                256,
+                256,
+                256,
+            ],  # DINOv3-STAs-ResAtten projects all layers to hidden_dim
             "feat_strides": [8, 16, 32],
             "hidden_dim": 256,
             "use_encoder_idx": [2],
@@ -116,6 +121,7 @@ def infer_obb_and_export(
         },
         "DEIMTransformer": {
             "box_mode": "obb",
+            "angle_rep": angle_rep,
             "feat_channels": [256, 256, 256],
             "feat_strides": [8, 16, 32],
             "hidden_dim": 256,
@@ -146,13 +152,16 @@ def infer_obb_and_export(
     load_checkpoint(model, model_weight)
     model.eval()
 
-    transform = transforms.Compose([
-        transforms.Resize(imgsz),
-        transforms.ToTensor(),
-    ])
+    transform = transforms.Compose(
+        [
+            transforms.Resize(imgsz),
+            transforms.ToTensor(),
+        ]
+    )
 
     img_list = [
-        f for f in os.listdir(img_dir)
+        f
+        for f in os.listdir(img_dir)
         if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp"))
     ]
     print(f"Found {len(img_list)} images")
@@ -183,10 +192,10 @@ def infer_obb_and_export(
                 # cx, cy, w, h 乘缩放因子；θ 不变
                 scale_y = orig_h / imgsz[0]
                 scale_x = orig_w / imgsz[1]
-                boxes[:, 0] *= scale_x   # cx
-                boxes[:, 1] *= scale_y   # cy
-                boxes[:, 2] *= scale_x   # w
-                boxes[:, 3] *= scale_y   # h
+                boxes[:, 0] *= scale_x  # cx
+                boxes[:, 1] *= scale_y  # cy
+                boxes[:, 2] *= scale_x  # w
+                boxes[:, 3] *= scale_y  # h
                 # boxes[:, 4] (θ) unchanged
 
                 filtered_labels = []
@@ -219,13 +228,14 @@ def infer_obb_and_export(
 
 
 if __name__ == "__main__":
-    img_dir = "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/val"
-    model_weight = "/home/cx/win_dir/thired/DEIMv2_DAOD/outputs/dlzdt_last_ep150.pth"
-    output_dir = "./test/data/outputs/dlzdt_obb_res"
-    classes_txt = "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/classes.txt"
+    img_dir = "/mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/val"
+    classes_txt = "/mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/classes.txt"
+    angle_rep = 3
+    output_dir = f"./test/data/outputs/exp_020_anrep{angle_rep}"
+    model_weight = f"/home/cx/win_dir/thired/DEIMv2_DAOD/outputs/synthetic_exp_020_anrep{angle_rep}_offset_per/last.pth"
     imgsz = (640, 640)
-    max_det = 300
-    score_threshold = 0.0
+    max_det = 50
+    score_threshold = 0.2
     device = "cuda:0"
 
     infer_obb_and_export(
@@ -237,4 +247,5 @@ if __name__ == "__main__":
         max_det=max_det,
         score_threshold=score_threshold,
         device=device,
+        angle_rep=angle_rep,
     )

@@ -8,10 +8,10 @@ import numpy as np
 from typing import Dict, List, Optional, Union
 from PIL import Image, ImageDraw
 
-
 # ---------------------------------------------------------------------------
 #  Format converters
 # ---------------------------------------------------------------------------
+
 
 def _rbox_to_poly(rbox: list) -> list:
     """Convert YOLO-OBB rbox [cx, cy, w, h, theta_rad] to 8-coord polygon."""
@@ -152,8 +152,7 @@ def deimv2_obb_outputs_to_dota(
             t = torch.tensor(box, dtype=torch.float32).reshape(1, 5)
             poly = xywhr_to_xyxyxyxy(t).numpy().flatten()
             lines.append(
-                " ".join([f"{x:.6f}" for x in poly])
-                + f" {cls_name} {score:.6f}"
+                " ".join([f"{x:.6f}" for x in poly]) + f" {cls_name} {score:.6f}"
             )
 
         safe_name = img_name.replace("/", "_").replace("\\", "_")
@@ -168,12 +167,14 @@ def deimv2_obb_outputs_to_dota(
 #  OBB drawing
 # ---------------------------------------------------------------------------
 
+
 def draw_obb_polygons(
     image: Image.Image,
     annotations: List[dict],
     color: tuple,
     line_width: int = 2,
     alpha: float = 0.3,
+    font=None,
 ) -> Image.Image:
     """Draw oriented bounding boxes on a PIL image.
 
@@ -189,7 +190,10 @@ def draw_obb_polygons(
         PIL image with OBB polygons drawn.
     """
     draw = ImageDraw.Draw(image, "RGBA")
-    fill_color = (*color, int(255 * alpha))
+    if alpha == 0:
+        fill_color = None
+    else:
+        fill_color = (*color, int(255 * alpha))
 
     for ann in annotations:
         poly = ann["poly"]
@@ -201,7 +205,7 @@ def draw_obb_polygons(
         if score is not None:
             label = f"{label} {score:.2f}"
         if label and len(pts) > 0:
-            draw.text((pts[0][0], pts[0][1] - 12), label, fill=color)
+            draw.text((pts[0][0], pts[0][1] - 12), label, fill=color, font=font)
 
     return image
 

@@ -21,27 +21,37 @@ import torch
 from ..deim.obb_ops import batch_probiou
 from ..deim.obb_geometry import xywhr_to_xyxyxyxy
 
-
 DOTA_CLASSES = [
-    'plane', 'baseball-diamond', 'bridge', 'ground-track-field',
-    'small-vehicle', 'large-vehicle', 'ship', 'tennis-court',
-    'basketball-court', 'storage-tank', 'soccer-ball-field',
-    'roundabout', 'harbor', 'swimming-pool', 'helicopter',
+    "plane",
+    "baseball-diamond",
+    "bridge",
+    "ground-track-field",
+    "small-vehicle",
+    "large-vehicle",
+    "ship",
+    "tennis-court",
+    "basketball-court",
+    "storage-tank",
+    "soccer-ball-field",
+    "roundabout",
+    "harbor",
+    "swimming-pool",
+    "helicopter",
 ]
 
 
 def _parse_gt(ann_path):
     """Parse DOTA ground truth txt file."""
     objects = []
-    with open(ann_path, 'r') as f:
+    with open(ann_path, "r") as f:
         for line in f:
             parts = line.strip().split()
             if len(parts) < 9:
                 continue
             obj = {
-                'bbox': [float(x) for x in parts[:8]],
-                'name': parts[8],
-                'difficult': int(parts[9]) if len(parts) >= 10 else 0,
+                "bbox": [float(x) for x in parts[:8]],
+                "name": parts[8],
+                "difficult": int(parts[9]) if len(parts) >= 10 else 0,
             }
             objects.append(obj)
     return objects
@@ -50,17 +60,17 @@ def _parse_gt(ann_path):
 def _voc_ap(rec, prec, use_07_metric=True):
     """VOC AP computation."""
     if use_07_metric:
-        ap = 0.
-        for t in np.arange(0., 1.1, 0.1):
+        ap = 0.0
+        for t in np.arange(0.0, 1.1, 0.1):
             if np.sum(rec >= t) == 0:
-                p = 0.
+                p = 0.0
             else:
                 p = np.max(prec[rec >= t])
-            ap += p / 11.
+            ap += p / 11.0
         return ap
     else:
-        mrec = np.concatenate(([0.], rec, [1.]))
-        mpre = np.concatenate(([0.], prec, [0.]))
+        mrec = np.concatenate(([0.0], rec, [1.0]))
+        mpre = np.concatenate(([0.0], prec, [0.0]))
         for i in range(mpre.size - 1, 0, -1):
             mpre[i - 1] = np.maximum(mpre[i - 1], mpre[i])
         i = np.where(mrec[1:] != mrec[:-1])[0]
@@ -74,13 +84,15 @@ def _poly_iou_8coord(a: list, b_list: np.ndarray) -> np.ndarray:
     vert_a = np.array(a).reshape(1, 4, 2)
     vert_a_t = torch.tensor(vert_a, dtype=torch.float32)
     # use standard conversion (identical to obb_eval)
-    obb_a = xyxyxyxy_to_xywhr(vert_a_t)          # (1, 5)
+    obb_a = xyxyxyxy_to_xywhr(vert_a_t)  # (1, 5)
 
-    verts_b = np.array([np.array(bb).reshape(4, 2) for bb in b_list]) if len(b_list) > 0 \
-              else np.zeros((0, 4, 2))
+    verts_b = (
+        np.array([np.array(bb).reshape(4, 2) for bb in b_list])
+        if len(b_list) > 0
+        else np.zeros((0, 4, 2))
+    )
     verts_b_t = torch.tensor(verts_b, dtype=torch.float32)
-    obb_b = xyxyxyxy_to_xywhr(verts_b_t) if len(verts_b_t) > 0 \
-             else torch.zeros(0, 5)
+    obb_b = xyxyxyxy_to_xywhr(verts_b_t) if len(verts_b_t) > 0 else torch.zeros(0, 5)
 
     if len(obb_b) == 0:
         return np.array([])
@@ -97,16 +109,18 @@ def _parse_det_per_image(det_path):
     dets = []
     if not os.path.exists(det_path):
         return dets
-    with open(det_path, 'r') as f:
+    with open(det_path, "r") as f:
         for line in f:
             parts = line.strip().split()
             if len(parts) < 10:
                 continue
-            dets.append({
-                'bbox': [float(x) for x in parts[:8]],
-                'name': parts[8],
-                'score': float(parts[9]),
-            })
+            dets.append(
+                {
+                    "bbox": [float(x) for x in parts[:8]],
+                    "name": parts[8],
+                    "score": float(parts[9]),
+                }
+            )
     return dets
 
 
@@ -120,12 +134,14 @@ def _load_classes(classes):
         list of class name strings.
     """
     if isinstance(classes, str):
-        with open(classes, 'r') as f:
+        with open(classes, "r") as f:
             return [line.strip() for line in f if line.strip()]
     return list(classes)
 
 
-def evaluate_dota(det_dir, gt_dir, classes, image_list=None, iouv=None):
+def evaluate_dota(
+    det_dir, gt_dir, classes, image_list=None, iouv=None, conf_thresh=0.2
+):
     """Offline DOTA evaluation — aligned with obb_evaluate metrics.
 
     Uses ProbIoU for oriented-box matching and COCO-style 101-point AP
@@ -144,7 +160,7 @@ def evaluate_dota(det_dir, gt_dir, classes, image_list=None, iouv=None):
         dict with mAP, AP50, AP75, mAP50_95, precision, recall, f1,
         per_class dict, and seen image count.
     """
-    from ..eval.obb_eval import compute_ap, match_predictions, ap_per_class
+    from ..eval.obb_eval_old import compute_ap, match_predictions, ap_per_class
     from ..deim.obb_geometry import xyxyxyxy_to_xywhr
 
     class_names = _load_classes(classes)
@@ -156,7 +172,9 @@ def evaluate_dota(det_dir, gt_dir, classes, image_list=None, iouv=None):
 
     if image_list is None:
         image_list = sorted(
-            set(os.path.splitext(f)[0] for f in os.listdir(gt_dir) if f.endswith('.txt'))
+            set(
+                os.path.splitext(f)[0] for f in os.listdir(gt_dir) if f.endswith(".txt")
+            )
         )
 
     all_tp = []
@@ -166,21 +184,21 @@ def evaluate_dota(det_dir, gt_dir, classes, image_list=None, iouv=None):
 
     for img_name in image_list:
         # ---- ground truth ----
-        ann_path = os.path.join(gt_dir, f'{img_name}.txt')
+        ann_path = os.path.join(gt_dir, f"{img_name}.txt")
         gt_objs = _parse_gt(ann_path) if os.path.exists(ann_path) else []
-        gt_boxes_8c = [o['bbox'] for o in gt_objs]
-        gt_labels = [name_to_id[o['name']] for o in gt_objs if o['name'] in name_to_id]
+        gt_boxes_8c = [o["bbox"] for o in gt_objs]
+        gt_labels = [name_to_id[o["name"]] for o in gt_objs if o["name"] in name_to_id]
         # align boxes with valid labels
-        valid_gt = [i for i, o in enumerate(gt_objs) if o['name'] in name_to_id]
+        valid_gt = [i for i, o in enumerate(gt_objs) if o["name"] in name_to_id]
         gt_boxes_8c = [gt_boxes_8c[i] for i in valid_gt]
         gt_labels = np.array(gt_labels, dtype=np.int64)
 
         all_target_cls.append(gt_labels)
 
         # ---- predictions ----
-        det_path = os.path.join(det_dir, f'{img_name}.txt')
+        det_path = os.path.join(det_dir, f"{img_name}.txt")
         dets = _parse_det_per_image(det_path)
-        dets = [d for d in dets if d['name'] in name_to_id]
+        dets = [d for d in dets if d["name"] in name_to_id]
 
         if len(dets) == 0:
             all_tp.append(np.zeros((0, len(iouv)), dtype=bool))
@@ -188,9 +206,15 @@ def evaluate_dota(det_dir, gt_dir, classes, image_list=None, iouv=None):
             all_pred_cls.append(np.zeros(0, dtype=np.int64))
             continue
 
-        pred_boxes_8c = np.array([d['bbox'] for d in dets], dtype=np.float64)
-        pred_scores = np.array([d['score'] for d in dets], dtype=np.float32)
-        pred_labels = np.array([name_to_id[d['name']] for d in dets], dtype=np.int64)
+        pred_boxes_8c = np.array([d["bbox"] for d in dets], dtype=np.float64)
+        pred_scores = np.array([d["score"] for d in dets], dtype=np.float32)
+        pred_labels = np.array([name_to_id[d["name"]] for d in dets], dtype=np.int64)
+
+        if conf_thresh is not None and conf_thresh > 0:
+            conf_mask = pred_scores > conf_thresh
+            pred_boxes_8c = pred_boxes_8c[conf_mask]
+            pred_scores = pred_scores[conf_mask]
+            pred_labels = pred_labels[conf_mask]
 
         if len(gt_boxes_8c) == 0:
             all_tp.append(np.zeros((len(dets), len(iouv)), dtype=bool))
@@ -199,8 +223,12 @@ def evaluate_dota(det_dir, gt_dir, classes, image_list=None, iouv=None):
             continue
 
         # 8-coord → xywhr for ProbIoU
-        gt_t = xyxyxyxy_to_xywhr(torch.tensor(gt_boxes_8c, dtype=torch.float32).reshape(-1, 4, 2))
-        det_t = xyxyxyxy_to_xywhr(torch.tensor(pred_boxes_8c, dtype=torch.float32).reshape(-1, 4, 2))
+        gt_t = xyxyxyxy_to_xywhr(
+            torch.tensor(gt_boxes_8c, dtype=torch.float32).reshape(-1, 4, 2)
+        )
+        det_t = xyxyxyxy_to_xywhr(
+            torch.tensor(pred_boxes_8c, dtype=torch.float32).reshape(-1, 4, 2)
+        )
 
         iou = batch_probiou(gt_t, det_t)  # (M_gt, N_pred) — row=gt, col=pred
 
@@ -214,10 +242,20 @@ def evaluate_dota(det_dir, gt_dir, classes, image_list=None, iouv=None):
         all_conf.append(pred_scores)
         all_pred_cls.append(pred_labels)
 
-    tp_cat = np.concatenate(all_tp, axis=0) if all_tp else np.zeros((0, len(iouv)), dtype=bool)
+    tp_cat = (
+        np.concatenate(all_tp, axis=0)
+        if all_tp
+        else np.zeros((0, len(iouv)), dtype=bool)
+    )
     conf_cat = np.concatenate(all_conf) if all_conf else np.zeros(0)
-    pred_cls_cat = np.concatenate(all_pred_cls) if all_pred_cls else np.zeros(0, dtype=np.int64)
-    target_cls_cat = np.concatenate(all_target_cls) if all_target_cls else np.zeros(0, dtype=np.int64)
+    pred_cls_cat = (
+        np.concatenate(all_pred_cls) if all_pred_cls else np.zeros(0, dtype=np.int64)
+    )
+    target_cls_cat = (
+        np.concatenate(all_target_cls)
+        if all_target_cls
+        else np.zeros(0, dtype=np.int64)
+    )
 
     stats = ap_per_class(tp_cat, conf_cat, pred_cls_cat, target_cls_cat)
 
@@ -231,39 +269,43 @@ def evaluate_dota(det_dir, gt_dir, classes, image_list=None, iouv=None):
     for idx, c in enumerate(unique_classes):
         cname = class_names[c]
         per_class[cname] = {
-            "AP50":      float(ap50[idx]),
-            "AP75":      float(ap75[idx]),
-            "AP50_95":   float(map50_95[idx]),
+            "AP50": float(ap50[idx]),
+            "AP75": float(ap75[idx]),
+            "AP50_95": float(map50_95[idx]),
             "precision": float(p[idx]),
-            "recall":    float(r[idx]),
-            "f1":        float(f1[idx]),
+            "recall": float(r[idx]),
+            "f1": float(f1[idx]),
         }
 
     results = {
-        "mAP":        float(np.mean(map50_95)) if len(map50_95) else 0.0,
-        "AP50":       float(np.mean(ap50)) if len(ap50) else 0.0,
-        "AP75":       float(np.mean(ap75)) if len(ap75) else 0.0,
-        "mAP50_95":   float(np.mean(map50_95)) if len(map50_95) else 0.0,
-        "precision":  float(np.mean(p)) if len(p) else 0.0,
-        "recall":     float(np.mean(r)) if len(r) else 0.0,
-        "f1":         float(np.mean(f1)) if len(f1) else 0.0,
-        "per_class":  per_class,
-        "seen":       len(image_list),
+        "mAP": float(np.mean(map50_95)) if len(map50_95) else 0.0,
+        "AP50": float(np.mean(ap50)) if len(ap50) else 0.0,
+        "AP75": float(np.mean(ap75)) if len(ap75) else 0.0,
+        "mAP50_95": float(np.mean(map50_95)) if len(map50_95) else 0.0,
+        "precision": float(np.mean(p)) if len(p) else 0.0,
+        "recall": float(np.mean(r)) if len(r) else 0.0,
+        "f1": float(np.mean(f1)) if len(f1) else 0.0,
+        "per_class": per_class,
+        "seen": len(image_list),
     }
 
     return results
 
 
 def main():
-    parser = argparse.ArgumentParser(description='DOTA offline OBB evaluation')
-    parser.add_argument('--det_dir', required=True,
-                        help='directory of per-image prediction .txt files')
-    parser.add_argument('--gt_dir', required=True,
-                        help='directory of per-image ground truth .txt files')
-    parser.add_argument('--classes', required=True,
-                        help='path to classes.txt (one class per line)')
-    parser.add_argument('--output', default=None,
-                        help='output file for evaluation results')
+    parser = argparse.ArgumentParser(description="DOTA offline OBB evaluation")
+    parser.add_argument(
+        "--det_dir", required=True, help="directory of per-image prediction .txt files"
+    )
+    parser.add_argument(
+        "--gt_dir", required=True, help="directory of per-image ground truth .txt files"
+    )
+    parser.add_argument(
+        "--classes", required=True, help="path to classes.txt (one class per line)"
+    )
+    parser.add_argument(
+        "--output", default=None, help="output file for evaluation results"
+    )
     args = parser.parse_args()
 
     results = evaluate_dota(args.det_dir, args.gt_dir, args.classes)
@@ -276,21 +318,23 @@ def main():
     print(f"F1           = {results['f1']:.4f}")
     print(f"Images evaluated: {results['seen']}")
     print("\nPer-class AP@0.5:0.95:")
-    for cname, stats in results['per_class'].items():
+    for cname, stats in results["per_class"].items():
         print(f"  {cname}: {stats['AP50_95']:.4f}")
 
     if args.output:
-        with open(args.output, 'w') as f:
+        with open(args.output, "w") as f:
             f.write(f"mAP@0.5:0.95 = {results['mAP']:.4f}\n")
             f.write(f"mAP@0.5      = {results['AP50']:.4f}\n")
             f.write(f"mAP@0.75     = {results['AP75']:.4f}\n")
             f.write(f"Precision    = {results['precision']:.4f}\n")
             f.write(f"Recall       = {results['recall']:.4f}\n")
             f.write(f"F1           = {results['f1']:.4f}\n")
-            for cname, stats in results['per_class'].items():
-                f.write(f"{cname}: AP50={stats['AP50']:.4f} AP75={stats['AP75']:.4f} "
-                        f"AP50_95={stats['AP50_95']:.4f}\n")
+            for cname, stats in results["per_class"].items():
+                f.write(
+                    f"{cname}: AP50={stats['AP50']:.4f} AP75={stats['AP75']:.4f} "
+                    f"AP50_95={stats['AP50_95']:.4f}\n"
+                )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
