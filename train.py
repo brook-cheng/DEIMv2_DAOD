@@ -241,9 +241,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # args.config = "./configs/custom_obb/deimv2_obb_sp.yml"  # commented for synthetic experiments
-    # args.config = (
-    #     "configs/custom_obb/synthetic_configs/synthetic_exp_020_anrep0_offset_per.yml"
-    # )
+    args.config = (
+        "configs/custom_obb/synthetic_configs/synthetic_exp_020_anrep3_offset_per.yml"
+    )
     # args.use_amp = False
     # model test part
     # args.test_only = False

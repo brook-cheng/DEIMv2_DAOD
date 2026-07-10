@@ -160,7 +160,7 @@ def evaluate_dota(
         dict with mAP, AP50, AP75, mAP50_95, precision, recall, f1,
         per_class dict, and seen image count.
     """
-    from ..eval.obb_eval_old import compute_ap, match_predictions, ap_per_class
+    from ..eval.obb_eval import compute_ap, match_predictions, ap_per_class
     from ..deim.obb_geometry import xyxyxyxy_to_xywhr
 
     class_names = _load_classes(classes)

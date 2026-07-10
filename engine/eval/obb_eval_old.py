@@ -40,113 +40,38 @@ def compute_ap(recall, precision):
     return ap, mpre, mrec
 
 
-def _dedup_preserve_order_torch(matches, col):
-    """Dedup by column `col`, keeping first occurrence (highest IoU since sorted)."""
-    seen = set()
-    keep = torch.zeros(matches.shape[0], dtype=torch.bool, device=matches.device)
-    for i in range(matches.shape[0]):
-        v = matches[i, col].item()
-        if v not in seen:
-            keep[i] = True
-            seen.add(v)
-    return matches[keep]
-
-
-def _dedup_np_unique_style_torch(matches, col):
-    """Emulate ``np.unique(matches[:, col], return_index=True)[1]`` in torch.
-
-    Returns matches reordered so that unique values in column ``col``
-    appear in sorted order, keeping only first occurrences.
-    """
-    sorted_vals, sort_idx = matches[:, col].sort()
-    changes = torch.cat([
-        torch.tensor([True], device=matches.device),
-        sorted_vals[1:] != sorted_vals[:-1],
-    ])
-    return matches[sort_idx[changes]]
-
-
-def match_predictions(
-    pred_classes, true_classes, iou, iouv, match_mode="no_reorder"
-):
+def match_predictions(pred_classes, true_classes, iou, iouv):
     """Match predictions to ground truth for each IoU threshold.
 
     Greedy one-to-one matching per IoU threshold: pairs sorted by IoU desc,
     then unique detection and unique label are kept.
 
-    Accepts both torch tensors and numpy arrays. If inputs are tensors,
-    matching is done on-device; output is always numpy for compatibility
-    with ``ap_per_class``.
-
     Args:
-        pred_classes: 1-D predicted class ids (N,).
-        true_classes: 1-D GT class ids (M,).
-        iou: (M, N) IoU matrix.
-        iouv: list/tuple of IoU thresholds.
-        match_mode: ``"no_reorder"`` (default) emulates ultralytics
-            validator behaviour — dedup by ``np.unique`` reorders the
-            matches array so the "first occurrence" for the second dedup
-            step may not be the highest-IoU match.  ``"reorder"``
-            inserts a re-sort step between the two dedup stages.
+        pred_classes: 1-D tensor of predicted class ids (N,).
+        true_classes: 1-D tensor of GT class ids (M,).
+        iou: NxM IoU matrix (float).
+        iouv: list/tensor of IoU thresholds.
 
     Returns:
-        correct: (N, len(iouv)) numpy boolean array.
+        correct: (N, len(iouv)) boolean array; True if detection i is a TP at threshold j.
     """
-    use_torch = isinstance(iou, torch.Tensor)
-
-    if use_torch:
-        n_pred = pred_classes.shape[0]
-        n_iou = len(iouv)
-        correct = torch.zeros((n_pred, n_iou), dtype=torch.bool, device=iou.device)
-
-        # Class mask: (M, N)
-        correct_class = (true_classes[:, None] == pred_classes[None, :]).to(iou.dtype)
-        iou_masked = iou * correct_class
-
-        for j, thr in enumerate(iouv):
-            matches = torch.nonzero(iou_masked >= thr, as_tuple=False)  # (k, 2)
-            if matches.shape[0] == 0:
-                continue
+    correct = np.zeros((pred_classes.shape[0], len(iouv)), dtype=bool)
+    correct_class = true_classes[:, None] == pred_classes
+    iou = (
+        (iou * correct_class).cpu().numpy()
+        if hasattr(iou, "cpu")
+        else np.asarray(iou) * correct_class.cpu().numpy()
+    )
+    for j, thr in enumerate(list(iouv)):
+        matches = np.nonzero(iou >= thr)
+        matches = np.array(matches).T  # (k, 2): rows=gt_idx, cols=det_idx
+        if matches.shape[0]:
             if matches.shape[0] > 1:
-                # Sort by IoU descending
-                iou_vals = iou_masked[matches[:, 0], matches[:, 1]]
-                order = iou_vals.argsort(descending=True)
-                matches = matches[order]
-                # Dedup by det_idx (col 1), then gt_idx (col 0)
-                if match_mode == "reorder":
-                    matches = _dedup_preserve_order_torch(matches, 1)
-                    matches = _dedup_preserve_order_torch(matches, 0)
-                else:
-                    matches = _dedup_np_unique_style_torch(matches, 1)
-                    matches = _dedup_np_unique_style_torch(matches, 0)
-            correct[matches[:, 1].long(), j] = True
-
-        return correct.cpu().numpy()
-    else:
-        # Numpy path
-        correct = np.zeros((pred_classes.shape[0], len(iouv)), dtype=bool)
-        correct_class = true_classes[:, None] == pred_classes
-        iou_arr = np.asarray(iou) * correct_class
-        for j, thr in enumerate(list(iouv)):
-            matches = np.nonzero(iou_arr >= thr)
-            matches = np.array(matches).T
-            if matches.shape[0]:
-                if matches.shape[0] > 1:
-                    matches = matches[
-                        iou_arr[matches[:, 0], matches[:, 1]].argsort()[::-1]
-                    ]
-                    matches = matches[
-                        np.unique(matches[:, 1], return_index=True)[1]
-                    ]
-                    if match_mode == "reorder":
-                        matches = matches[
-                            iou_arr[matches[:, 0], matches[:, 1]].argsort()[::-1]
-                        ]
-                    matches = matches[
-                        np.unique(matches[:, 0], return_index=True)[1]
-                    ]
-                correct[matches[:, 1].astype(int), j] = True
-        return correct
+                matches = matches[iou[matches[:, 0], matches[:, 1]].argsort()[::-1]]
+                matches = matches[np.unique(matches[:, 1], return_index=True)[1]]
+                matches = matches[np.unique(matches[:, 0], return_index=True)[1]]
+            correct[matches[:, 1].astype(int), j] = True
+    return correct
 
 
 def ap_per_class(tp, conf, pred_cls, target_cls, eps=1e-16):
@@ -226,13 +151,12 @@ def obb_evaluate(
     device,
     iou_thrs=DEFAULT_IOUV,
     num_classes=15,
-    conf_thresh=0.01,
+    conf_thresh=None,
 ):
     """Online OBB evaluation using the standard mAP@0.5:0.95 approach.
 
-    Per-image detection vs GT IoU uses batch_probiou. Low-confidence
-    predictions below ``conf_thresh`` are filtered before IoU computation;
-    the full PR curve is built from the remaining detections by sorting by
+    Per-image detection vs GT IoU uses batch_probiou. Detections are not
+    pre-filtered by confidence — the full PR curve is built by sorting by
     score, and precision/recall are reported at the max-F1 point on the curve.
 
     Args:
@@ -242,10 +166,7 @@ def obb_evaluate(
         device: torch.device.
         iou_thrs: tuple of IoU thresholds for AP. Default COCO = 0.5..0.95.
         num_classes: number of classes.
-        conf_thresh: minimum confidence score to keep a prediction before
-            IoU computation. Predictions below this threshold are skipped
-            (they cannot be TP at any IoU threshold since they sort to the
-            bottom of the PR curve). Set to None or 0 to disable filtering.
+        conf_thresh: kept for backward-compat; not used (max-F1 point autoREPORTs P/R).
 
     Returns:
         dict with AP50, AP75, mAP (mAP50-95), mAP50, precision, recall, f1,
@@ -270,33 +191,27 @@ def obb_evaluate(
 
         for res, tgt, orig_sz in zip(results, targets, orig_sizes):
             seen_imgs += 1
+            pred_boxes = res["boxes"].cpu().numpy()
+            pred_scores = res["scores"].cpu().numpy()
+            pred_labels = res["labels"].cpu().numpy().astype(np.int64)
+            gt_boxes = tgt["boxes"].cpu().numpy()
+            gt_labels = tgt["labels"].cpu().numpy().astype(np.int64)
 
-            # Keep tensors on device — no .cpu().numpy() round-trip
-            pred_boxes = res["boxes"]  # (N, 5) on device
-            pred_scores = res["scores"]  # (N,) on device
-            pred_labels = res["labels"]  # (N,) on device
-            gt_boxes = tgt["boxes"]  # (M, 5) on device
-            gt_labels = tgt["labels"]  # (M,) on device
+            ow, oh = orig_sz.cpu().numpy()
+            if len(gt_boxes) > 0:
+                gt_boxes[:, 0] *= ow
+                gt_boxes[:, 1] *= oh
+                gt_boxes[:, 2] *= ow
+                gt_boxes[:, 3] *= oh
 
-            # Scale GT boxes to pixel coords (on device)
-            ow, oh = orig_sz[0].item(), orig_sz[1].item()
-            if gt_boxes.shape[0] > 0:
-                scale = torch.tensor(
-                    [ow, oh, ow, oh, 1.0],
-                    device=gt_boxes.device,
-                    dtype=gt_boxes.dtype,
-                )
-                gt_boxes = gt_boxes * scale
+            all_target_cls.append(gt_labels)
 
-            all_target_cls.append(gt_labels.cpu().numpy().astype(np.int64))
-
-            if pred_boxes.shape[0] == 0:
+            if pred_labels.shape[0] == 0:
                 all_tp.append(np.zeros((0, len(iou_thrs)), dtype=bool))
                 all_conf.append(np.zeros(0))
                 all_pred_cls.append(np.zeros(0, dtype=np.int64))
                 continue
 
-            # Confidence pre-filter (on device)
             if conf_thresh is not None and conf_thresh > 0:
                 conf_mask = pred_scores > conf_thresh
                 pred_boxes = pred_boxes[conf_mask]
@@ -310,29 +225,25 @@ def obb_evaluate(
                     continue
 
             if gt_boxes.shape[0] == 0:
-                n_pred = pred_boxes.shape[0]
-                correct = np.zeros((n_pred, len(iou_thrs)), dtype=bool)
+                # all preds are FP at every IoU threshold
+                correct = np.zeros((pred_labels.shape[0], len(iou_thrs)), dtype=bool)
                 all_tp.append(correct)
-                all_conf.append(pred_scores.cpu().numpy())
-                all_pred_cls.append(pred_labels.cpu().numpy().astype(np.int64))
+                all_conf.append(pred_scores)
+                all_pred_cls.append(pred_labels)
                 continue
 
-            # IoU computation — tensors already on device, no rebuild
-            iou = batch_probiou(gt_boxes, pred_boxes[:, :5])  # (M, N)
-
+            det_t = torch.tensor(pred_boxes[:, :5], dtype=torch.float32)
+            gt_t = torch.tensor(gt_boxes, dtype=torch.float32)
+            iou = batch_probiou(gt_t, det_t)  # (M_gt, N_pred) — row=gt, col=pred
             correct = match_predictions(
-                pred_labels,
-                gt_labels,
+                torch.tensor(pred_labels),
+                torch.tensor(gt_labels),
                 iou,
                 iou_thrs,
             )
-
-            # Only convert to numpy at the final append
-            all_tp.append(
-                correct if isinstance(correct, np.ndarray) else correct.cpu().numpy()
-            )
-            all_conf.append(pred_scores.cpu().numpy())
-            all_pred_cls.append(pred_labels.cpu().numpy().astype(np.int64))
+            all_tp.append(correct)
+            all_conf.append(pred_scores)
+            all_pred_cls.append(pred_labels)
 
     tp_cat = (
         np.concatenate(all_tp, axis=0)
