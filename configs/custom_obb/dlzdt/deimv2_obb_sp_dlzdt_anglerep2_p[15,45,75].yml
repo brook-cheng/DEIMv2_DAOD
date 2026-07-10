@@ -8,7 +8,7 @@ __include__: [
 ]
 
 #### 项目配置
-output_dir: ./outputs/deimv2_obb_sp_dlzdt_undec_p[15,45,75]
+output_dir: ./outputs/deimv2_obb_sp_dlzdt_anglerep2
 comet_project_name: 'deimv2_obb_sp_dlzdt'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
@@ -23,8 +23,8 @@ no_aug_epoch: 15
 #### 设置训练数据
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
-  total_batch_size: 6 # total batch size equals to gpu_nums*batch_size
-  num_workers: 4
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
+  num_workers: 2
   dataset:
     img_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/train
     ann_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/train
@@ -94,7 +94,7 @@ DEIMTransformer:
   hidden_dim: 256 #hidden_dim
   dim_feedforward: 2048 # hidden_dim*8
   box_mode: obb
-  decouple_angle: False
+  angle_rep: 2
 
 PostProcessor:
   box_mode: obb
@@ -129,6 +129,7 @@ DEIMCriterion:
   alpha: 0.75
   reg_max: 32
   box_mode: obb
+  obbox_rep_dim: 6
 
   matcher:
     type: HungarianMatcher
