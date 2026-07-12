@@ -15,8 +15,8 @@ checkpoint_freq: 10    # save freq
 num_classes: 1
 
 ## DEIM LR-Scheduler
-epoches: 200 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
-warmup_iter: 15   # 0.1 * epoches
+epoches: 160 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+warmup_iter: 5   # 0.1 * epoches
 flat_epoch: 90    # epoch // 2 + warmup_iter
 no_aug_epoch: 15
 
@@ -26,9 +26,9 @@ train_dataloader:
   total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
   num_workers: 2
   dataset:
-    img_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/train
-    ann_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/train
-    classes_file: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
+    img_folder: /mnt/disk1/project_data/model_test/dlzdt_2026_5_31_obb/images/train
+    ann_folder: /mnt/disk1/project_data/model_test/dlzdt_2026_5_31_obb/labels/train
+    classes_file: /mnt/disk1/project_data/model_test/dlzdt_2026_5_31_obb/classes.txt
     format: 'YOLO-OBB'
     transforms:
       ops:
@@ -59,9 +59,9 @@ val_dataloader:
   total_batch_size: 2 # total batch size equals to gpu_nums*batch_size
   num_workers: 2
   dataset:
-    img_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/val
-    ann_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/val
-    classes_file: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
+    img_folder: /mnt/disk1/project_data/model_test/dlzdt_2026_5_31_obb/images/val
+    ann_folder: /mnt/disk1/project_data/model_test/dlzdt_2026_5_31_obb/labels/val
+    classes_file: /mnt/disk1/project_data/model_test/dlzdt_2026_5_31_obb/classes.txt
     format: 'YOLO-OBB'
     transforms:
       ops:
@@ -75,7 +75,7 @@ val_dataloader:
 ### backbone
 DINOv3STAsResAtten:
   name: dinov3_vits16plus # 名称参考 engine/backbone/dinov3/vision_transformer.py
-  weights_path: /mnt/disk8t/cx_dir/third/deimv2_daod/ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
+  weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
   interaction_indexes: []   # all layers will be used
   finetune: True
   conv_inplane: 64 # dinov3_hidden_dim/4
@@ -106,24 +106,24 @@ optimizer:
     -
       # except norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
-      lr: 0.00001 # 模型参数量越大，值应该越小。比如：sp:1e-5, l:0.5e-5, b:2.5e-6, hp:1.25e-6
+      lr: 0.0001 # 模型参数量越大，值应该越小。比如：sp:1e-5, l:0.5e-5, b:2.5e-6, hp:1.25e-6
     -
       # including norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
-      lr: 0.00001
+      lr: 0.0001
       weight_decay: 0.
     -
       # including norm/bn/bias except for the self.dinov3
       params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
       weight_decay: 0.
 
-  lr: 0.0005  # 模型参数量越大，值应该越小。比如：sp:5e-4, l:2.5e-4, b:1.25e-5, m:1.25e-5
+  lr: 0.001  # 模型参数量越大，值应该越小。比如：sp:5e-4, l:2.5e-4, b:1.25e-5, m:1.25e-5
   betas: [0.9, 0.999]
   weight_decay: 0.000125
 
 ### Loss
 DEIMCriterion:
-  weight_dict: {loss_mal: 4, loss_bbox: 1, loss_kld: 1, loss_fgl: 0.5,loss_ddf: 1.5}
+  weight_dict: {loss_mal: 1, loss_bbox: 5, loss_kld: 2, loss_fgl: 0.15,loss_ddf: 1.5}
   losses: ['mal', 'boxes', 'local']
   gamma: 1.0
   alpha: 0.75
@@ -133,11 +133,11 @@ DEIMCriterion:
 
   matcher:
     type: HungarianMatcher
-    weight_dict: {cost_class: 5, cost_bbox: 2,  cost_chamfer: 2,cost_probiou: 1}
+    weight_dict: {cost_class: 2, cost_bbox: 5,  cost_chamfer: 1,cost_probiou: 2}
     alpha: 0.25
     gamma: 2.0
     # change matcher
-    change_matcher: True
+    change_matcher: False
     iou_order_alpha: 4.0
     # 0.75~0.85 * epoches
     matcher_change_epoch: 112
