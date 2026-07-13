@@ -75,7 +75,7 @@ val_dataloader:
 ### backbone
 DINOv3STAsResAtten:
   name: dinov3_vits16plus # 名称参考 engine/backbone/dinov3/vision_transformer.py
-  weights_path: /mnt/disk8t/cx_dir/third/deimv2_daod/ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
+  weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
   interaction_indexes: []   # all layers will be used
   finetune: True
   conv_inplane: 64 # dinov3_hidden_dim/4
