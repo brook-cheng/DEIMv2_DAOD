@@ -8,7 +8,7 @@ __include__: [
 ]
 
 #### 项目配置
-output_dir: ./outputs/deimv2_obb_sp_dlzdt_anglerep2
+output_dir: ./outputs/deimv2_obb_sp_fz_dlzdt_anglerep2
 comet_project_name: 'deimv2_obb_sp_dlzdt'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
@@ -77,7 +77,7 @@ DINOv3STAsResAtten:
   name: dinov3_vits16plus # 名称参考 engine/backbone/dinov3/vision_transformer.py
   weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
   interaction_indexes: []   # all layers will be used
-  finetune: True
+  finetune: False
   conv_inplane: 64 # dinov3_hidden_dim/4
   hidden_dim: 256 # dinov3_hidden_dim*2/3
   adapter_type: 'sta'  # 'sta' or 'c3k2'
@@ -106,18 +106,18 @@ optimizer:
     -
       # except norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
-      lr: 0.00001 # 模型参数量越大，值应该越小。比如：sp:1e-5, l:0.5e-5, b:2.5e-6, hp:1.25e-6
+      lr: 0.0001 # 模型参数量越大，值应该越小。比如：sp:1e-5, l:0.5e-5, b:2.5e-6, hp:1.25e-6
     -
       # including norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
-      lr: 0.00001
+      lr: 0.0001
       weight_decay: 0.
     -
       # including norm/bn/bias except for the self.dinov3
       params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
       weight_decay: 0.
 
-  lr: 0.0005  # 模型参数量越大，值应该越小。比如：sp:5e-4, l:2.5e-4, b:1.25e-5, m:1.25e-5
+  lr: 0.001  # 模型参数量越大，值应该越小。比如：sp:5e-4, l:2.5e-4, b:1.25e-5, m:1.25e-5
   betas: [0.9, 0.999]
   weight_decay: 0.000125
 

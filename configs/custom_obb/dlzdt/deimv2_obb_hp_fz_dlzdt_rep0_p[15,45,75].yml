@@ -8,7 +8,7 @@ __include__: [
 ]
 
 #### 项目配置
-output_dir: ./outputs/deimv2_obb_sp_dlzdt_anglerep2
+output_dir: ./outputs/deimv2_obb_hp_fz_dlzdt_rep0_p[15,45,75]
 comet_project_name: 'deimv2_obb_sp_dlzdt'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
@@ -16,9 +16,9 @@ num_classes: 1
 
 ## DEIM LR-Scheduler
 epoches: 200 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
-warmup_iter: 15   # 0.1 * epoches
-flat_epoch: 90    # epoch // 2 + warmup_iter
-no_aug_epoch: 15
+warmup_iter: 20   # 0.1 * epoches
+flat_epoch: 100    # epoch // 2 + warmup_iter
+no_aug_epoch: 20
 
 #### 设置训练数据
 ## Dense O2O: Mosaic + Mixup + CopyBlend
@@ -74,27 +74,27 @@ val_dataloader:
 #### 模型设置
 ### backbone
 DINOv3STAsResAtten:
-  name: dinov3_vits16plus # 名称参考 engine/backbone/dinov3/vision_transformer.py
-  weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
+  name: dinov3_vith16plus # 名称参考 engine/backbone/dinov3/vision_transformer.py
+  weights_path: ./ckpts/dinov3_vith16plus_pretrain_lvd1689m-7c1da9a5.pth
   interaction_indexes: []   # all layers will be used
-  finetune: True
-  conv_inplane: 64 # dinov3_hidden_dim/4
-  hidden_dim: 256 # dinov3_hidden_dim*2/3
+  finetune: False
+  conv_inplane: 160 # dinov3_hidden_dim/4
+  hidden_dim: 640 # dinov3_hidden_dim*2/3
   adapter_type: 'sta'  # 'sta' or 'c3k2'
 
 ### encoder
 HybridEncoder:
-  in_channels: [256, 256, 256] #[hidden_dim,2*hidden_dim,4*hidden_dim]或[hidden_dim,hidden_dim,hidden_dim]
-  hidden_dim: 256
-  dim_feedforward: 1024 #4*hidden_dim
+  in_channels: [640, 640, 640] #[hidden_dim,2*hidden_dim,4*hidden_dim]或[hidden_dim,hidden_dim,hidden_dim]
+  hidden_dim: 640
+  dim_feedforward: 2560 #4*hidden_dim
 
 ### decoder
 DEIMTransformer:
-  feat_channels: [256, 256, 256] #hidden_dim
-  hidden_dim: 256 #hidden_dim
-  dim_feedforward: 2048 # hidden_dim*8
+  feat_channels: [640, 640, 640] #hidden_dim
+  hidden_dim: 640 #hidden_dim
+  dim_feedforward: 5120 # hidden_dim*8
   box_mode: obb
-  angle_rep: 2
+  angle_rep: 0
 
 PostProcessor:
   box_mode: obb
@@ -117,15 +117,16 @@ optimizer:
       params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
       weight_decay: 0.
 
-  lr: 0.0005  # 模型参数量越大，值应该越小。比如：sp:5e-4, l:2.5e-4, b:1.25e-5, m:1.25e-5
+  lr: 0.001  # 模型参数量越大，值应该越小。比如：sp:5e-4, l:2.5e-4, b:1.25e-5, m:1.25e-5
   betas: [0.9, 0.999]
   weight_decay: 0.000125
 
 ### Loss
 DEIMCriterion:
-  weight_dict: {loss_mal: 4, loss_bbox: 1, loss_kld: 1, loss_fgl: 0.5,loss_ddf: 1.5}
+  weight_dict: {loss_mal: 1, loss_bbox: 5, loss_kld: 2, loss_fgl: 0.15, loss_ddf: 1.5}
   losses: ['mal', 'boxes', 'local']
-  gamma: 1.0
+  gamma: 1.0 # 值越小iou损失对mal损失影响越小，mal_iou_type!='iou'时，gamma应当设置较小值[0,0.5]，否则可设置[0,2]
+  mal_alpha: 1.5 # 负样本预测错误损失权重
   alpha: 0.75
   reg_max: 32
   box_mode: obb
@@ -133,11 +134,11 @@ DEIMCriterion:
 
   matcher:
     type: HungarianMatcher
-    weight_dict: {cost_class: 5, cost_bbox: 2,  cost_chamfer: 2,cost_probiou: 1}
+    weight_dict: {cost_class: 2, cost_bbox: 5,  cost_chamfer: 1,cost_probiou: 2}
     alpha: 0.25
     gamma: 2.0
     # change matcher
-    change_matcher: True
+    change_matcher: False
     iou_order_alpha: 4.0
     # 0.75~0.85 * epoches
     matcher_change_epoch: 112
