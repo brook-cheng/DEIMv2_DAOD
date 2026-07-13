@@ -26,9 +26,9 @@ train_dataloader:
   total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
   num_workers: 2
   dataset:
-    img_folder: /mnt/disk1/project_data/model_test/dlzdt_2026_5_31_obb/images/train
-    ann_folder: /mnt/disk1/project_data/model_test/dlzdt_2026_5_31_obb/labels/train
-    classes_file: /mnt/disk1/project_data/model_test/dlzdt_2026_5_31_obb/classes.txt
+    img_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/train
+    ann_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/train
+    classes_file: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
     format: 'YOLO-OBB'
     transforms:
       ops:
@@ -59,9 +59,9 @@ val_dataloader:
   total_batch_size: 2 # total batch size equals to gpu_nums*batch_size
   num_workers: 2
   dataset:
-    img_folder: /mnt/disk1/project_data/model_test/dlzdt_2026_5_31_obb/images/val
-    ann_folder: /mnt/disk1/project_data/model_test/dlzdt_2026_5_31_obb/labels/val
-    classes_file: /mnt/disk1/project_data/model_test/dlzdt_2026_5_31_obb/classes.txt
+    img_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/val
+    ann_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/val
+    classes_file: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
     format: 'YOLO-OBB'
     transforms:
       ops:
@@ -106,18 +106,18 @@ optimizer:
     -
       # except norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
-      lr: 0.0001 # 模型参数量越大，值应该越小。比如：sp:1e-5, l:0.5e-5, b:2.5e-6, hp:1.25e-6
+      lr: 0.00005 # 模型参数量越大，值应该越小。比如：sp:1e-5, l:0.5e-5, b:2.5e-6, hp:1.25e-6
     -
       # including norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
-      lr: 0.0001
+      lr: 0.00005
       weight_decay: 0.
     -
       # including norm/bn/bias except for the self.dinov3
       params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
       weight_decay: 0.
 
-  lr: 0.001  # 模型参数量越大，值应该越小。比如：sp:5e-4, l:2.5e-4, b:1.25e-5, m:1.25e-5
+  lr: 0.0005  # 模型参数量越大，值应该越小。比如：sp:5e-4, l:2.5e-4, b:1.25e-5, m:1.25e-5
   betas: [0.9, 0.999]
   weight_decay: 0.000125
 
