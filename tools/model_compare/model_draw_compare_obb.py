@@ -111,7 +111,7 @@ def draw_obb_compare(
     print(f"Processing {len(img_names)} images, {num_models} model(s)")
 
     try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 30)
     except Exception:
         font = ImageFont.load_default()
 
@@ -144,14 +144,14 @@ def draw_obb_compare(
         # draw GT
         if gt_anns:
             image = draw_obb_polygons(
-                image, gt_anns, gt_color, line_width=3, alpha=0, font=font
+                image, gt_anns, gt_color, line_width=7, alpha=0, font=font
             )
 
         # draw models
         for anns, color in zip(model_anns_list, model_colors):
             if anns:
                 image = draw_obb_polygons(
-                    image, anns, color, line_width=2, alpha=0, font=font
+                    image, anns, color, line_width=5, alpha=0, font=font
                 )
 
         # legend

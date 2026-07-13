@@ -140,7 +140,7 @@ def _load_classes(classes):
 
 
 def evaluate_dota(
-    det_dir, gt_dir, classes, image_list=None, iouv=None, conf_thresh=0.2
+    det_dir, gt_dir, classes, image_list=None, iouv=None, conf_thresh=0.25
 ):
     """Offline DOTA evaluation — aligned with obb_evaluate metrics.
 
@@ -231,7 +231,6 @@ def evaluate_dota(
         )
 
         iou = batch_probiou(gt_t, det_t)  # (M_gt, N_pred) — row=gt, col=pred
-
         correct = match_predictions(
             torch.tensor(pred_labels),
             torch.tensor(gt_labels),

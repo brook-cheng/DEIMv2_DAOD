@@ -67,13 +67,13 @@ def load_checkpoint(model: nn.Module, ckpt_path: str, map_location: str = "cpu")
 def infer_obb_and_export(
     img_dir: str,
     model_weight: str,
+    config_path: str,
     output_dir: str,
     classes_txt: str,
     imgsz: tuple = (640, 640),
     max_det: int = 300,
     score_threshold: float = 0.0,
     device: str = "cuda:0",
-    angle_rep=0,
 ):
     """Run OBB inference on all images and export to DOTA per-image format.
 
@@ -88,67 +88,28 @@ def infer_obb_and_export(
     labels_map = {i: name for i, name in enumerate(class_names)}
     print(f"Classes ({num_classes}): {labels_map}")
 
-    # ── build model config (must match training config) ──
-    config = {
-        "DINOv3STAsResAtten": {
-            "name": "dinov3_vits16plus",
-            "weights_path": model_weight,
-            "interaction_indexes": [],
-            "finetune": False,
-            "conv_inplane": 64,
-            "hidden_dim": 256,
-        },
-        "HybridEncoder": {
-            "in_channels": [
-                256,
-                256,
-                256,
-            ],  # DINOv3-STAs-ResAtten projects all layers to hidden_dim
-            "feat_strides": [8, 16, 32],
-            "hidden_dim": 256,
-            "use_encoder_idx": [2],
-            "num_encoder_layers": 1,
-            "nhead": 8,
-            "dim_feedforward": 1024,
-            "dropout": 0.0,
-            "enc_act": "gelu",
-            "expansion": 1.25,
-            "depth_mult": 1.37,
-            "act": "silu",
-            "version": "deim",
-            "csp_type": "csp2",
-            "fuse_op": "sum",
-        },
+    # ── build model config from training YAML ──
+    from engine.core.yaml_utils import load_config
+
+    config = load_config(config_path)
+    model_cfg = {
+        "DINOv3STAsResAtten": config["DINOv3STAsResAtten"],
+        "HybridEncoder": config["HybridEncoder"],
         "DEIMTransformer": {
-            "box_mode": "obb",
-            "angle_rep": angle_rep,
-            "feat_channels": [256, 256, 256],
-            "feat_strides": [8, 16, 32],
-            "hidden_dim": 256,
-            "dim_feedforward": 2048,
-            "num_levels": 3,
-            "num_layers": 6,
-            "eval_idx": -1,
-            "num_queries": max_det,
+            **config["DEIMTransformer"],
             "num_classes": num_classes,
-            "reg_max": 32,
-            "reg_scale": 4,
-            "num_points": [3, 6, 3],
-            "cross_attn_method": "default",
-            "query_select_method": "default",
-            "activation": "silu",
-            "mlp_act": "silu",
+            "num_queries": max_det,
         },
         "PostProcessor": {
-            "box_mode": "obb",
-            "num_top_queries": max_det,
+            **config["PostProcessor"],
             "num_classes": num_classes,
-            "use_focal_loss": True,
+            "num_top_queries": max_det,
         },
     }
+    # Path supplied by the caller overrides whatever the training config says
+    model_cfg["DINOv3STAsResAtten"]["weights_path"] = model_weight
 
-    print(f"Building DEIMv2-OBB model (backbone=DINOv3-STAs-ResAtten, imgsz={imgsz})")
-    model = DEIMv2OBB(config, device)
+    model = DEIMv2OBB(model_cfg, device)
     load_checkpoint(model, model_weight)
     model.eval()
 
@@ -228,11 +189,17 @@ def infer_obb_and_export(
 
 
 if __name__ == "__main__":
-    img_dir = "/mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_020/val"
-    classes_txt = "/mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/classes.txt"
-    angle_rep = 3
-    output_dir = f"./test/data/outputs/exp_020_anrep{angle_rep}"
-    model_weight = f"/home/cx/win_dir/thired/DEIMv2_DAOD/outputs/synthetic_exp_020_anrep{angle_rep}_offset_per/last.pth"
+    img_dir = (
+        "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/val"
+    )
+    classes_txt = (
+        "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/classes.txt"
+    )
+    config_path = (
+        "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep1_p[15,45,75].yml"
+    )
+    output_dir = "./test/data/outputs/dlzdt_sp_rep1"
+    model_weight = "outputs/last_rep1.pth"
     imgsz = (640, 640)
     max_det = 50
     score_threshold = 0.2
@@ -241,11 +208,11 @@ if __name__ == "__main__":
     infer_obb_and_export(
         img_dir=img_dir,
         model_weight=model_weight,
+        config_path=config_path,
         output_dir=output_dir,
         classes_txt=classes_txt,
         imgsz=imgsz,
         max_det=max_det,
         score_threshold=score_threshold,
         device=device,
-        angle_rep=angle_rep,
     )

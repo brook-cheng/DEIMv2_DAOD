@@ -30,16 +30,23 @@ from tools.model_compare.model_draw_compare_obb import draw_obb_compare
 # ── Paths ──
 BASE_DATA = "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val"
 IMG_DIR = os.path.join(BASE_DATA, "images", "val")
-GT_YOLO_DIR = os.path.join(BASE_DATA, "labels", "val")  # YOLO-OBB format labels
 CLASSES_TXT = os.path.join(BASE_DATA, "classes.txt")
-DEIMV2_DOTA_DIR = "./test/data/outputs/dlzdt_obb_res"
 
+GT_YOLO_DIR = os.path.join(BASE_DATA, "labels", "val")  # YOLO-OBB format labels
 YOLO_PRED_JSON = "/mnt/d/cx/thired/ultralytics_update/runs/dlazdt_obb_val/yolo_train_1280_2026_5_31/val2/predictions.json"
 
 OUTPUT_ROOT = "./test/data/outputs/dlzdt_obb_compare"
 GT_DOTA_DIR = os.path.join(OUTPUT_ROOT, "gt_dota")
 YOLO_DOTA_DIR = os.path.join(OUTPUT_ROOT, "yolo_dota")
 VISUAL_DIR = os.path.join(OUTPUT_ROOT, "comparison_images")
+
+DET_DIRS = [
+    YOLO_DOTA_DIR,
+    "./test/data/outputs/dlzdt_sp_rep0",
+    "./test/data/outputs/dlzdt_sp_rep1",
+]
+MODEL_NAMES = ["YOLO-OBB", "DEIMv2-OBB-SP-Rep0", "DEIMv2-OBB-SP-Rep1"]
+VIS_IMAGE_NUM = 259
 
 
 def yolo_gt_to_dota(
@@ -150,9 +157,10 @@ def main():
     print("=" * 60)
     compare_obb_models(
         gt_dir=GT_DOTA_DIR,
-        det_dirs=[DEIMV2_DOTA_DIR, YOLO_DOTA_DIR],
+        det_dirs=DET_DIRS,
         classes_file=CLASSES_TXT,
-        model_names=["DEIMv2-OBB", "YOLO-OBB"],
+        model_names=MODEL_NAMES,
+        iouv=np.array([0.3]),
     )
 
     # ── Step 4: Visualization ──
@@ -164,11 +172,11 @@ def main():
     draw_obb_compare(
         img_dir=IMG_DIR,
         gt_dir=GT_DOTA_DIR,
-        det_dirs=[DEIMV2_DOTA_DIR, YOLO_DOTA_DIR],
+        det_dirs=DET_DIRS,
         output_dir=VISUAL_DIR,
-        model_names=["DEIMv2-OBB", "YOLO-OBB"],
-        score_threshold=0.1,
-        max_images=20,
+        model_names=MODEL_NAMES,
+        score_threshold=0.25,
+        max_images=VIS_IMAGE_NUM,
     )
 
     print("\n" + "=" * 60)
