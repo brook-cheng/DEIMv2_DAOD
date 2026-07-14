@@ -153,7 +153,7 @@ def _copy_gt_dota(gt_dota_dir, gt_per_img_dir):
 
 
 def phase1_export(
-    model, img_dir, gt_dota_dir, output_root, imgsz, score_thr, max_images
+    model, img_dir, gt_dota_dir, output_root, imgsz, score_thr, infer_step
 ):
     """Run inference, export per-layer DOTA predictions.
 
@@ -174,7 +174,7 @@ def phase1_export(
         f
         for f in os.listdir(img_dir)
         if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp"))
-    )[:max_images]
+    )[::infer_step]
     if not img_files:
         print("WARNING: no images found")
         return [(name, d) for name, d in layer_dirs.items()]
@@ -304,7 +304,7 @@ def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root):
 
 
 def phase_visualization(
-    img_dir, gt_dota_dir, det_dirs, model_names, output_root, max_vis=20
+    img_dir, gt_dota_dir, det_dirs, model_names, output_root, vis_step=10
 ):
     """Draw GT + all layers with single-hue gradient (light→dark)."""
     import matplotlib.pyplot as plt
@@ -319,15 +319,15 @@ def phase_visualization(
 
     num_models = len(det_dirs)
     # Generate a blue gradient: light (#B0C4DE) → dark (#00008B)
-    start_rgb = np.array([176, 196, 222])  # light blue, 0-255
-    end_rgb = np.array([0, 0, 139])  # dark blue, 0-255
+    start_rgb = np.array([220, 235, 255])  # powder blue
+    end_rgb = np.array([0, 25, 70])  # navy
     t = np.linspace(0, 1, num_models)
     model_colors = [
         tuple((start_rgb + (end_rgb - start_rgb) * ti).astype(int).tolist()) for ti in t
     ]
     gt_color = (0, 180, 0)  # green for GT
 
-    img_names = _discover_images(gt_dota_dir, det_dirs, None)[:max_vis]
+    img_names = _discover_images(gt_dota_dir, det_dirs, None)[::vis_step]
     print(f"  Drawing {len(img_names)} images, {num_models} layers")
 
     try:
@@ -359,7 +359,7 @@ def phase_visualization(
         # Draw each layer in gradient blue (dashed, increasing thickness)
         for li, (anns, color) in enumerate(zip(model_anns_list, model_colors)):
             if anns:
-                lw = 3 + li  # thickness increases with layer depth
+                lw = 3  # thickness increases with layer depth
                 draw_obb_polygons(image, anns, color, line_width=lw, alpha=0, font=font)
 
         # Legend
@@ -381,15 +381,24 @@ def phase_visualization(
     print(f"  Done. {len(img_names)} images → {vis_dir}/")
 
 
-def phase_pca(model, img_dir, gt_dota_dir, output_root, imgsz, max_images=100):
-    """PCA of ViT + encoder features at GT positions, colored by w/h and angle."""
-    from sklearn.decomposition import PCA
+def phase_pca(model, img_dir, gt_dota_dir, output_root, imgsz, vis_step=10):
+    """Cosine-similarity heatmaps of ViT + encoder features at GT positions.
+
+    Uses the same approach as tools/analysis/feature_similarity.py:
+    cosine similarity between the feature at a GT center and all positions
+    in the feature map, visualized as a heatmap overlay.
+    """
+    import cv2
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
+    sys.path.insert(0, os.path.join(ROOT_DIR, "tools", "analysis"))
+    from feature_similarity import cosine_similarity_map_imgsz
+
     transform = transforms.Compose([transforms.Resize(imgsz), transforms.ToTensor()])
+
     gt_info = {}
     for fname in os.listdir(gt_dota_dir):
         if not fname.endswith(".txt"):
@@ -420,63 +429,128 @@ def phase_pca(model, img_dir, gt_dota_dir, output_root, imgsz, max_images=100):
         if boxes:
             gt_info[stem] = boxes
 
-    vit_features, mem_features, wh_vals, ang_vals = [], [], [], []
     device = model.device
     model.eval()
+    report_dir = os.path.join(output_root, "reports", "feat_sim")
+    os.makedirs(report_dir, exist_ok=True)
+
     img_files = sorted(
         f
         for f in os.listdir(img_dir)
         if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp"))
-    )[:max_images]
-    patch_size = 16
-    grid_size = imgsz[0] // patch_size
+    )[::vis_step]
 
-    for img_name in tqdm(img_files, desc="Phase 5: PCA"):
+    # Pick up to 15 images that have GT boxes
+    sample_imgs = []
+    for f in img_files:
+        stem = os.path.splitext(f)[0]
+        if stem in gt_info and len(gt_info[stem]) > 0:
+            sample_imgs.append(f)
+            if len(sample_imgs) >= 15:
+                break
+
+    if not sample_imgs:
+        print("  No images with GT found")
+        return
+
+    for img_name in tqdm(sample_imgs, desc="Phase 5: feature viz"):
         stem = os.path.splitext(img_name)[0]
-        if stem not in gt_info:
-            continue
         img = Image.open(os.path.join(img_dir, img_name)).convert("RGB")
         orig_w, orig_h = img.size
+        img_np = np.array(img)
         inp = transform(img).unsqueeze(0).to(device)
-        with torch.no_grad():
-            enc_feats, _, _, _, _, _ = model.forward_debug(inp)
-            all_layers = model.backbone.dinov3.get_intermediate_layers(
-                inp, n=[5, 11], return_class_token=False, reshape=True
-            )
-        for cx, cy, w, h, theta in gt_info[stem]:
-            px = min(int(round(cx / orig_w * imgsz[1] / patch_size)), grid_size - 1)
-            py = min(int(round(cy / orig_h * imgsz[0] / patch_size)), grid_size - 1)
-            vec_parts = [
-                layer_feat[0, :, py, px].cpu().numpy() for layer_feat in all_layers
-            ]
-            vit_features.append(np.concatenate(vec_parts))
-            mem_feat = enc_feats[0]
-            _, _, Hm, Wm = mem_feat.shape
-            mem_px = min(int(round(cx / orig_w * imgsz[1] / 8)), Wm - 1)
-            mem_py = min(int(round(cy / orig_h * imgsz[0] / 8)), Hm - 1)
-            mem_features.append(mem_feat[0, :, mem_py, mem_px].cpu().numpy())
-            wh_vals.append(w / max(h, 1e-6))
-            ang_vals.append(theta * 180 / np.pi)
 
-    report_dir = os.path.join(output_root, "reports")
-    os.makedirs(report_dir, exist_ok=True)
-    for feat_type, feats in [("vit", vit_features), ("encoder", mem_features)]:
-        if not feats:
-            continue
-        feats_arr = np.array(feats)
-        pca = PCA(n_components=2).fit_transform(feats_arr)
-        for name, vals, cmap in [("wh", wh_vals, "RdYlGn"), ("angle", ang_vals, "hsv")]:
-            fig, ax = plt.subplots(figsize=(8, 6))
-            sc = ax.scatter(pca[:, 0], pca[:, 1], c=vals, cmap=cmap, s=5, alpha=0.7)
-            plt.colorbar(sc, ax=ax, label=name)
-            ax.set_title(f"{feat_type} features PCA    n={len(feats_arr)}")
-            fig.savefig(
-                os.path.join(report_dir, f"pca_{feat_type}_{name}.png"),
-                dpi=150,
-                bbox_inches="tight",
-            )
-            plt.close(fig)
-            print(f"  PCA: {report_dir}/pca_{feat_type}_{name}.png")
+        with torch.no_grad():
+            # Backbone c2, c3, c4 — STA adapter outputs
+            c2, c3, c4 = model.backbone(inp)  # stride 8, 16, 32
+            # Encoder memory (what the decoder cross-attends to)
+            enc_feats, _, _, _, _, _ = model.forward_debug(inp)
+        backbone_feats = [
+            ("c2 (stride 8)", c2[0].permute(1, 2, 0).detach(), 8),
+            ("c3 (stride 16)", c3[0].permute(1, 2, 0).detach(), 16),
+            ("c4 (stride 32)", c4[0].permute(1, 2, 0).detach(), 32),
+        ]
+        encoder_feats = [
+            ("encoder memory", enc_feats[0][0].permute(1, 2, 0).detach(), 8)
+        ]
+
+        gts = gt_info[stem]
+        n_gts = min(len(gts), 3)
+        n_cols = (
+            1 + len(backbone_feats) + len(encoder_feats)
+        )  # image + c2+c3+c4 + encoder
+        fig, axes = plt.subplots(
+            n_gts, n_cols, figsize=(n_cols * 3, n_gts * 3), dpi=120
+        )
+        if n_gts == 1:
+            axes = [axes]
+
+        for gi in range(n_gts):
+            cx, cy, w, h, theta = gts[gi]
+            wh = w / max(h, 1e-6)
+            ang_deg = theta * 180 / np.pi
+
+            rx = int(cx / orig_w * imgsz[1])
+            ry = int(cy / orig_h * imgsz[0])
+
+            # ── Original image with GT box ──
+            ax = axes[gi][0]
+            ax.imshow(img)
+            ax.set_title(f"GT  w/h={wh:.2f}  θ={ang_deg:.0f}°", fontsize=8)
+            ax.axis("off")
+
+            # ── Backbone c2, c3, c4 ──
+            ci = 1
+            for name, feat, stride in backbone_feats:
+                ax = axes[gi][ci]
+                ci += 1
+                feat_px = int(rx / stride)
+                feat_py = int(ry / stride)
+                sim_map, _ = cosine_similarity_map_imgsz(
+                    feat,
+                    cv2.resize(img_np, imgsz),
+                    [feat_px, feat_py],
+                )
+                sim = (sim_map - sim_map.min()) / (sim_map.max() - sim_map.min() + 1e-8)
+                heatmap = cv2.applyColorMap(
+                    np.uint8(255 * sim.numpy()), cv2.COLORMAP_JET
+                )
+                overlay = cv2.addWeighted(
+                    cv2.resize(img_np, imgsz), 0.4, heatmap, 0.6, 0
+                )
+                ax.imshow(overlay)
+                ax.set_title(name, fontsize=8)
+                ax.axis("off")
+
+            # ── Encoder memory ──
+            for name, feat, stride in encoder_feats:
+                ax = axes[gi][ci]
+                ci += 1
+                feat_px = int(rx / stride)
+                feat_py = int(ry / stride)
+                sim_map, _ = cosine_similarity_map_imgsz(
+                    feat,
+                    cv2.resize(img_np, imgsz),
+                    [feat_px, feat_py],
+                )
+                sim = (sim_map - sim_map.min()) / (sim_map.max() - sim_map.min() + 1e-8)
+                heatmap = cv2.applyColorMap(
+                    np.uint8(255 * sim.numpy()), cv2.COLORMAP_JET
+                )
+                overlay = cv2.addWeighted(
+                    cv2.resize(img_np, imgsz), 0.4, heatmap, 0.6, 0
+                )
+                ax.imshow(overlay)
+                ax.set_title(name, fontsize=8)
+                ax.axis("off")
+
+        fig.tight_layout()
+        fig.savefig(
+            os.path.join(report_dir, f"{stem}.png"), dpi=150, bbox_inches="tight"
+        )
+        plt.close(fig)
+
+    print(f"  Cosine similarity: {len(sample_imgs)} images → {report_dir}/")
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -484,60 +558,122 @@ def phase_pca(model, img_dir, gt_dota_dir, output_root, imgsz, max_images=100):
 # ──────────────────────────────────────────────────────────────────
 
 
-def main():
-    CONFIG_PATH = (
-        "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml"
-    )
-    CKPT_PATH = "outputs/last_rep0.pth"
-    IMG_DIR = "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/train"
-    GT_DOTA_DIR = "./test/data/outputs/dlzdt_obb_compare_train/gt_dota"
-    IMGSZ = (640, 640)
-    SCORE_THR = 0.25
-    MAX_IMAGES = 30
-    MAX_VIS = 20
-    DEVICE = "cuda:0" if torch.cuda.is_available() else "cpu"
-    OUTPUT_ROOT = "./test/data/outputs/debug_decoder"
+def run_debug(
+    config_path,
+    ckpt_path,
+    img_dir,
+    gt_dota_dir,
+    output_root,
+    imgsz=(640, 640),
+    score_thr=0.01,
+    infer_step=1,
+    vis_step=10,
+    device="cuda:0",
+):
+    """Run all 5 phases for a single model.
 
-    print("Loading config...")
-    cfg = load_config(CONFIG_PATH)
+    Returns the output_root for the model.
+    """
+    print(f"\n{'#' * 60}")
+    print(f"# Model: {os.path.basename(ckpt_path)}")
+    print(f"# Config: {config_path}")
+    print(f"# Output: {output_root}")
+    print(f"{'#' * 60}")
+
+    cfg = load_config(config_path)
     cfg["DEIMTransformer"]["num_classes"] = cfg.get("num_classes", 1)
     if "eval_spatial_size" in cfg:
         cfg["DEIMTransformer"]["eval_spatial_size"] = cfg["eval_spatial_size"]
 
-    model = DecoderDebugModel(cfg, DEVICE)
-    model.load_checkpoint(CKPT_PATH)
+    model = DecoderDebugModel(cfg, device)
+    model.load_checkpoint(ckpt_path)
 
+    # Phase 1: Export
     print("\n" + "=" * 60)
     print("Phase 1: Inference + DOTA export")
     layer_pairs = phase1_export(
-        model, IMG_DIR, GT_DOTA_DIR, OUTPUT_ROOT, IMGSZ, SCORE_THR, MAX_IMAGES
+        model, img_dir, gt_dota_dir, output_root, imgsz, score_thr, infer_step
     )
     det_dirs = [d for _, d in layer_pairs]
     model_names = [n for n, _ in layer_pairs]
-    gt_dir = os.path.join(OUTPUT_ROOT, "gt_dota")
+    gt_dir = os.path.join(output_root, "gt_dota")
 
+    # Phase 2-3: Analysis
     print("\n" + "=" * 60)
     print("Phase 2-3: Distribution + Difference analysis")
-    phase_analysis(gt_dir, det_dirs, model_names, OUTPUT_ROOT)
+    phase_analysis(gt_dir, det_dirs, model_names, output_root)
 
+    # Phase 4: Visualization
     print("\n" + "=" * 60)
     print("Phase 4: Visualization")
     vis_layers = ["pre"] + [f"layer_{i}" for i in range(6)]
     vis_dirs = [
-        os.path.join(OUTPUT_ROOT, n)
+        os.path.join(output_root, n)
         for n in vis_layers
-        if os.path.isdir(os.path.join(OUTPUT_ROOT, n))
+        if os.path.isdir(os.path.join(output_root, n))
     ]
     vis_names = [n.replace("_", " ") for n in vis_layers]
-    phase_visualization(IMG_DIR, gt_dir, vis_dirs, vis_names, OUTPUT_ROOT, MAX_VIS)
+    phase_visualization(img_dir, gt_dir, vis_dirs, vis_names, output_root, vis_step)
 
+    # Phase 5: Feature viz
     print("\n" + "=" * 60)
-    print("Phase 5: PCA analysis")
-    phase_pca(model, IMG_DIR, gt_dir, OUTPUT_ROOT, IMGSZ, MAX_IMAGES)
+    print("Phase 5: Feature cosine similarity")
+    phase_pca(model, img_dir, gt_dir, output_root, imgsz, vis_step)
 
-    print("\n" + "=" * 60)
-    print(f"Done. All outputs in: {OUTPUT_ROOT}")
+    print(f"\nDone: {output_root}")
+    return output_root
+
+
+def main():
+    """Single-model debug entry point."""
+    run_debug(
+        config_path="configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml",
+        ckpt_path="outputs/last_rep0.pth",
+        img_dir="/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/train",
+        gt_dota_dir="./test/data/outputs/dlzdt_obb_compare_train/gt_dota",
+        output_root="./test/data/outputs/debug_decoder/sp_fz_rep0_train",
+        imgsz=(640, 640),
+        score_thr=0.25,
+        infer_step=1,
+        vis_step=10,
+    )
+
+
+def main_multi():
+    """Multi-model debug entry point — runs debug for a list of model variants.
+
+    Edit MODEL_LIST below to add/remove models.
+    """
+    IMG_DIR = "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/train"
+    GT_DOTA = "./test/data/outputs/dlzdt_obb_compare_train/gt_dota"
+    IMGSZ = (640, 640)
+    SCORE_THR = 0.25
+
+    MODEL_LIST = [
+        {
+            "config": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml",
+            "ckpt": "outputs/last_rep0.pth",
+            "output": "./test/data/outputs/debug_decoder/sp_fz_rep0_train",
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep3_p[15,45,75].yml",
+            "ckpt": "outputs/last_rep3.pth",
+            "output": "./test/data/outputs/debug_decoder/sp_fz_rep3_train",
+        },
+    ]
+
+    for m in MODEL_LIST:
+        run_debug(
+            config_path=m["config"],
+            ckpt_path=m["ckpt"],
+            img_dir=IMG_DIR,
+            gt_dota_dir=GT_DOTA,
+            output_root=m["output"],
+            imgsz=IMGSZ,
+            score_thr=SCORE_THR,
+        )
+        torch.cuda.empty_cache()
 
 
 if __name__ == "__main__":
-    main()
+    main_multi()
