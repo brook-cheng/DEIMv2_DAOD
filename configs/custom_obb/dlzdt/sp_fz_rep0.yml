@@ -8,14 +8,14 @@ __include__: [
 ]
 
 #### 项目配置
-output_dir: ./outputs/deimv2_obb_sp_dlzdt_anglerep3
+output_dir: ./outputs/deimv2_obb_sp_ft_dlzdt_anglerep0
 comet_project_name: 'deimv2_obb_sp_dlzdt'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
 num_classes: 1
 
 ## DEIM LR-Scheduler
-epoches: 200 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+epoches: 160 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
 warmup_iter: 5   # 0.1 * epoches
 flat_epoch: 90    # epoch // 2 + warmup_iter
 no_aug_epoch: 15
@@ -94,7 +94,7 @@ DEIMTransformer:
   hidden_dim: 256 #hidden_dim
   dim_feedforward: 2048 # hidden_dim*8
   box_mode: obb
-  angle_rep: 3
+  angle_rep: 0
 
 PostProcessor:
   box_mode: obb
@@ -123,21 +123,21 @@ optimizer:
 
 ### Loss
 DEIMCriterion:
-  weight_dict: {loss_mal: 4, loss_bbox: 1, loss_kld: 1, loss_fgl: 0.5,loss_ddf: 1.5}
+  weight_dict: {loss_mal: 1, loss_bbox: 5, loss_kld: 2, loss_fgl: 0.15,loss_ddf: 1.5}
   losses: ['mal', 'boxes', 'local']
   gamma: 1.0
   alpha: 0.75
   reg_max: 32
   box_mode: obb
-  obbox_rep_dim: 5
+  obbox_rep_dim: 6
 
   matcher:
     type: HungarianMatcher
-    weight_dict: {cost_class: 5, cost_bbox: 2,  cost_chamfer: 2,cost_probiou: 1}
+    weight_dict: {cost_class: 2, cost_bbox: 5,  cost_chamfer: 1,cost_probiou: 2}
     alpha: 0.25
     gamma: 2.0
     # change matcher
-    change_matcher: True
+    change_matcher: False
     iou_order_alpha: 4.0
     # 0.75~0.85 * epoches
     matcher_change_epoch: 112

@@ -8,7 +8,7 @@ __include__: [
 ]
 
 #### 项目配置
-output_dir: ./outputs/deimv2_obb_sp_dlzdt_anglerep0
+output_dir: ./outputs/deimv2_obb_sp_dlzdt_anglerep2
 comet_project_name: 'deimv2_obb_sp_dlzdt'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
@@ -94,7 +94,7 @@ DEIMTransformer:
   hidden_dim: 256 #hidden_dim
   dim_feedforward: 2048 # hidden_dim*8
   box_mode: obb
-  angle_rep: 0
+  angle_rep: 2
 
 PostProcessor:
   box_mode: obb
@@ -106,11 +106,11 @@ optimizer:
     -
       # except norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
-      lr: 0.00005 # 模型参数量越大，值应该越小。比如：sp:1e-5, l:0.5e-5, b:2.5e-6, hp:1.25e-6
+      lr: 0.00001 # 模型参数量越大，值应该越小。比如：sp:1e-5, l:0.5e-5, b:2.5e-6, hp:1.25e-6
     -
       # including norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
-      lr: 0.00005
+      lr: 0.00001
       weight_decay: 0.
     -
       # including norm/bn/bias except for the self.dinov3
@@ -123,7 +123,7 @@ optimizer:
 
 ### Loss
 DEIMCriterion:
-  weight_dict: {loss_mal: 1, loss_bbox: 5, loss_kld: 2, loss_fgl: 0.15,loss_ddf: 1.5}
+  weight_dict: {loss_mal: 4, loss_bbox: 1, loss_kld: 1, loss_fgl: 0.5,loss_ddf: 1.5}
   losses: ['mal', 'boxes', 'local']
   gamma: 1.0
   alpha: 0.75
@@ -133,7 +133,7 @@ DEIMCriterion:
 
   matcher:
     type: HungarianMatcher
-    weight_dict: {cost_class: 2, cost_bbox: 5,  cost_chamfer: 1,cost_probiou: 2}
+    weight_dict: {cost_class: 5, cost_bbox: 2,  cost_chamfer: 2,cost_probiou: 1}
     alpha: 0.25
     gamma: 2.0
     # change matcher

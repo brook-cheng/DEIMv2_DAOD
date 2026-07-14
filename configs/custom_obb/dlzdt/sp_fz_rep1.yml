@@ -8,15 +8,15 @@ __include__: [
 ]
 
 #### 项目配置
-output_dir: ./outputs/deimv2_obb_sp_fz_dlzdt_anglerep2
+output_dir: ./outputs/deimv2_obb_sp_fz_dlzdt_anglerep1
 comet_project_name: 'deimv2_obb_sp_dlzdt'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
 num_classes: 1
 
 ## DEIM LR-Scheduler
-epoches: 200 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
-warmup_iter: 15   # 0.1 * epoches
+epoches: 160 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+warmup_iter: 5   # 0.1 * epoches
 flat_epoch: 90    # epoch // 2 + warmup_iter
 no_aug_epoch: 15
 
@@ -94,7 +94,7 @@ DEIMTransformer:
   hidden_dim: 256 #hidden_dim
   dim_feedforward: 2048 # hidden_dim*8
   box_mode: obb
-  angle_rep: 2
+  angle_rep: 1
 
 PostProcessor:
   box_mode: obb
@@ -106,11 +106,11 @@ optimizer:
     -
       # except norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
-      lr: 0.00005 # 模型参数量越大，值应该越小。比如：sp:1e-5, l:0.5e-5, b:2.5e-6, hp:1.25e-6
+      lr: 0.00001 # 模型参数量越大，值应该越小。比如：sp:1e-5, l:0.5e-5, b:2.5e-6, hp:1.25e-6
     -
       # including norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
-      lr: 0.00005
+      lr: 0.00001
       weight_decay: 0.
     -
       # including norm/bn/bias except for the self.dinov3
@@ -129,7 +129,7 @@ DEIMCriterion:
   alpha: 0.75
   reg_max: 32
   box_mode: obb
-  obbox_rep_dim: 6
+  obbox_rep_dim: 5
 
   matcher:
     type: HungarianMatcher
@@ -137,7 +137,7 @@ DEIMCriterion:
     alpha: 0.25
     gamma: 2.0
     # change matcher
-    change_matcher: True
+    change_matcher: False
     iou_order_alpha: 4.0
     # 0.75~0.85 * epoches
     matcher_change_epoch: 112

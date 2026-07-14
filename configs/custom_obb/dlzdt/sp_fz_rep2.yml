@@ -8,15 +8,15 @@ __include__: [
 ]
 
 #### 项目配置
-output_dir: ./outputs/deimv2_obb_sp_dlzdt_undec_p[20,40,60]
+output_dir: ./outputs/deimv2_obb_sp_fz_dlzdt_anglerep2
 comet_project_name: 'deimv2_obb_sp_dlzdt'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
 num_classes: 1
 
 ## DEIM LR-Scheduler
-epoches: 200 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
-warmup_iter: 15   # 0.1 * epoches
+epoches: 160 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+warmup_iter: 5   # 0.1 * epoches
 flat_epoch: 90    # epoch // 2 + warmup_iter
 no_aug_epoch: 15
 
@@ -26,9 +26,9 @@ train_dataloader:
   total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
   num_workers: 2
   dataset:
-    img_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/train
-    ann_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/train
-    classes_file: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
+    img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/train
+    ann_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/train
+    classes_file: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
     format: 'YOLO-OBB'
     transforms:
       ops:
@@ -45,7 +45,7 @@ train_dataloader:
         - {type: OBBConvertBoxes, normalize: True, img_size: [640, 640]}
         - {type: Normalize, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}
       policy:
-        epoch: [20, 40, 60] # stop_epoch, 2阶段数据增强：0-无-> A(0.05~0.1)*epoch -强-> B(0.2~0.45)*epoch -弱-> C(0.3 *0.7)*epoch ->无
+        epoch: [15, 45, 75] # stop_epoch, 2阶段数据增强：0-无-> A(0.05~0.1)*epoch -强-> B(0.2~0.45)*epoch -弱-> C(0.3 *0.7)*epoch ->无
         ops: ['Mosaic', 'RandomPhotometricDistort', 'OBBZoomOut', 'OBBIoUCrop']
       mosaic_prob: 0.5
 
@@ -57,11 +57,11 @@ train_dataloader:
 
 val_dataloader:
   total_batch_size: 2 # total batch size equals to gpu_nums*batch_size
-  num_workers: 1
+  num_workers: 2
   dataset:
-    img_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/val
-    ann_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/val
-    classes_file: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
+    img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/val
+    ann_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/val
+    classes_file: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
     format: 'YOLO-OBB'
     transforms:
       ops:
@@ -75,9 +75,9 @@ val_dataloader:
 ### backbone
 DINOv3STAsResAtten:
   name: dinov3_vits16plus # 名称参考 engine/backbone/dinov3/vision_transformer.py
-  weights_path: /mnt/disk8t/cx_dir/third/deimv2_daod/ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
+  weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
   interaction_indexes: []   # all layers will be used
-  finetune: True
+  finetune: False
   conv_inplane: 64 # dinov3_hidden_dim/4
   hidden_dim: 256 # dinov3_hidden_dim*2/3
   adapter_type: 'sta'  # 'sta' or 'c3k2'
@@ -94,7 +94,7 @@ DEIMTransformer:
   hidden_dim: 256 #hidden_dim
   dim_feedforward: 2048 # hidden_dim*8
   box_mode: obb
-  decouple_angle: False
+  angle_rep: 2
 
 PostProcessor:
   box_mode: obb
@@ -129,6 +129,7 @@ DEIMCriterion:
   alpha: 0.75
   reg_max: 32
   box_mode: obb
+  obbox_rep_dim: 6
 
   matcher:
     type: HungarianMatcher
@@ -136,7 +137,7 @@ DEIMCriterion:
     alpha: 0.25
     gamma: 2.0
     # change matcher
-    change_matcher: True
+    change_matcher: False
     iou_order_alpha: 4.0
     # 0.75~0.85 * epoches
     matcher_change_epoch: 112

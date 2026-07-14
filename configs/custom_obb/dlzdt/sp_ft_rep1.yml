@@ -8,15 +8,15 @@ __include__: [
 ]
 
 #### 项目配置
-output_dir: ./outputs/deimv2_obb_l_fz_dlzdt_undec_p[15,45,75]
+output_dir: ./outputs/deimv2_obb_sp_dlzdt_anglerep1
 comet_project_name: 'deimv2_obb_sp_dlzdt'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
 num_classes: 1
 
 ## DEIM LR-Scheduler
-epoches: 150 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
-warmup_iter: 15   # 0.1 * epoches
+epoches: 160 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+warmup_iter: 5   # 0.1 * epoches
 flat_epoch: 90    # epoch // 2 + warmup_iter
 no_aug_epoch: 15
 
@@ -26,9 +26,9 @@ train_dataloader:
   total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
   num_workers: 2
   dataset:
-    img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/train
-    ann_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/train
-    classes_file: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
+    img_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/train
+    ann_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/train
+    classes_file: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
     format: 'YOLO-OBB'
     transforms:
       ops:
@@ -59,9 +59,9 @@ val_dataloader:
   total_batch_size: 2 # total batch size equals to gpu_nums*batch_size
   num_workers: 2
   dataset:
-    img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/val
-    ann_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/val
-    classes_file: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
+    img_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/val
+    ann_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/val
+    classes_file: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
     format: 'YOLO-OBB'
     transforms:
       ops:
@@ -74,10 +74,10 @@ val_dataloader:
 #### 模型设置
 ### backbone
 DINOv3STAsResAtten:
-  name: dinov3_vitl16 # 名称参考 engine/backbone/dinov3/vision_transformer.py
-  weights_path: ./ckpts/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth
+  name: dinov3_vits16plus # 名称参考 engine/backbone/dinov3/vision_transformer.py
+  weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
   interaction_indexes: []   # all layers will be used
-  finetune: False
+  finetune: True
   conv_inplane: 64 # dinov3_hidden_dim/4
   hidden_dim: 256 # dinov3_hidden_dim*2/3
   adapter_type: 'sta'  # 'sta' or 'c3k2'
@@ -94,7 +94,7 @@ DEIMTransformer:
   hidden_dim: 256 #hidden_dim
   dim_feedforward: 2048 # hidden_dim*8
   box_mode: obb
-  decouple_angle: False
+  angle_rep: 1
 
 PostProcessor:
   box_mode: obb
@@ -106,30 +106,30 @@ optimizer:
     -
       # except norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
-      lr: 0.0000025 # 模型参数量越大，值应该越小。比如：sp:1e-5, l:0.5e-5, b:2.5e-6, hp:1.25e-6
+      lr: 0.00001 # 模型参数量越大，值应该越小。比如：sp:1e-5, l:0.5e-5, b:2.5e-6, hp:1.25e-6
     -
       # including norm/bn/bias in self.dinov3
       params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
-      lr: 0.0000025
+      lr: 0.00001
       weight_decay: 0.
     -
       # including norm/bn/bias except for the self.dinov3
       params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
       weight_decay: 0.
 
-  lr: 0.000125  # 模型参数量越大，值应该越小。比如：sp:5e-4, l:2.5e-4, b:1.25e-5, m:1.25e-5
+  lr: 0.0005  # 模型参数量越大，值应该越小。比如：sp:5e-4, l:2.5e-4, b:1.25e-5, m:1.25e-5
   betas: [0.9, 0.999]
   weight_decay: 0.000125
 
 ### Loss
 DEIMCriterion:
-  weight_dict: {loss_mal: 1, loss_bbox: 5, loss_kld: 2, loss_fgl: 0.15, loss_ddf: 1.5}
+  weight_dict: {loss_mal: 4, loss_bbox: 1, loss_kld: 1, loss_fgl: 0.5,loss_ddf: 1.5}
   losses: ['mal', 'boxes', 'local']
-  gamma: 1.0 # 值越小iou损失对mal损失影响越小，mal_iou_type!='iou'时，gamma应当设置较小值[0,0.5]，否则可设置[0,2]
-  # mal_alpha: 1.5 # 负样本预测错误损失权重
+  gamma: 1.0
   alpha: 0.75
   reg_max: 32
   box_mode: obb
+  obbox_rep_dim: 5
 
   matcher:
     type: HungarianMatcher
@@ -137,7 +137,7 @@ DEIMCriterion:
     alpha: 0.25
     gamma: 2.0
     # change matcher
-    change_matcher: True
+    change_matcher: False
     iou_order_alpha: 4.0
     # 0.75~0.85 * epoches
     matcher_change_epoch: 112
