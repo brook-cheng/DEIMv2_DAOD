@@ -29,24 +29,31 @@ from tools.model_compare.model_draw_compare_obb import draw_obb_compare
 
 # ── Paths ──
 BASE_DATA = "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val"
-IMG_DIR = os.path.join(BASE_DATA, "images", "val")
+IMG_DIR = os.path.join(BASE_DATA, "images", "train")
+GT_LABLE_DIR = os.path.join(BASE_DATA, "labels", "train")  # YOLO-OBB format labels
 CLASSES_TXT = os.path.join(BASE_DATA, "classes.txt")
 
-GT_YOLO_DIR = os.path.join(BASE_DATA, "labels", "val")  # YOLO-OBB format labels
 YOLO_PRED_JSON = "/mnt/d/cx/thired/ultralytics_update/runs/dlazdt_obb_val/yolo_train_1280_2026_5_31/val2/predictions.json"
 
-OUTPUT_ROOT = "./test/data/outputs/dlzdt_obb_compare"
-GT_DOTA_DIR = os.path.join(OUTPUT_ROOT, "gt_dota")
-YOLO_DOTA_DIR = os.path.join(OUTPUT_ROOT, "yolo_dota")
-VISUAL_DIR = os.path.join(OUTPUT_ROOT, "comparison_images")
+OUTPUT_ROOT = "./test/data/outputs/dlzdt_obb_compare_train"
+OUTPUT_GT_DOTA_DIR = os.path.join(OUTPUT_ROOT, "gt_dota")
+OUTPUT_YOLO_DOTA_DIR = os.path.join(OUTPUT_ROOT, "yolo_dota")
+OUTPUT_VISUAL_DIR = os.path.join(OUTPUT_ROOT, "comparison_images_train")
 
+# DET_DIRS = [
+#     YOLO_DOTA_DIR,
+#     "./test/data/outputs/dlzdt_sp_rep0_train",
+#     "./test/data/outputs/dlzdt_sp_rep1_train",
+# ]
+# MODEL_NAMES = ["YOLO-OBB", "DEIMv2-OBB-SP-Rep0", "DEIMv2-OBB-SP-Rep1"]
 DET_DIRS = [
-    YOLO_DOTA_DIR,
-    "./test/data/outputs/dlzdt_sp_rep0",
-    "./test/data/outputs/dlzdt_sp_rep1",
+    "./test/data/outputs/dlzdt_sp_rep0_train",
+    "./test/data/outputs/dlzdt_sp_rep1_train",
 ]
-MODEL_NAMES = ["YOLO-OBB", "DEIMv2-OBB-SP-Rep0", "DEIMv2-OBB-SP-Rep1"]
+MODEL_NAMES = ["DEIMv2-OBB-SP-Rep0", "DEIMv2-OBB-SP-Rep1"]
 VIS_IMAGE_NUM = 259
+# IOUV=np.array([0.3])
+IOUV = None
 
 
 def yolo_gt_to_dota(
@@ -133,47 +140,47 @@ def main():
     print("\n" + "=" * 60)
     print("Step 1: Converting YOLO GT labels → DOTA format")
     print("=" * 60)
-    if os.path.exists(GT_DOTA_DIR):
-        shutil.rmtree(GT_DOTA_DIR)
-    yolo_gt_to_dota(GT_YOLO_DIR, IMG_DIR, GT_DOTA_DIR, class_names)
+    if os.path.exists(OUTPUT_GT_DOTA_DIR):
+        shutil.rmtree(OUTPUT_GT_DOTA_DIR)
+    yolo_gt_to_dota(GT_LABLE_DIR, IMG_DIR, OUTPUT_GT_DOTA_DIR, class_names)
 
     # ── Step 2: YOLO predictions → DOTA format ──
     print("\n" + "=" * 60)
     print("Step 2: Converting YOLO predictions → DOTA format")
     print("=" * 60)
-    if os.path.exists(YOLO_DOTA_DIR):
-        shutil.rmtree(YOLO_DOTA_DIR)
+    if os.path.exists(OUTPUT_YOLO_DOTA_DIR):
+        shutil.rmtree(OUTPUT_YOLO_DOTA_DIR)
     category_map = {
         i + 1: name for i, name in enumerate(class_names)
     }  # YOLO uses 1-indexed
     written = ultralytics_obb_json_to_dota(
-        YOLO_PRED_JSON, YOLO_DOTA_DIR, category_map, score_threshold=0.01
+        YOLO_PRED_JSON, OUTPUT_YOLO_DOTA_DIR, category_map, score_threshold=0.01
     )
-    print(f"  YOLO predictions: {len(written)} images → {YOLO_DOTA_DIR}")
+    print(f"  YOLO predictions: {len(written)} images → {OUTPUT_YOLO_DOTA_DIR}")
 
     # ── Step 3: Metrics comparison ──
     print("\n" + "=" * 60)
     print("Step 3: Metrics comparison")
     print("=" * 60)
     compare_obb_models(
-        gt_dir=GT_DOTA_DIR,
+        gt_dir=OUTPUT_GT_DOTA_DIR,
         det_dirs=DET_DIRS,
         classes_file=CLASSES_TXT,
         model_names=MODEL_NAMES,
-        iouv=np.array([0.3]),
+        iouv=IOUV,
     )
 
     # ── Step 4: Visualization ──
     print("\n" + "=" * 60)
     print("Step 4: Visualization comparison")
     print("=" * 60)
-    if os.path.exists(VISUAL_DIR):
-        shutil.rmtree(VISUAL_DIR)
+    if os.path.exists(OUTPUT_VISUAL_DIR):
+        shutil.rmtree(OUTPUT_VISUAL_DIR)
     draw_obb_compare(
         img_dir=IMG_DIR,
-        gt_dir=GT_DOTA_DIR,
+        gt_dir=OUTPUT_GT_DOTA_DIR,
         det_dirs=DET_DIRS,
-        output_dir=VISUAL_DIR,
+        output_dir=OUTPUT_VISUAL_DIR,
         model_names=MODEL_NAMES,
         score_threshold=0.25,
         max_images=VIS_IMAGE_NUM,

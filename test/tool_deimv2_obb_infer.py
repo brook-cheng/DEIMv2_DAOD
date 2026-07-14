@@ -189,17 +189,15 @@ def infer_obb_and_export(
 
 
 if __name__ == "__main__":
-    img_dir = (
-        "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/val"
-    )
+    img_dir = "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/train"
     classes_txt = (
         "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/classes.txt"
     )
     config_path = (
-        "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep1_p[15,45,75].yml"
+        "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml"
     )
-    output_dir = "./test/data/outputs/dlzdt_sp_rep1"
-    model_weight = "outputs/last_rep1.pth"
+    output_dir = "./test/data/outputs/dlzdt_sp_rep0_train"
+    model_weight = "outputs/last_rep0.pth"
     imgsz = (640, 640)
     max_det = 50
     score_threshold = 0.2
