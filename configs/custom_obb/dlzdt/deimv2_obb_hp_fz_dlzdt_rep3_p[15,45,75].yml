@@ -8,7 +8,7 @@ __include__: [
 ]
 
 #### 项目配置
-output_dir: ./outputs/deimv2_obb_hp_fz_dlzdt_rep0_p[15,45,75]
+output_dir: ./outputs/deimv2_obb_hp_fz_dlzdt_rep3_p[15,45,75]
 comet_project_name: 'deimv2_obb_sp_dlzdt'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
@@ -94,7 +94,7 @@ DEIMTransformer:
   hidden_dim: 640 #hidden_dim
   dim_feedforward: 5120 # hidden_dim*8
   box_mode: obb
-  angle_rep: 0
+  angle_rep: 3
 
 PostProcessor:
   box_mode: obb
@@ -130,7 +130,7 @@ DEIMCriterion:
   alpha: 0.75
   reg_max: 32
   box_mode: obb
-  obbox_rep_dim: 6
+  obbox_rep_dim: 5
 
   matcher:
     type: HungarianMatcher
