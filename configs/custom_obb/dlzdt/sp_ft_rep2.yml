@@ -26,9 +26,9 @@ train_dataloader:
   total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
   num_workers: 2
   dataset:
-    img_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/train
-    ann_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/train
-    classes_file: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
+    img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/train
+    ann_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/train
+    classes_file: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
     format: 'YOLO-OBB'
     transforms:
       ops:
@@ -59,9 +59,9 @@ val_dataloader:
   total_batch_size: 2 # total batch size equals to gpu_nums*batch_size
   num_workers: 2
   dataset:
-    img_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/val
-    ann_folder: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/val
-    classes_file: /mnt/disk8t/lyj_dir/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
+    img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/val
+    ann_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/val
+    classes_file: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
     format: 'YOLO-OBB'
     transforms:
       ops:
