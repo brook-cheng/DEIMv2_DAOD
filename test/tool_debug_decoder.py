@@ -260,7 +260,9 @@ def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root):
         pred = dist_mod.load_boxes_from_dota_dir(d, is_gt=False)
         pred_list.append(pred)
         name_list.append(n)
-        report_lines.append(dist_mod.format_stats(n, dist_mod.compute_stats(pred)))
+        stats = dist_mod.compute_stats(pred)
+        stats.update(dist_mod.compute_similarity(gt_boxes, pred))
+        report_lines.append(dist_mod.format_stats(n, stats))
     png = dist_mod.plot_distribution_comparison(
         gt_boxes,
         pred_list,
@@ -304,7 +306,7 @@ def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root):
 
 
 def phase_visualization(
-    img_dir, gt_dota_dir, det_dirs, model_names, output_root, vis_step=10
+    img_dir, gt_dota_dir, det_dirs, model_names, output_root, image_list=None
 ):
     """Draw GT + all layers with single-hue gradient (light→dark)."""
     import matplotlib.pyplot as plt
@@ -327,7 +329,10 @@ def phase_visualization(
     ]
     gt_color = (0, 180, 0)  # green for GT
 
-    img_names = _discover_images(gt_dota_dir, det_dirs, None)[::vis_step]
+    if image_list:
+        img_names = [os.path.splitext(f)[0] for f in image_list]
+    else:
+        img_names = _discover_images(gt_dota_dir, det_dirs, None)
     print(f"  Drawing {len(img_names)} images, {num_models} layers")
 
     try:
@@ -381,7 +386,7 @@ def phase_visualization(
     print(f"  Done. {len(img_names)} images → {vis_dir}/")
 
 
-def phase_pca(model, img_dir, gt_dota_dir, output_root, imgsz, vis_step=10):
+def phase_pca(model, img_dir, gt_dota_dir, output_root, imgsz, image_list=None):
     """Cosine-similarity heatmaps of ViT + encoder features at GT positions.
 
     Uses the same approach as tools/analysis/feature_similarity.py:
@@ -434,20 +439,15 @@ def phase_pca(model, img_dir, gt_dota_dir, output_root, imgsz, vis_step=10):
     report_dir = os.path.join(output_root, "reports", "feat_sim")
     os.makedirs(report_dir, exist_ok=True)
 
-    img_files = sorted(
-        f
-        for f in os.listdir(img_dir)
-        if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp"))
-    )[::vis_step]
-
-    # Pick up to 15 images that have GT boxes
-    sample_imgs = []
-    for f in img_files:
-        stem = os.path.splitext(f)[0]
-        if stem in gt_info and len(gt_info[stem]) > 0:
-            sample_imgs.append(f)
-            if len(sample_imgs) >= 15:
-                break
+    if image_list:
+        sample_imgs = [f for f in image_list if os.path.splitext(f)[0] in gt_info]
+    else:
+        img_files = sorted(
+            f for f in os.listdir(img_dir)
+            if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp"))
+        )
+        sample_imgs = [f for f in img_files if os.path.splitext(f)[0] in gt_info]
+    sample_imgs = sample_imgs[: min(len(sample_imgs), 30)]
 
     if not sample_imgs:
         print("  No images with GT found")
@@ -475,12 +475,12 @@ def phase_pca(model, img_dir, gt_dota_dir, output_root, imgsz, vis_step=10):
         ]
 
         gts = gt_info[stem]
-        n_gts = min(len(gts), 3)
+        n_gts = len(gts)  # show all GT boxes per image
         n_cols = (
             1 + len(backbone_feats) + len(encoder_feats)
-        )  # image + c2+c3+c4 + encoder
+        )  # image + backbone + encoder
         fig, axes = plt.subplots(
-            n_gts, n_cols, figsize=(n_cols * 3, n_gts * 3), dpi=120
+            n_gts, n_cols, figsize=(n_cols * 3, n_gts * 2.5), dpi=120
         )
         if n_gts == 1:
             axes = [axes]
@@ -568,11 +568,13 @@ def run_debug(
     score_thr=0.01,
     infer_step=1,
     vis_step=10,
+    infer_flag=True,
     device="cuda:0",
 ):
     """Run all 5 phases for a single model.
 
-    Returns the output_root for the model.
+    If ``infer_flag`` is False and the per-layer DOTA directories already
+    exist, Phase 1 (inference + export) is skipped to save time.
     """
     print(f"\n{'#' * 60}")
     print(f"# Model: {os.path.basename(ckpt_path)}")
@@ -585,18 +587,32 @@ def run_debug(
     if "eval_spatial_size" in cfg:
         cfg["DEIMTransformer"]["eval_spatial_size"] = cfg["eval_spatial_size"]
 
-    model = DecoderDebugModel(cfg, device)
-    model.load_checkpoint(ckpt_path)
+    layers = ["pre"] + [f"layer_{i}" for i in range(6)]
+    layer_dirs_exist = all(os.path.isdir(os.path.join(output_root, n)) for n in layers)
 
-    # Phase 1: Export
-    print("\n" + "=" * 60)
-    print("Phase 1: Inference + DOTA export")
-    layer_pairs = phase1_export(
-        model, img_dir, gt_dota_dir, output_root, imgsz, score_thr, infer_step
-    )
-    det_dirs = [d for _, d in layer_pairs]
-    model_names = [n for n, _ in layer_pairs]
+    if not infer_flag and layer_dirs_exist:
+        print("\n" + "=" * 60)
+        print("Phase 1: SKIP (directories exist, infer_flag=False)")
+        det_dirs = [os.path.join(output_root, n) for n in layers]
+        model_names = [n.replace("_", " ") for n in layers]
+        model = None
+    else:
+        model = DecoderDebugModel(cfg, device)
+        model.load_checkpoint(ckpt_path)
+        print("\n" + "=" * 60)
+        print("Phase 1: Inference + DOTA export")
+        layer_pairs = phase1_export(
+            model, img_dir, gt_dota_dir, output_root, imgsz, score_thr, infer_step
+        )
+        det_dirs = [d for _, d in layer_pairs]
+        model_names = [n for n, _ in layer_pairs]
+
     gt_dir = os.path.join(output_root, "gt_dota")
+
+    # Shared image list for Phase 4 & 5: GT-image stems, sampled by vis_step
+    gt_stems = {os.path.splitext(f)[0] for f in os.listdir(gt_dir) if f.endswith(".txt")}
+    all_imgs = sorted(f for f in os.listdir(img_dir) if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp")))
+    shared_imgs = [f for f in all_imgs[::vis_step] if os.path.splitext(f)[0] in gt_stems]
 
     # Phase 2-3: Analysis
     print("\n" + "=" * 60)
@@ -613,12 +629,15 @@ def run_debug(
         if os.path.isdir(os.path.join(output_root, n))
     ]
     vis_names = [n.replace("_", " ") for n in vis_layers]
-    phase_visualization(img_dir, gt_dir, vis_dirs, vis_names, output_root, vis_step)
+    phase_visualization(img_dir, gt_dir, vis_dirs, vis_names, output_root, shared_imgs)
 
     # Phase 5: Feature viz
     print("\n" + "=" * 60)
     print("Phase 5: Feature cosine similarity")
-    phase_pca(model, img_dir, gt_dir, output_root, imgsz, vis_step)
+    if model is not None:
+        phase_pca(model, img_dir, gt_dir, output_root, imgsz, shared_imgs)
+    else:
+        print("  SKIP (inference was skipped, model not loaded)")
 
     print(f"\nDone: {output_root}")
     return output_root
@@ -636,6 +655,7 @@ def main():
         score_thr=0.25,
         infer_step=1,
         vis_step=10,
+        infer_flag=True,
     )
 
 
@@ -648,17 +668,33 @@ def main_multi():
     GT_DOTA = "./test/data/outputs/dlzdt_obb_compare_train/gt_dota"
     IMGSZ = (640, 640)
     SCORE_THR = 0.25
+    INFER_STEP = 1
+    VIS_STEP = 20
 
     MODEL_LIST = [
         {
             "config": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml",
-            "ckpt": "outputs/last_rep0.pth",
-            "output": "./test/data/outputs/debug_decoder/sp_fz_rep0_train",
+            "ckpt": "outputs/sp_ft_rep0.pth",
+            "output": "./test/data/outputs/debug_decoder/sp_ft_rep0_train",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep1_p[15,45,75].yml",
+            "ckpt": "outputs/sp_ft_rep1.pth",
+            "output": "./test/data/outputs/debug_decoder/sp_ft_rep1_train",
+            "infer_flag": True,
         },
         {
             "config": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep3_p[15,45,75].yml",
-            "ckpt": "outputs/last_rep3.pth",
-            "output": "./test/data/outputs/debug_decoder/sp_fz_rep3_train",
+            "ckpt": "outputs/sp_ft_rep3.pth",
+            "output": "./test/data/outputs/debug_decoder/sp_ft_rep3_train",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml",
+            "ckpt": "outputs/sp_fz_rep0.pth",
+            "output": "./test/data/outputs/debug_decoder/sp_fz_rep0_train",
+            "infer_flag": True,
         },
     ]
 
@@ -671,6 +707,9 @@ def main_multi():
             output_root=m["output"],
             imgsz=IMGSZ,
             score_thr=SCORE_THR,
+            infer_step=INFER_STEP,
+            vis_step=VIS_STEP,
+            infer_flag=m["infer_flag"],
         )
         torch.cuda.empty_cache()
 

@@ -189,28 +189,50 @@ def infer_obb_and_export(
 
 
 if __name__ == "__main__":
-    img_dir = "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/train"
+    img_dir = (
+        "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/val"
+    )
     classes_txt = (
         "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/classes.txt"
     )
-    config_path = (
-        "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml"
-    )
-    output_dir = "./test/data/outputs/dlzdt_sp_rep0_train"
-    model_weight = "outputs/last_rep0.pth"
     imgsz = (640, 640)
     max_det = 50
     score_threshold = 0.2
     device = "cuda:0"
 
-    infer_obb_and_export(
-        img_dir=img_dir,
-        model_weight=model_weight,
-        config_path=config_path,
-        output_dir=output_dir,
-        classes_txt=classes_txt,
-        imgsz=imgsz,
-        max_det=max_det,
-        score_threshold=score_threshold,
-        device=device,
+    config_path = (
+        "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml"
     )
+    output_dir = "./test/data/outputs/dlzdt_sp_rep0_val"
+    model_weight = "outputs/last_rep0.pth"
+
+    infoes = [
+        {
+            "model_weight": "outputs/sp_ft_rep0.pth",
+            "config_path": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml",
+            "output_dir": "./test/data/outputs/dlzdt_val_sp_ft_rep0",
+        },
+        {
+            "model_weight": "outputs/sp_ft_rep1.pth",
+            "config_path": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep1_p[15,45,75].yml",
+            "output_dir": "./test/data/outputs/dlzdt_val_sp_ft_rep1",
+        },
+        {
+            "model_weight": "outputs/sp_ft_rep3.pth",
+            "config_path": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep3_p[15,45,75].yml",
+            "output_dir": "./test/data/outputs/dlzdt_val_sp_ft_rep3",
+        },
+    ]
+
+    for info in infoes:
+        infer_obb_and_export(
+            img_dir=img_dir,
+            model_weight=info["model_weight"],
+            config_path=info["config_path"],
+            output_dir=info["output_dir"],
+            classes_txt=classes_txt,
+            imgsz=imgsz,
+            max_det=max_det,
+            score_threshold=score_threshold,
+            device=device,
+        )

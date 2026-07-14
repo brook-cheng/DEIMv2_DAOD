@@ -260,9 +260,11 @@ class DEIMCriterion(nn.Module):
             loss_giou = loss_giou if boxes_weight is None else loss_giou * boxes_weight
             losses["loss_giou"] = loss_giou.sum() / num_boxes
         elif self.box_mode == "obb":
+            # FIXME: L1距离存在缺陷
             spatial_l1 = F.l1_loss(
                 src_boxes[..., :4], target_boxes[..., :4], reduction="none"
             )
+            # FIXME: 角度L1距离计算需要考察是否合适
             angle_term = (
                 self.lambda_angle
                 * periodic_angle_distance(src_boxes[..., 4:], target_boxes[..., 4:])

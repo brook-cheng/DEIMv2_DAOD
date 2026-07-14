@@ -29,31 +29,33 @@ from tools.model_compare.model_draw_compare_obb import draw_obb_compare
 
 # ── Paths ──
 BASE_DATA = "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val"
-IMG_DIR = os.path.join(BASE_DATA, "images", "train")
-GT_LABLE_DIR = os.path.join(BASE_DATA, "labels", "train")  # YOLO-OBB format labels
+IMG_DIR = os.path.join(BASE_DATA, "images", "val")
+GT_LABLE_DIR = os.path.join(BASE_DATA, "labels", "val")  # YOLO-OBB format labels
 CLASSES_TXT = os.path.join(BASE_DATA, "classes.txt")
 
 YOLO_PRED_JSON = "/mnt/d/cx/thired/ultralytics_update/runs/dlazdt_obb_val/yolo_train_1280_2026_5_31/val2/predictions.json"
 
-OUTPUT_ROOT = "./test/data/outputs/dlzdt_obb_compare_train"
+OUTPUT_ROOT = "./test/data/outputs/dlzdt_obb_compare_val"
 OUTPUT_GT_DOTA_DIR = os.path.join(OUTPUT_ROOT, "gt_dota")
 OUTPUT_YOLO_DOTA_DIR = os.path.join(OUTPUT_ROOT, "yolo_dota")
 OUTPUT_VISUAL_DIR = os.path.join(OUTPUT_ROOT, "comparison_images_train")
 
+DET_DIRS = [
+    OUTPUT_YOLO_DOTA_DIR,
+    "./test/data/outputs/dlzdt_val_sp_ft_rep0",
+    "./test/data/outputs/dlzdt_val_sp_ft_rep1",
+    "./test/data/outputs/dlzdt_val_sp_ft_rep3",
+]
+MODEL_NAMES = ["YOLO-OBB", "SP-FT-Rep0", "SP-FT-Rep1", "SP-FT-Rep3"]
 # DET_DIRS = [
-#     YOLO_DOTA_DIR,
 #     "./test/data/outputs/dlzdt_sp_rep0_train",
 #     "./test/data/outputs/dlzdt_sp_rep1_train",
 # ]
-# MODEL_NAMES = ["YOLO-OBB", "DEIMv2-OBB-SP-Rep0", "DEIMv2-OBB-SP-Rep1"]
-DET_DIRS = [
-    "./test/data/outputs/dlzdt_sp_rep0_train",
-    "./test/data/outputs/dlzdt_sp_rep1_train",
-]
-MODEL_NAMES = ["DEIMv2-OBB-SP-Rep0", "DEIMv2-OBB-SP-Rep1"]
+# MODEL_NAMES = ["DEIMv2-OBB-SP-Rep0", "DEIMv2-OBB-SP-Rep1"]
 VIS_IMAGE_NUM = 259
-# IOUV=np.array([0.3])
-IOUV = None
+
+IOUV = np.array([0.3])
+# IOUV = None
 
 
 def yolo_gt_to_dota(
