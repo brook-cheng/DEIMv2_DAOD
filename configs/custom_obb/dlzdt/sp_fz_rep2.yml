@@ -8,7 +8,7 @@ __include__: [
 ]
 
 #### 项目配置
-output_dir: ./outputs/deimv2_obb_sp_fz_dlzdt_anglerep2
+output_dir: ./outputs/deimv2_obb_dlzdt_sp_fz_rep2
 comet_project_name: 'deimv2_obb_sp_dlzdt'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
