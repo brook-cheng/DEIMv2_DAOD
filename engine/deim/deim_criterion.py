@@ -60,6 +60,7 @@ class DEIMCriterion(nn.Module):
         offset_scale_source="pre",
         lambda_angle=1.0,
         obbox_rep_dim=6,
+        periodic_angle_flag=True,
     ):
         """Create the criterion.
         Parameters:
@@ -92,6 +93,7 @@ class DEIMCriterion(nn.Module):
         self.offset_scale_source = offset_scale_source
         self.lambda_angle = lambda_angle
         self.obbox_rep_dim = obbox_rep_dim
+        self.periodic_angle_flag = periodic_angle_flag
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
@@ -261,16 +263,25 @@ class DEIMCriterion(nn.Module):
             losses["loss_giou"] = loss_giou.sum() / num_boxes
         elif self.box_mode == "obb":
             # FIXME: L1距离存在缺陷
-            spatial_l1 = F.l1_loss(
-                src_boxes[..., :4], target_boxes[..., :4], reduction="none"
-            )
-            # FIXME: 角度L1距离计算需要考察是否合适
-            angle_term = (
-                self.lambda_angle
-                * periodic_angle_distance(src_boxes[..., 4:], target_boxes[..., 4:])
-                / torch.pi
-            )
-            loss_bbox = torch.cat([spatial_l1, angle_term], dim=-1)
+            if self.periodic_angle_flag:
+                spatial_l1 = F.l1_loss(
+                    src_boxes[..., :4], target_boxes[..., :4], reduction="none"
+                )
+                angle_term = (
+                    self.lambda_angle
+                    * periodic_angle_distance(src_boxes[..., 4:], target_boxes[..., 4:])
+                    / torch.pi
+                )
+                loss_bbox = torch.cat([spatial_l1, angle_term], dim=-1)
+            else:
+                # 统一空间和角度量纲到[0,1]
+                src_boxes_l1 = torch.cat(
+                    [src_boxes[..., :4], src_boxes[..., 4:] / torch.pi], dim=-1
+                )
+                target_boxes_l1 = torch.cat(
+                    [target_boxes[..., :4], target_boxes[..., 4:] / torch.pi], dim=-1
+                )
+                loss_bbox = F.l1_loss(src_boxes_l1, target_boxes_l1, reduction="none")
             losses["loss_bbox"] = loss_bbox.sum() / num_boxes
             loss_kld = kld_loss(src_boxes, target_boxes, reduction="none")
             losses["loss_kld"] = loss_kld.sum() / num_boxes
