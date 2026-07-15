@@ -94,7 +94,7 @@ DEIMTransformer:
   hidden_dim: 256 #hidden_dim
   dim_feedforward: 2048 # hidden_dim*8
   box_mode: obb
-  angle_rep: 0
+  angle_rep: 1
 
 PostProcessor:
   box_mode: obb
@@ -129,8 +129,7 @@ DEIMCriterion:
   alpha: 0.75
   reg_max: 32
   box_mode: obb
-  obbox_rep_dim: 6
-  periodic_angle_flag: False
+  obbox_rep_dim: 5
 
   matcher:
     type: HungarianMatcher
