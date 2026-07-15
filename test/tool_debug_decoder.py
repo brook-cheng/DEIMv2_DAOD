@@ -443,7 +443,8 @@ def phase_pca(model, img_dir, gt_dota_dir, output_root, imgsz, image_list=None):
         sample_imgs = [f for f in image_list if os.path.splitext(f)[0] in gt_info]
     else:
         img_files = sorted(
-            f for f in os.listdir(img_dir)
+            f
+            for f in os.listdir(img_dir)
             if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp"))
         )
         sample_imgs = [f for f in img_files if os.path.splitext(f)[0] in gt_info]
@@ -610,9 +611,17 @@ def run_debug(
     gt_dir = os.path.join(output_root, "gt_dota")
 
     # Shared image list for Phase 4 & 5: GT-image stems, sampled by vis_step
-    gt_stems = {os.path.splitext(f)[0] for f in os.listdir(gt_dir) if f.endswith(".txt")}
-    all_imgs = sorted(f for f in os.listdir(img_dir) if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp")))
-    shared_imgs = [f for f in all_imgs[::vis_step] if os.path.splitext(f)[0] in gt_stems]
+    gt_stems = {
+        os.path.splitext(f)[0] for f in os.listdir(gt_dir) if f.endswith(".txt")
+    }
+    all_imgs = sorted(
+        f
+        for f in os.listdir(img_dir)
+        if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp"))
+    )
+    shared_imgs = [
+        f for f in all_imgs[::vis_step] if os.path.splitext(f)[0] in gt_stems
+    ]
 
     # Phase 2-3: Analysis
     print("\n" + "=" * 60)
@@ -673,27 +682,33 @@ def main_multi():
 
     MODEL_LIST = [
         {
-            "config": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml",
-            "ckpt": "outputs/sp_ft_rep0.pth",
-            "output": "./test/data/outputs/debug_decoder/sp_ft_rep0_train",
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep0.yml",
+            "ckpt": "outputs/sp_ft_rep0_0714.pth",
+            "output": "./test/data/outputs/debug_decoder/sp_ft_rep0_0714_train",
             "infer_flag": True,
         },
         {
-            "config": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep1_p[15,45,75].yml",
-            "ckpt": "outputs/sp_ft_rep1.pth",
-            "output": "./test/data/outputs/debug_decoder/sp_ft_rep1_train",
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep0.yml",
+            "ckpt": "outputs/sp_ft_rep0_0715.pth",
+            "output": "./test/data/outputs/debug_decoder/sp_ft_rep0_0715_train",
             "infer_flag": True,
         },
         {
-            "config": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep3_p[15,45,75].yml",
-            "ckpt": "outputs/sp_ft_rep3.pth",
-            "output": "./test/data/outputs/debug_decoder/sp_ft_rep3_train",
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep1.yml",
+            "ckpt": "outputs/sp_ft_rep1_0714.pth",
+            "output": "./test/data/outputs/debug_decoder/sp_ft_rep1_0714_train",
             "infer_flag": True,
         },
         {
-            "config": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml",
-            "ckpt": "outputs/sp_fz_rep0.pth",
-            "output": "./test/data/outputs/debug_decoder/sp_fz_rep0_train",
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep1.yml",
+            "ckpt": "outputs/sp_ft_rep1_0715.pth",
+            "output": "./test/data/outputs/debug_decoder/sp_ft_rep1_0715_train",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep3.yml",
+            "ckpt": "outputs/sp_ft_rep3_0714.pth",
+            "output": "./test/data/outputs/debug_decoder/sp_ft_rep3_0714_train",
             "infer_flag": True,
         },
     ]
