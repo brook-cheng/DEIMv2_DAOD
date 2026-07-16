@@ -1,423 +1,467 @@
-# DEIMv2-OBB Loss Refinement：移植 YOLO-OBB 损失体系
+# DEIMv2-OBB Loss Refinement Design
 
 Date: 2026-07-16
 
 ## 1. Purpose
 
-将 YOLO-OBB 的三个关键损失设计移植到 DEIMv2-OBB 的 `DEIMCriterion` 和 `HungarianMatcher` 中，同时保留 DEIMv2 的核心优势（FGL + DDF 蒸馏、MAL 分类、匈牙利匹配框架）。目标是在不牺牲 DEIMv2 现有能力的前提下，修复当前 OBB 损失在角度建模、几何度量和损失对齐上的已知缺陷。
+Refine DEIMv2-OBB regression so Hungarian-positive predictions receive useful center and scale gradients even when they do not overlap their ground-truth boxes, while aligning the criterion and both Hungarian matcher phases with OBB representation equivalence.
 
-## 2. Background
+The recommended criterion combines:
 
-### 2.1 当前问题
+- center and canonical side-length L1;
+- ProbIoU;
+- periodic angle loss;
+- KLD.
 
-DEIMv2-OBB 的损失体系有三个经代码审查确认的缺陷：
+The matcher uses the same center and canonical side-length L1 before and after `matcher_change_epoch`, keeps ProbIoU and angle geometry, and retains Chamfer in the early additive phase.
 
-1. **角度损失过于朴素**：`periodic_angle_distance`（`obb_geometry.py:18-39`）只是 `min(|Δθ|, |π-Δθ|)` 的 L1 变体，不理解 w↔h 互换时角度等价性，也不理解正方形物体的角度无关性。
+## 2. Scope and Constraints
 
-2. **几何损失冗余且不对齐**：`loss_bbox`（L1 on (cx,cy,w,h) + periodic angle L1）和 `loss_kld`（KLD）同时存在。L1 作者自己标注了 `# FIXME: L1距离存在缺陷`（`deim_criterion.py:265`）；KLD 值域 `[0, ∞)`，与 eval 使用的 ProbIoU 不对齐。
+### 2.1 In scope
 
-3. **匹配与损失度量不一致**：`HungarianMatcher` 使用 `cost_probiou` 做匹配，但 `loss_boxes` 使用 KLD + L1 做监督——匹配选出来的最优配对，loss 却用不同的几何度量去优化。
+- OBB-only box losses in `engine/deim/deim_criterion.py`.
+- OBB-only costs in `engine/deim/matcher.py`.
+- A focused OBB loss utility module.
+- Explicit OBB configuration migration, including Kendall-managed loss names.
+- Unit, gradient, matcher, configuration, Kendall, and integration tests.
+- A controlled convergence comparison between the legacy, ProbIoU-only-geometry, and recommended loss combinations.
 
-### 2.2 设计原则
+### 2.2 Out of scope
 
-- **保留 DEIMv2 优势**：FGL+DDF 蒸馏、MAL 分类、匈牙利匹配框架、CDN、encoder aux
-- **替换 L1 而非 KLD**：KLD 作为高斯分布距离有其理论价值；L1 是明确的瓶颈
-- **matcher 与 criterion 同度量**：匹配的 cost 和训练的 loss 使用一致的几何度量
-- **只改 OBB 路径**：所有修改由 `self.box_mode == "obb"` 门控
+- HBB criterion or matcher behavior.
+- ADR/FGL/DDF representation and decoder changes.
+- MAL, CDN, encoder auxiliary outputs, postprocessing, evaluation, or dataset changes.
+- Replacing Hungarian assignment with TaskAlignedAssigner.
+- Adding Chamfer distance as a differentiable criterion loss.
+- Claiming faster convergence or higher mAP before controlled experiments provide evidence.
 
-## 3. Design Goals
+## 3. Current Problems
 
-1. 用 YOLO-OBB 的 `sin²(2Δθ) × AR_weight` 角度损失替换当前的 `periodic_angle_distance` L1
-2. 引入 ProbIoU box loss 作为新的主几何损失，与 matcher 的 `cost_probiou` 对齐
-3. 保留 KLD 作为辅助损失（可选，通过 weight 控制）
-4. 同步更新 `HungarianMatcher` 的 cost 计算，确保匹配与损失使用相同度量
-5. 所有新增损失通过 `weight_dict` 控制权重，支持 Kendall Uncertainty Weighting
-6. 零影响 HBB 路径
+1. The current OBB `loss_bbox` applies L1 directly to `(cx, cy, w, h)` and adds a parameter-space angle term. Equivalent `(w, h, theta)` and `(h, w, theta + pi/2)` representations can therefore receive different penalties.
+2. The criterion and matcher do not use the same primary geometry throughout training.
+3. `1 - ProbIoU` remains differentiable for moderately separated boxes but approaches its upper bound for distant boxes. Its center gradient can become negligibly small and eventually zero at the implementation's upper Bhattacharyya-distance clamp.
+4. The periodic angle loss has no center gradient and cannot pull a distant prediction toward its GT.
+5. The late matching-aware branch currently discards all L1 information, so distant candidate queries can be poorly separated when their class and ProbIoU qualities are similar.
+6. Kendall configuration must explicitly include every produced OBB loss family.
 
-## 4. Non-Goals
+## 4. Final Decisions
 
-- 不修改 FGL/DDF 蒸馏体系
-- 不修改 MAL 分类损失
-- 不修改匈牙利匹配框架本身（只调整 cost 组成）
-- 不修改 decoder 结构或 OBB 表示（ADR）
-- 不修改 `postprocessor`、`evaluate` 或数据集管线
+| Area | Decision |
+|---|---|
+| Criterion L1 | Keep `loss_bbox`, but redefine it as center L1 plus canonical short/long-side L1. Remove angle from this key. |
+| Primary box loss | Add equal-positive `loss_probiou = sum(1 - ProbIoU) / normalizer`. |
+| Angle loss | Add equal-positive `loss_angle = sum(scale_weight * sin²(2Δtheta)) / normalizer`. |
+| KLD | Retain `loss_kld`; it complements L1 and ProbIoU with distribution geometry. |
+| Positive weighting | Do not multiply the four geometry losses by detached current ProbIoU or `boxes_weight`. |
+| Early matcher L1 | Redefine `cost_bbox` as pairwise center L1 plus pairwise canonical side L1; baseline weight 2. |
+| Early ProbIoU | Use `cost_probiou=4`. |
+| Early angle | Add `cost_angle=3` using the criterion's periodic angle geometry. |
+| Late matcher L1 | Add the same `cost_bbox` additively with independent `late_cost_bbox=0.25`. |
+| Late angle | Multiply matching quality by angle quality. |
+| Chamfer | Keep matcher-only in the early branch, weight 5. |
+| Compatibility | New switches default off; unmigrated OBB configs retain the legacy OBB branch. No silent key conversion. |
 
-## 5. Detailed Changes
+## 5. OBB Representation and Canonical Side L1
 
-### 5.1 新增文件：`engine/deim/yolo_obb_loss.py`
+DEIMv2 decodes OBBs with the longer-edge-as-`w` convention in its geometry path, but loss and matcher code must not assume every input is canonical. External annotations, transforms, and near-square boxes can still expose equivalent `w/h` parameterizations.
 
-独立的损失函数模块，从 YOLO-OBB 提取核心计算：
-
-```python
-def yolo_angle_loss(pred_bboxes, target_bboxes, fg_mask, weight, 
-                     target_scores_sum, lambda_val=3.0):
-    """sin²(2Δθ) × aspect_ratio_weight angle loss.
-    
-    Args:
-        pred_bboxes:   (N_q, 5) predicted OBBs in (cx,cy,w,h,θ) format, θ∈[0,π)
-        target_bboxes: (N_q, 5) target OBBs
-        fg_mask:       (N_q,) bool mask of matched queries
-        weight:        (N_q,) loss weight per query (from target_scores)
-        target_scores_sum: scalar for normalization
-        lambda_val:    sensitivity to aspect ratio (default 3.0)
-    
-    Returns:
-        scalar angle_loss
-    """
-    w_gt, h_gt = target_bboxes[..., 2], target_bboxes[..., 3]
-    pred_theta, target_theta = pred_bboxes[..., 4], target_bboxes[..., 4]
-    
-    # Aspect ratio weight: square objects get weak angle supervision
-    log_ar = torch.log((w_gt + 1e-9) / (h_gt + 1e-9))
-    scale_weight = torch.exp(-(log_ar ** 2) / (lambda_val ** 2))
-    
-    # Wrap angle difference to [-π/2, π/2]
-    delta_theta = pred_theta - target_theta
-    delta_theta_wrapped = delta_theta - torch.round(delta_theta / math.pi) * math.pi
-    
-    # sin²(2Δθ): zero at Δθ=0 and Δθ=±π/2 (w↔h symmetry)
-    ang_loss = torch.sin(2 * delta_theta_wrapped[fg_mask]) ** 2
-    
-    ang_loss = scale_weight[fg_mask] * ang_loss * weight
-    return ang_loss.sum() / target_scores_sum
-
-
-def yolo_probiou_loss(pred_bboxes, target_bboxes, fg_mask, weight, 
-                       target_scores_sum):
-    """1 - ProbIoU box regression loss.
-    
-    Args:
-        pred_bboxes:   (N_q, 5) predicted OBBs
-        target_bboxes: (N_q, 5) target OBBs
-        fg_mask:       (N_q,) bool mask
-        weight:        (N_q,) per-query weight
-        target_scores_sum: scalar normalizer
-    
-    Returns:
-        scalar probiou_loss
-    """
-    iou = probiou(pred_bboxes[fg_mask], target_bboxes[fg_mask]).squeeze(-1)
-    loss_iou = ((1.0 - iou) * weight).sum() / target_scores_sum
-    return loss_iou
-```
-
-**依赖**：`from ..deim.obb_ops import probiou`
-
-### 5.2 修改文件：`engine/deim/deim_criterion.py`
-
-#### 5.2.1 `__init__` 新增参数
+For every prediction and target, define:
 
 ```python
-# 在 __init__ 末尾新增：
-self.use_yolo_angle = True       # 启用 YOLO-style sin²(2Δθ) 角度损失
-self.use_yolo_probiou = True     # 启用 ProbIoU box loss（替代 L1）
-self.angle_lambda = 3.0          # 宽高比敏感度
-self.keep_kld = True             # 是否保留 KLD 作为辅助损失
+pred_sides = torch.sort(pred_boxes[..., 2:4], dim=-1).values
+target_sides = torch.sort(target_boxes[..., 2:4], dim=-1).values
 ```
 
-#### 5.2.2 修改 `loss_boxes`（第 242-289 行）
+The two columns are `[short_side, long_side]`. The matched-pair criterion loss is:
 
-当前 OBB 分支的计算逻辑（行 264-287）：
+```text
+loss_bbox_i =
+    |pred_cx - target_cx|
+  + |pred_cy - target_cy|
+  + |pred_short - target_short|
+  + |pred_long - target_long|
+```
+
+This loss is invariant to swapping `w` and `h`. It contains no angle term. Near `w == h`, `sort` can switch branches, but PyTorch supplies a valid subgradient and both sides are geometrically close.
+
+The loss does not modify inputs in place and does not silently repair invalid widths or heights. Existing decode and OBB numerical safeguards remain responsible for valid box production.
+
+## 6. ProbIoU and No-Overlap Gradient Behavior
+
+ProbIoU models OBBs as Gaussian distributions, so zero polygon intersection does not by itself imply zero loss gradient. Moderately separated boxes still receive center, size, and covariance gradients.
+
+For distant boxes, however, the current implementation computes a bounded Hellinger-style quantity from `exp(-bd)` and clamps `bd` to a maximum of 100. Consequently:
+
+- `loss_probiou` approaches 1;
+- its center gradient decays exponentially;
+- after the upper clamp, its center gradient can be zero.
+
+The recommended loss therefore assigns explicit roles:
+
+- `loss_bbox`: non-saturating far-field center and side-length direction;
+- `loss_kld`: continuous center, scale, and covariance geometry;
+- `loss_probiou`: primary near-field and overlap-aware whole-box geometry;
+- `loss_angle`: explicit periodic direction supervision.
+
+The matcher L1 costs improve discrete assignment only. Hungarian matching is non-differentiable and must not be described as a source of criterion gradients.
+
+## 7. Angle Geometry
+
+DEIMv2 decodes final angles as:
 
 ```python
-# --- 删除以下代码 ---
-elif self.box_mode == "obb":
-    # FIXME: L1距离存在缺陷        ← 去掉这个分支的 L1 逻辑
-    if self.periodic_angle_flag:
-        spatial_l1 = F.l1_loss(src_boxes[..., :4], target_boxes[..., :4], reduction="none")
-        angle_term = self.lambda_angle * periodic_angle_distance(...) / torch.pi
-        loss_bbox = torch.cat([spatial_l1, angle_term], dim=-1)
-    ...
-    losses["loss_bbox"] = loss_bbox.sum() / num_boxes
-    loss_kld = kld_loss(src_boxes, target_boxes, reduction="none")
-    losses["loss_kld"] = loss_kld.sum() / num_boxes
-
-# --- 替换为 ---
-elif self.box_mode == "obb":
-    weight = ...                  # 从 boxes_weight 获取，若为 None 则用 1.0
-    fg_mask = torch.ones(src_boxes.shape[0], dtype=torch.bool, device=src_boxes.device)
-    target_scores_sum = max(src_boxes.shape[0], 1)
-    
-    # 1. ProbIoU box loss (替代 L1)
-    if self.use_yolo_probiou:
-        from .yolo_obb_loss import yolo_probiou_loss
-        losses["loss_probiou"] = yolo_probiou_loss(
-            src_boxes, target_boxes, fg_mask, weight, target_scores_sum
-        )
-    else:
-        # 保留原 L1 逻辑（向后兼容）
-        ...
-    
-    # 2. YOLO-style angle loss (替代 periodic_angle_distance)
-    if self.use_yolo_angle:
-        from .yolo_obb_loss import yolo_angle_loss
-        losses["loss_angle"] = yolo_angle_loss(
-            src_boxes, target_boxes, fg_mask, weight, target_scores_sum,
-            lambda_val=self.angle_lambda
-        )
-    
-    # 3. KLD 辅助损失（可选保留）
-    if self.keep_kld:
-        loss_kld = kld_loss(src_boxes, target_boxes, reduction="none")
-        losses["loss_kld"] = loss_kld.sum() / num_boxes
+theta = torch.atan2(w_dy, w_dx) % torch.pi
 ```
 
-**关键设计决策**：
-
-- `loss_bbox` key 不再使用（被 `loss_probiou` + `loss_angle` 替代）
-- KLD 默认保留但权重可置 0 以消融
-- `boxes_weight`（IoU 权重）通过 `get_loss_meta_info` 获取，用于加权 ProbIoU loss
-
-#### 5.2.3 新增 `get_loss_meta_info` 支持
-
-`get_loss_meta_info`（第 717-750 行）当前对 `loss in ("boxes",)` 才返回 `boxes_weight`。需要扩展：
+Therefore `theta` belongs to `[0, pi)`. Define:
 
 ```python
-# 第 743 行修改：
-- if loss in ("boxes",):
-+ if loss in ("boxes", "probious",):
-      meta = {"boxes_weight": iou}
+delta = pred_theta - target_theta
+delta = delta - torch.round(delta / torch.pi) * torch.pi
+angle_penalty = torch.sin(2 * delta).square()
 ```
 
-同时修改 `forward()` 中的 `use_uni_set` 判断（第 571 行），确保 `loss_probiou` 也使用统一匹配集：
+The penalty is zero at `delta=0` and `delta=±pi/2`, matching `w/h` interchange symmetry.
+
+The aspect-ratio factor follows the current Ultralytics form:
 
 ```python
-# 第 571 行修改：
-- use_uni_set = self.use_uni_set and (loss in ["boxes", "local"])
-+ use_uni_set = self.use_uni_set and (loss in ["boxes", "local", "probiou"])
+log_ar = torch.log((target_w + eps) / (target_h + eps))
+scale_weight = torch.exp(-log_ar.square() / angle_lambda**2)
 ```
 
-### 5.3 修改文件：`engine/deim/matcher.py`
+It is strongest near a square and decreases for extreme aspect ratios. ProbIoU and KLD remain responsible for distribution geometry when the explicit angle term is at a stationary point.
 
-#### 5.3.1 `__init__` 新增参数
+## 8. New Utility Module
+
+Create `engine/deim/yolo_obb_loss.py` with four pure functions:
 
 ```python
-# matcher.py __init__
-self.cost_angle = weight_dict.get("cost_angle", 0)  # 新增：角度 cost 权重
+def canonical_side_l1_loss(
+    pred_bboxes: torch.Tensor,
+    target_bboxes: torch.Tensor,
+    normalizer: float | torch.Tensor,
+) -> torch.Tensor:
+    """Return center plus canonical short/long-side L1 over matched pairs."""
+
+
+def yolo_angle_loss(
+    pred_bboxes: torch.Tensor,
+    target_bboxes: torch.Tensor,
+    normalizer: float | torch.Tensor,
+    lambda_val: float = 3.0,
+) -> torch.Tensor:
+    """Return scalar periodic angle loss over matched OBB pairs."""
+
+
+def yolo_probiou_loss(
+    pred_bboxes: torch.Tensor,
+    target_bboxes: torch.Tensor,
+    normalizer: float | torch.Tensor,
+) -> torch.Tensor:
+    """Return scalar (1 - ProbIoU) loss over matched OBB pairs."""
+
+
+def compute_angle_cost_matrix(
+    pred_bboxes: torch.Tensor,
+    target_bboxes: torch.Tensor,
+    lambda_val: float = 3.0,
+) -> torch.Tensor:
+    """Return pairwise angle cost with shape (num_queries, num_targets)."""
 ```
 
-#### 5.3.2 修改 `forward` cost 计算（第 172-188 行）
+The matcher constructs canonical pairwise L1 explicitly:
 
-当前 OBB 路径：
 ```python
-if self.box_mode == "obb":
-    spatial_cost = torch.cdist(out_bbox[..., :4], tgt_bbox[..., :4], p=1)
-    angle_cost = periodic_angle_distance(...).squeeze(-1) / self.angle_factor
-    cost_bbox = spatial_cost + self.lambda_angle * angle_cost
-    cost_probiou = -batch_probiou(out_bbox, tgt_bbox, eps=1e-8)
-    C = self.cost_bbox * cost_bbox + self.cost_class * cost_class 
-        + self.cost_probiou * cost_probiou + ...
+pred_center = pred_bboxes[..., :2]
+target_center = target_bboxes[..., :2]
+pred_sides = torch.sort(pred_bboxes[..., 2:4], dim=-1).values
+target_sides = torch.sort(target_bboxes[..., 2:4], dim=-1).values
 
-# --- 修改为 ---
-if self.box_mode == "obb":
-    cost_probiou = -batch_probiou(out_bbox, tgt_bbox, eps=1e-8)
-    
-    # YOLO-style angle cost: sin²(2Δθ) × AR_weight on the cost matrix
-    if self.cost_angle > 0:
-        from .yolo_obb_loss import compute_angle_cost_matrix
-        cost_angle = compute_angle_cost_matrix(out_bbox, tgt_bbox)
-    
-    C = (self.cost_bbox * cost_bbox        # L1 cost (保留)
-         + self.cost_class * cost_class
-         + self.cost_probiou * cost_probiou
-         + self.cost_angle * cost_angle    # 新增
-         + ...)
+cost_center = torch.cdist(pred_center, target_center, p=1)
+cost_sides = torch.cdist(pred_sides, target_sides, p=1)
+cost_bbox = cost_center + cost_sides
 ```
 
-#### 5.3.3 新增 `yolo_obb_loss.compute_angle_cost_matrix`
+Empty matched tensors return scalar zero on the same device/dtype. Empty matcher targets return `(num_queries, 0)` matrices without NaN. Every utility rejects a final dimension other than 5 with `ValueError`.
+
+## 9. Criterion Design
+
+### 9.1 Constructor switches
+
+Add:
 
 ```python
-def compute_angle_cost_matrix(pred_bboxes, tgt_bboxes, lambda_val=3.0):
-    """Compute pairwise angle cost matrix for Hungarian matching.
-    
-    Args:
-        pred_bboxes: (N_q, 5) predicted OBBs
-        tgt_bboxes:  (N_gt, 5) target OBBs
-    
-    Returns:
-        (N_q, N_gt) angle cost matrix, values in [0, 1]
-    """
-    N_q, N_gt = pred_bboxes.shape[0], tgt_bboxes.shape[0]
-    
-    # Extract angles
-    pred_theta = pred_bboxes[:, 4:5]   # (N_q, 1)
-    tgt_theta = tgt_bboxes[:, 4:5]     # (N_gt, 1)
-    
-    # Pairwise angle difference with π-periodic wrapping
-    delta = pred_theta - tgt_theta.T    # (N_q, N_gt)
-    delta = delta - torch.round(delta / math.pi) * math.pi
-    
-    # sin²(2Δθ): handles both π-periodicity and w↔h symmetry
-    angle_cost = torch.sin(2 * delta) ** 2
-    
-    # Aspect ratio weighting: (N_gt,) → broadcast to (N_q, N_gt)
-    tgt_w, tgt_h = tgt_bboxes[:, 2], tgt_bboxes[:, 3]
-    log_ar = torch.log((tgt_w + 1e-9) / (tgt_h + 1e-9))
-    ar_weight = torch.exp(-(log_ar ** 2) / (lambda_val ** 2))  # (N_gt,)
-    ar_weight = ar_weight.unsqueeze(0)  # (1, N_gt) for broadcast
-    
-    return angle_cost * ar_weight
+use_yolo_probiou: bool = False
+use_yolo_angle: bool = False
+keep_kld: bool = True
+angle_lambda: float = 3.0
 ```
 
-### 5.4 修改文件：YAML 配置文件
+Defaults preserve unmigrated configs. The existing condition that both new switches are false selects the complete legacy OBB branch, including its original parameter-space `loss_bbox` behavior.
 
-#### 5.4.1 `configs/custom_obb/deimv2_obb_common.yml`
+### 9.2 Configuration validation
+
+For `box_mode == "obb"` in new mode, defined as either new switch being enabled:
+
+- `weight_dict` must contain `loss_bbox` because canonical L1 is the non-saturating center/scale channel;
+- enabled ProbIoU requires `loss_probiou`;
+- enabled angle requires `loss_angle`;
+- enabled KLD requires `loss_kld`;
+- no key is automatically renamed, copied, removed, or assigned a fallback weight.
+
+Legacy OBB mode continues to require its existing `loss_bbox` and, when enabled, `loss_kld`.
+
+### 9.3 New OBB `loss_boxes` branch
+
+For already-matched pairs:
+
+```python
+normalizer = num_boxes
+
+losses["loss_bbox"] = canonical_side_l1_loss(
+    src_boxes, target_boxes, normalizer
+)
+
+if self.use_yolo_probiou:
+    losses["loss_probiou"] = yolo_probiou_loss(
+        src_boxes, target_boxes, normalizer
+    )
+
+if self.use_yolo_angle:
+    losses["loss_angle"] = yolo_angle_loss(
+        src_boxes, target_boxes, normalizer,
+        lambda_val=self.angle_lambda,
+    )
+
+if self.keep_kld:
+    losses["loss_kld"] = (
+        kld_loss(src_boxes, target_boxes, reduction="none").sum()
+        / normalizer
+    )
+```
+
+All Hungarian positives are equally weighted. `boxes_weight` remains accepted for HBB and existing meta-info compatibility but is ignored by these new OBB geometry losses.
+
+`loss_bbox`, `loss_probiou`, and `loss_angle` remain outputs of the existing `boxes` dispatch family. No new dispatch names are added to `self.losses`.
+
+## 10. Matcher Design
+
+### 10.1 Constructor
+
+Add:
+
+```python
+self.cost_angle = weight_dict.get("cost_angle", 0.0)
+self.late_cost_bbox = weight_dict.get("late_cost_bbox", 0.0)
+self.angle_order_alpha = angle_order_alpha
+```
+
+with `angle_order_alpha: float = 1.0`. Defaults preserve existing matcher configurations.
+
+### 10.2 Early additive matcher
+
+Before `matcher_change_epoch`:
+
+```text
+C = 2 * canonical_cost_bbox
+  + 2 * cost_class
+  + 4 * cost_probiou
+  + 3 * cost_angle
+  + 5 * cost_chamfer
+```
+
+`canonical_cost_bbox` is the sum of `cost_center` and `cost_sides` shown in Section 8. The old periodic angle component is removed from `cost_bbox`; angle geometry is represented only by `cost_angle`.
+
+### 10.3 Late matching-aware matcher
+
+At and after `matcher_change_epoch`:
+
+```python
+if self.cost_angle != 0:
+    angle_cost = compute_angle_cost_matrix(out_bbox, target_bbox)
+    angle_quality = (1.0 - angle_cost).clamp(0.0, 1.0)
+else:
+    angle_quality = 1.0
+
+geometry_quality = (
+    class_score
+    * bbox_iou.pow(self.iou_order_alpha)
+    * angle_quality.pow(self.angle_order_alpha)
+)
+
+C = -geometry_quality + self.late_cost_bbox * cost_bbox
+```
+
+The late L1 term is additive rather than converted into a multiplicative quality. This avoids introducing an arbitrary L1-to-quality mapping and temperature.
+
+The independent baseline `late_cost_bbox=0.25` is lower than the early `cost_bbox=2` because `geometry_quality` is dimensionless and typically bounded by 1. Separate weights also permit independent ablation.
+
+To reproduce the legacy late formula, set both `cost_angle=0` and `late_cost_bbox=0`.
+
+## 11. Kendall Weighting
+
+Do not change HBB/global defaults in `engine/solver/det_solver.py`. Migrated OBB configs that enable Kendall explicitly declare:
 
 ```yaml
-# 当前 (line 157-158):
-DEIMCriterion:
-  weight_dict: {loss_mal: 1, loss_bbox: 5, loss_kld: 2, loss_fgl: 0.15}
-  losses: ['mal', 'boxes', 'local']
-
-# 改为:
-DEIMCriterion:
-  weight_dict: {loss_mal: 1, loss_probiou: 5, loss_angle: 3, loss_kld: 1, loss_fgl: 0.15}
-  losses: ['mal', 'boxes', 'local']
-  use_yolo_probiou: True
-  use_yolo_angle: True
-  keep_kld: True
-  matcher:
-    weight_dict: {cost_class: 2, cost_probiou: 5, cost_angle: 3, cost_chamfer: 5}
+KendallWeighting:
+  enabled: true
+  sigma_lr: 0.001
+  init_log_sigma: 0.0
+  loss_names:
+    - loss_mal
+    - loss_bbox
+    - loss_probiou
+    - loss_angle
+    - loss_kld
+    - loss_fgl
 ```
 
-#### 5.4.2 `configs/custom_obb/deimv2_obb_sp.yml`
+Main, aux, dn, enc, and pre variants of each family share one Kendall parameter through the existing suffix aggregation logic.
 
-同步更新 `weight_dict` 和 matcher `weight_dict`。
+## 12. Configuration Baseline
 
-### 5.5 `weight_dict` key 映射变更
+Migrate:
 
-| Key (旧) | Key (新) | 含义 | 默认权重 |
-|----------|----------|------|---------|
-| `loss_bbox` | — | 删除（被以下两项替代） | — |
-| — | `loss_probiou` | 1 - ProbIoU box 损失 | 5 |
-| — | `loss_angle` | sin²(2Δθ) 角度损失 | 3 |
-| `loss_kld` | `loss_kld` | KLD 辅助损失（保留，权重降低） | 1 |
-| `loss_mal` | `loss_mal` | MAL 分类（不变） | 1 |
-| `loss_fgl` | `loss_fgl` | FGL 精炼（不变） | 0.15 |
+- `configs/custom_obb/deimv2_obb_common.yml`
+- `configs/custom_obb/deimv2_obb_sp.yml`
+- `configs/deimv2_obb/deimv2_obb.yml`
 
-### 5.6 Matcher `weight_dict` key 映射变更
-
-| Key (旧) | Key (新) | 含义 | 默认权重 |
-|----------|----------|------|---------|
-| `cost_bbox` | `cost_bbox` | L1 空间 cost（保留） | 5 |
-| `cost_probiou` | `cost_probiou` | ProbIoU cost（不变） | 5 → 2 |
-| `cost_chamfer` | `cost_chamfer` | Chamfer cost（不变） | 5 |
-| — | `cost_angle` | sin²(2Δθ) 角度 cost（新增） | 3 |
-
-**`cost_bbox` 保留原因**：L1 的 `torch.cdist` 提供全局搜索时的尺度基准，ProbIoU 在某些极端旋转下可能退化。保留 L1 cost 作为稳定基线。
-
-**`cost_probiou` 权重从 5 降到 2 的原因**：现在 `loss_probiou` 已承担主回归角色，matcher 中 ProbIoU cost 的权重可以降低，避免匹配过度依赖单一度量。
-
-## 6. 数据流
-
-### 6.1 训练时 loss 计算流
-
-```
-DEIMCriterion.forward(outputs, targets)
-  │
-  ├─ HungarianMatcher.forward(outputs, targets)
-  │     └─ cost_matrix = 5×cost_bbox + 2×cost_class 
-  │                      + 2×cost_probiou + 3×cost_angle + 5×cost_chamfer
-  │     └─ linear_sum_assignment → indices
-  │
-  ├─ loss_boxes(outputs, targets, indices, num_boxes, boxes_weight=IoU)
-  │     └─ yolo_probiou_loss()     → loss_probiou
-  │     └─ yolo_angle_loss()       → loss_angle
-  │     └─ kld_loss()              → loss_kld (optional)
-  │
-  ├─ loss_labels_mal(outputs, targets, indices)    → loss_mal
-  └─ loss_local(outputs, targets, indices)          → loss_fgl + loss_ddf
-```
-
-### 6.2 匹配与 Loss 度量对齐
-
-```
-                    Matching Cost           Training Loss
-                    ─────────────           ─────────────
-ProbIoU             cost_probiou            loss_probiou         ← SAME metric ✓
-Angle               cost_angle              loss_angle           ← SAME metric ✓
-Spatial L1          cost_bbox               — (removed)          ← matcher-only
-Chamfer             cost_chamfer            — (matcher-only)     ← matcher-only
-Classification      cost_class              loss_mal (MAL)       ← aligned via soft target
-Distribution        —                       loss_fgl + loss_ddf  ← criterion-only
-KLD                 —                       loss_kld             ← criterion-only
-```
-
-## 7. 向后兼容
-
-### 7.1 HBB 路径
-
-所有 `self.box_mode == "obb"` 分支独立，`self.box_mode == "hbb"` 路径的 `loss_boxes` 逻辑完全不变。
-
-### 7.2 OBB 回退
-
-通过配置开关支持回退到旧行为：
+Criterion baseline:
 
 ```yaml
 DEIMCriterion:
-  use_yolo_probiou: False   # 回退到 L1
-  use_yolo_angle: False     # 回退到 periodic_angle_distance
-  keep_kld: True            # 保留 KLD（旧行为）
+  weight_dict:
+    loss_mal: 1
+    loss_bbox: 2
+    loss_probiou: 5
+    loss_angle: 3
+    loss_kld: 1
+    loss_fgl: 0.15
+  losses: [mal, boxes, local]
+  use_yolo_probiou: true
+  use_yolo_angle: true
+  keep_kld: true
+  angle_lambda: 3.0
 ```
 
-当 `use_yolo_probiou=False` 且 `use_yolo_angle=False` 时，`loss_boxes` 降级为原始 L1 + KLD 逻辑。
+Config-specific MAL/FGL overrides remain unchanged.
 
-### 7.3 旧 config 兼容
+Matcher baseline:
 
-旧的 `weight_dict` key `loss_bbox` 在 criterion 中通过 `_handle_deprecated_keys` 自动映射：
-
-```python
-# deim_criterion.py __init__ 末尾新增
-if "loss_bbox" in self.weight_dict and "loss_probiou" not in self.weight_dict:
-    LOGGER.warning("'loss_bbox' is deprecated for OBB, auto-mapping to 'loss_probiou'")
-    self.weight_dict["loss_probiou"] = self.weight_dict.pop("loss_bbox")
+```yaml
+matcher:
+  weight_dict:
+    cost_class: 2
+    cost_bbox: 2
+    cost_probiou: 4
+    cost_angle: 3
+    cost_chamfer: 5
+    late_cost_bbox: 0.25
+  change_matcher: true
+  iou_order_alpha: 4.0
+  angle_order_alpha: 1.0
 ```
 
-## 8. 测试策略
+Other experiment configs are not bulk-migrated and remain on the legacy branch because the new switches default to false.
 
-### 8.1 单元测试（新增 `tests/test_yolo_obb_loss.py`）
+## 13. Ablations
 
-| 测试 | 预期 |
-|------|------|
-| `test_angle_loss_zero_when_same` | pred=target → loss=0 |
-| `test_angle_loss_zero_when_w_h_swapped` | θ_pred = θ_target + π/2 → loss=0（w↔h 互换） |
-| `test_angle_loss_max_when_perpendicular` | θ_pred = θ_target + π/4 → loss 最大 |
-| `test_angle_loss_square_ignored` | ar≈1 时 loss 权重 ≈ 1.0 |
-| `test_angle_loss_very_thin_suppressed` | ar<<1 时 loss 权重 → 0 |
-| `test_probiou_loss_bounded` | loss ∈ [0, 1] |
-| `test_probiou_loss_zero_perfect_match` | 完全重合 → loss=0 |
+| Experiment | Criterion | Matcher |
+|---|---|---|
+| Legacy | Existing parameter-space `loss_bbox + loss_kld` | Existing costs |
+| New geometry without canonical L1 | `loss_probiou + loss_angle + loss_kld` in a test-only comparison | New angle costs; L1 disabled |
+| Recommended | Canonical `loss_bbox + loss_probiou + loss_angle + loss_kld` | Early canonical L1 and late canonical L1 |
+| No KLD | Recommended without KLD; canonical L1 remains mandatory | Recommended matcher |
+| No late L1 | Recommended criterion | `late_cost_bbox=0` |
+| Legacy late matcher | Recommended criterion | `cost_angle=0`, `late_cost_bbox=0` |
+| No Chamfer | Recommended criterion | `cost_chamfer=0` |
 
-### 8.2 集成测试（修改 `tests/test_deim_criterion.py`）
+The no-canonical-L1 row exists for controlled convergence comparison, not as a supported migrated production configuration.
 
-| 测试 | 预期 |
-|------|------|
-| `test_obb_loss_keys` | `losses` dict 包含 `loss_probiou`, `loss_angle`, `loss_kld` |
-| `test_obb_loss_no_bbox_key` | `losses` dict **不**包含 `loss_bbox` |
-| `test_hbb_loss_unchanged` | HBB 路径输出与修改前一致 |
-| `test_backward_compat` | `use_yolo_*=False` 时输出与旧行为一致 |
+## 14. Testing
 
-### 8.3 回归检查（训练 1 epoch）
+### 14.1 Utility geometry
 
-- HBB 路径（`box_mode='hbb'`）：loss 数值与修改前误差 < 1e-6
-- OBB 路径（`box_mode='obb'`）：loss 无 NaN，收敛趋势正常
-- `train.py --test-only`：eval mAP 可计算、无崩溃
+- Identical boxes: canonical L1 and angle loss near zero; ProbIoU loss finite and below `1e-3`.
+- Swapping prediction `w/h` leaves canonical L1 unchanged.
+- A geometrically equivalent `(w,h,theta)` to `(h,w,theta+pi/2)` conversion leaves canonical L1 unchanged.
+- Oversized and undersized predicted sides receive gradients toward target side lengths.
+- `delta=pi/2`: angle loss/cost near zero.
+- `delta=pi/4`, square GT: angle loss near one.
+- Extreme-aspect-ratio angle weight is lower than the square case.
+- Cost matrix shapes, empty inputs, dtype/device preservation, and malformed final dimensions.
 
-## 9. 风险与缓解
+### 14.2 No-overlap gradients
 
-| 风险 | 概率 | 影响 | 缓解 |
-|------|------|------|------|
-| `loss_probiou` + `loss_kld` 同时存在导致梯度冲突 | 中 | 收敛变慢 | Kendall weighting 自动平衡；`keep_kld=False` 消融 |
-| `cost_angle` 引入后匹配不稳定 | 低 | mAP 下降 | `cost_angle` 权重默认 3，可调至 0 禁用 |
-| `loss_probiou` 在极小框上数值不稳定 | 低 | NaN loss | ProbIoU 内部已含 `eps` 和 `clamp` 保护 |
-| 旧 config 文件的 `loss_bbox` key 丢失 | 低 | 训练崩溃 | `_handle_deprecated_keys` 自动映射 + warning |
+Construct a valid GT and a prediction that is fully disjoint and located to its lower right. Under the recommended criterion:
 
-## 10. Files Changed
+- all four geometry losses are finite;
+- total `dL/dpred_cx > 0` and `dL/dpred_cy > 0`, so gradient descent moves the prediction toward the GT;
+- canonical `loss_bbox` alone has finite, nonzero center gradients at moderate and far distances;
+- increasing separation may reduce ProbIoU gradient, but total center gradient remains finite, nonzero, and correctly directed;
+- disabling KLD still leaves the canonical L1 far-field channel intact;
+- tests assert direction and nonzero gradients, not a fragile exact magnitude.
 
-| File | Change Type | Description |
-|------|-------------|-------------|
-| `engine/deim/yolo_obb_loss.py` | **新建** | `yolo_angle_loss`, `yolo_probiou_loss`, `compute_angle_cost_matrix` |
-| `engine/deim/deim_criterion.py` | 修改 | `__init__` 新参数, `loss_boxes` OBB 分支重写, `get_loss_meta_info` 扩展 |
-| `engine/deim/matcher.py` | 修改 | `__init__` 新参数 `cost_angle`, `forward` OBB cost 矩阵扩展 |
-| `configs/custom_obb/deimv2_obb_common.yml` | 修改 | `weight_dict` 和 matcher `weight_dict` 更新 |
-| `configs/custom_obb/deimv2_obb_sp.yml` | 修改 | 同上 |
-| `tests/test_yolo_obb_loss.py` | **新建** | 角度损失和 ProbIoU 损失单元测试 |
+### 14.3 Criterion compatibility
+
+- Recommended mode returns `loss_bbox`, `loss_probiou`, `loss_angle`, and `loss_kld`.
+- New `loss_bbox` is canonical center/side L1 and contains no angle term.
+- Invalid switch/key combinations fail before training.
+- Legacy switches retain the old OBB `loss_bbox + loss_kld` formula.
+- HBB outputs remain unchanged.
+
+### 14.4 Matcher phases
+
+- Early canonical L1 is invariant to raw `w/h` swaps.
+- Early nonzero `cost_angle` changes assignment in a controlled case.
+- Late `late_cost_bbox=0.25` prefers the center/scale-closer query when class, ProbIoU, and angle qualities are tied or nearly tied.
+- `late_cost_bbox=0` removes late L1 influence.
+- `cost_angle=0` and `late_cost_bbox=0` reproduce the legacy late formula.
+- Empty targets and random valid OBB matrices remain finite and safe.
+
+### 14.5 Kendall, configuration, and integration
+
+- OBB Kendall names contain all six recommended families.
+- Main and aux/dn/enc/pre variants aggregate under their base family.
+- Every configured Kendall family has a produced criterion key.
+- All three migrated configs parse and instantiate.
+- One synthetic criterion forward with supported auxiliary outputs is finite.
+- Existing OBB smoke/evaluation consistency and HBB regression tests pass.
+
+### 14.6 Convergence experiment
+
+Using the same dataset split, initialization policy, augmentation, optimizer, schedule, random seed policy, and training budget, compare:
+
+1. legacy `loss_bbox + loss_kld`;
+2. `loss_probiou + loss_angle + loss_kld` without canonical L1;
+3. recommended canonical `loss_bbox + loss_probiou + loss_angle + loss_kld`.
+
+Record per-loss curves, total regression loss, validation OBB metrics, and final mAP. The implementation is accepted based on correctness and stability; faster convergence or improved mAP is reported only if the controlled results demonstrate it.
+
+## 15. Files Changed
+
+| File | Responsibility |
+|---|---|
+| `engine/deim/yolo_obb_loss.py` | Canonical L1, ProbIoU/angle losses, and angle cost. |
+| `engine/deim/deim_criterion.py` | Switches, validation, legacy/new OBB branches. |
+| `engine/deim/matcher.py` | Canonical early/late L1 and angle geometry. |
+| `configs/custom_obb/deimv2_obb_common.yml` | Recommended common baseline. |
+| `configs/custom_obb/deimv2_obb_sp.yml` | Model weights and Kendall names. |
+| `configs/deimv2_obb/deimv2_obb.yml` | Standalone baseline migration. |
+| `test/test_yolo_obb_loss.py` | Utility and gradient tests. |
+| `test/test_deim_criterion_obb_loss.py` | Criterion, validation, and compatibility tests. |
+| `test/test_matcher_obb_angle.py` | Early/late matcher tests. |
+| `test/test_kendall.py` | Loss-family aggregation tests. |
+
+## 16. Acceptance Criteria
+
+1. Recommended configs produce canonical `loss_bbox`, `loss_probiou`, `loss_angle`, and `loss_kld` for OBB positives.
+2. Fully disjoint and far-field matched predictions receive finite, nonzero, correctly directed total center gradients.
+3. Canonical L1 is invariant to `w/h` exchange and supplies center/scale gradients independently of ProbIoU saturation.
+4. Early and late matchers both use canonical center/side L1; late L1 has independent weight `0.25`.
+5. `cost_angle=0` and `late_cost_bbox=0` reproduce the legacy late matching-aware formula.
+6. Kendall manages all and only configured OBB loss families.
+7. Unmigrated legacy OBB configs and HBB behavior remain unchanged.
+8. Existing OBB and HBB regression tests pass.
+9. Convergence claims are based on controlled experiment results, not assumed from loss design.
