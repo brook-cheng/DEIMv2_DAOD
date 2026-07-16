@@ -1,12 +1,61 @@
 #!/usr/bin/env python3
 """
-Per-sample OBB geometry difference analysis with Hungarian matching.
+OBB 逐样本配对差异分析工具
+============================
 
-For each image, matches pred↔GT using linear_sum_assignment on ProbIoU,
-then computes paired differences for w/h ratio and angle.
-Visualises distribution of differences alongside scatter comparisons.
+Overview
+--------
+For each image, matches prediction boxes to ground-truth boxes using
+Hungarian algorithm on ProbIoU cost, then computes paired differences
+for w/h ratio and angle (signed shortest angular difference in degrees).
 
-用法（直接修改 ``main`` 中的路径后运行）:
+Unlike the distribution comparison tool (which compares aggregate
+distributions), this tool shows *per-pair* errors — revealing whether
+the model systematically overestimates/underestimates w/h or has angular
+bias toward specific orientations.
+
+Report includes:
+- w/h difference distribution (histogram + text: mean, std, % within ±0.2)
+- angle difference distribution (histogram + text: mean abs, % within ±5°)
+- Matched / unmatched count statistics
+- Scatter plots: pred w/h vs GT w/h for matched pairs
+
+Entry Points
+------------
+Programmatic:
+    ``match_and_compute_diffs(gt_per_img, pred_per_img, iou_thr)``
+    — returns wh_diffs, angle_diffs, match counts.
+
+Script:
+    Edit ``main()`` paths and run::
+
+        python test/tool_obb_difference_analysis.py
+
+Configuration (edit in-file)
+-----------------------------
+GT_DOTA_DIR   : str   — DOTA-format GT directory
+DET_DIRS      : list  — list of prediction directories (one per model)
+MODEL_NAMES   : list  — display names matching DET_DIRS order
+OUTPUT_DIR    : str   — output directory for PNGs and report
+OUTPUT_TXT    : str   — path for text report
+IOU_THR       : float — minimum ProbIoU for valid matching (default 0.1)
+
+Metrics
+-------
+Per model:
+    w/h diff mean/std       — bias and spread of aspect ratio error
+    angle diff mean abs     — average angular deviation
+    angle diff % > 5°       — fraction of matched pairs with >5° error
+    matched / unmatched     — matching quality indicator
+
+Output Structure
+----------------
+OUTPUT_DIR/
+├── diff_analysis_<model_name>.png  # histograms + scatter per model
+└── difference_report.txt           # text report with all metrics
+
+Usage
+-----
     python test/tool_obb_difference_analysis.py
 """
 
@@ -27,10 +76,10 @@ from engine.deim.obb_geometry import xyxyxyxy_to_xywhr
 from engine.deim.obb_ops import batch_probiou
 from tools.model_compare.obb_utils import parse_dota_line
 
-
 # ──────────────────────────────────────────────────────────────────
 # 数据加载
 # ──────────────────────────────────────────────────────────────────
+
 
 def _poly_to_xywhr(poly8):
     poly = torch.tensor(poly8, dtype=torch.float32).reshape(1, 4, 2)
@@ -103,6 +152,7 @@ def load_boxes_per_image(dota_dir, is_gt=True):
 # 匹配与差异计算
 # ──────────────────────────────────────────────────────────────────
 
+
 def _signed_periodic_angle_diff(pred_theta, gt_theta):
     """Shortest signed angular difference, range [-90°, 90°]."""
     diff = pred_theta - gt_theta
@@ -118,9 +168,13 @@ def match_and_compute_diffs(gt_boxes_per_img, pred_boxes_per_img, iou_thr=0.1):
         n_matched:   total matched pairs
         n_unmatched_pred: pred boxes unmatched
         n_unmatched_gt:   GT boxes unmatched
+        matched_wh:  list of (gt_wh, pred_wh) tuples for matched pairs
+        matched_ang: list of (gt_θ°, pred_θ°) tuples for matched pairs
     """
     wh_diffs = []
     angle_diffs = []
+    matched_wh = []
+    matched_ang = []
     n_matched = 0
     n_unmatched_pred = 0
     n_unmatched_gt = 0
@@ -139,8 +193,12 @@ def match_and_compute_diffs(gt_boxes_per_img, pred_boxes_per_img, iou_thr=0.1):
             n_unmatched_gt += M
             continue
 
-        gt_arr = np.array([[b[0], b[1], b[2], b[3], b[4]] for b in gt_list], dtype=np.float32)
-        pred_arr = np.array([[b[0], b[1], b[2], b[3], b[4]] for b in pred_list], dtype=np.float32)
+        gt_arr = np.array(
+            [[b[0], b[1], b[2], b[3], b[4]] for b in gt_list], dtype=np.float32
+        )
+        pred_arr = np.array(
+            [[b[0], b[1], b[2], b[3], b[4]] for b in pred_list], dtype=np.float32
+        )
 
         gt_t = torch.tensor(gt_arr)
         pred_t = torch.tensor(pred_arr)
@@ -153,50 +211,66 @@ def match_and_compute_diffs(gt_boxes_per_img, pred_boxes_per_img, iou_thr=0.1):
         for g, p in zip(gt_idx, pred_idx):
             if iou[g, p] < iou_thr:
                 n_unmatched_pred += 1  # this pred didn't really match
-                n_unmatched_gt += 1    # this GT wasn't really matched
+                n_unmatched_gt += 1  # this GT wasn't really matched
                 continue
             n_matched += 1
 
             gt_wh = gt_arr[g, 2] / max(gt_arr[g, 3], 1e-6)
             pred_wh = pred_arr[p, 2] / max(pred_arr[p, 3], 1e-6)
             wh_diffs.append(pred_wh - gt_wh)
-            angle_diffs.append(_signed_periodic_angle_diff(pred_arr[p, 4], gt_arr[g, 4]))
+            angle_diffs.append(
+                _signed_periodic_angle_diff(pred_arr[p, 4], gt_arr[g, 4])
+            )
+            matched_wh.append((gt_wh, pred_wh))
+            matched_ang.append(
+                (float(gt_arr[g, 4] * 180.0 / np.pi), float(pred_arr[p, 4] * 180.0 / np.pi))
+            )
 
         # unmatched counts
         if N > M:
             n_unmatched_pred += N - M  # extra preds
         elif M > N:
-            n_unmatched_gt += M - N    # extra GTs
+            n_unmatched_gt += M - N  # extra GTs
 
-    return wh_diffs, angle_diffs, n_matched, n_unmatched_pred, n_unmatched_gt
+    return (
+        wh_diffs, angle_diffs, n_matched, n_unmatched_pred, n_unmatched_gt,
+        matched_wh, matched_ang,
+    )
 
 
 # ──────────────────────────────────────────────────────────────────
 # 可视化
 # ──────────────────────────────────────────────────────────────────
 
+
 def plot_difference_analysis(
-    gt_boxes_raw,
-    pred_boxes_raw,
     wh_diffs,
     angle_diffs,
     n_matched,
     n_unmatched_pred,
     n_unmatched_gt,
+    matched_wh,
+    matched_ang,
     pred_name,
     output_path,
     bins=60,
 ):
-    """4-panel figure: wh-diff hist, angle-diff hist, wh scatter, angle scatter."""
+    """4-panel figure: wh-diff hist, angle-diff hist, wh scatter, angle scatter.
+
+    Scatter plots use Hungarian-matched pairs, not arbitrary list-index alignment.
+    """
     fig, axes = plt.subplots(2, 2, figsize=(14, 12))
 
     # ── w/h ratio difference histogram ──
     ax = axes[0, 0]
-    ax.hist(wh_diffs, bins=bins, density=True, color="tab:blue", alpha=0.7, edgecolor="navy")
+    ax.hist(
+        wh_diffs, bins=bins, density=True, color="tab:blue", alpha=0.7, edgecolor="navy"
+    )
     ax.axvline(0, color="black", linewidth=1, linestyle="--")
     mean_wh = np.mean(wh_diffs) if wh_diffs else 0
-    ax.axvline(mean_wh, color="red", linewidth=1.5, linestyle="-",
-               label=f"mean={mean_wh:+.3f}")
+    ax.axvline(
+        mean_wh, color="red", linewidth=1.5, linestyle="-", label=f"mean={mean_wh:+.3f}"
+    )
     ax.set_xlabel("Δ (pred w/h − gt w/h)")
     ax.set_ylabel("density")
     ax.set_title(f"w/h ratio difference  ({pred_name})")
@@ -205,50 +279,60 @@ def plot_difference_analysis(
 
     # ── angle difference histogram ──
     ax = axes[0, 1]
-    ax.hist(angle_diffs, bins=bins, density=True, color="tab:orange", alpha=0.7, edgecolor="darkorange")
+    ax.hist(
+        angle_diffs,
+        bins=bins,
+        density=True,
+        color="tab:orange",
+        alpha=0.7,
+        edgecolor="darkorange",
+    )
     ax.axvline(0, color="black", linewidth=1, linestyle="--")
     mean_ang = np.mean(np.abs(angle_diffs)) if angle_diffs else 0
-    ax.axvline(0, color="black", linewidth=1, linestyle="--")
+    ax.axvline(
+        mean_ang, color="red", linewidth=1.5, linestyle="-",
+        label=f"|Δθ| mean={mean_ang:.1f}°"
+    )
     ax.set_xlabel("Δθ (degrees, signed shortest path)")
     ax.set_ylabel("density")
-    ax.set_title(f"Angle difference  ({pred_name})  |Δθ| mean={mean_ang:.1f}°")
+    ax.set_title(f"Angle difference  ({pred_name})")
+    ax.legend(fontsize=8)
     ax.yaxis.set_major_formatter(PercentFormatter(1.0))
 
-    # ── w/h scatter: pred vs GT ──
+    # ── w/h scatter: matched pred vs GT ──
     ax = axes[1, 0]
-    gt_wh = np.array([b[2] / max(b[3], 1e-6) for b in gt_boxes_raw])
-    pred_wh = np.array([b[2] / max(b[3], 1e-6) for b in pred_boxes_raw])
-    # Downsample for scatter
-    n_pts = min(len(gt_wh), len(pred_wh), 5000)
-    if n_pts > 0:
-        idx = np.random.RandomState(42).choice(
-            min(len(gt_wh), len(pred_wh)), size=n_pts, replace=False,
-        )
-        lim = max(gt_wh.max(), pred_wh.max()) * 1.1
-        ax.scatter(gt_wh[idx], pred_wh[idx], s=4, alpha=0.3, color="tab:blue")
-        ax.plot([0, lim], [0, lim], "k--", linewidth=0.8)
-        ax.set_xlim(0, lim)
-        ax.set_ylim(0, lim)
+    if matched_wh:
+        gt_wh_arr = np.array([p[0] for p in matched_wh])
+        pr_wh_arr = np.array([p[1] for p in matched_wh])
+        n_pts = min(len(gt_wh_arr), 3000)
+        if n_pts > 1:
+            idx = np.random.RandomState(42).choice(len(gt_wh_arr), size=n_pts, replace=False)
+            lim = max(gt_wh_arr.max(), pr_wh_arr.max()) * 1.1
+            ax.scatter(gt_wh_arr[idx], pr_wh_arr[idx], s=5, alpha=0.35, color="tab:blue")
+            ax.plot([0, lim], [0, lim], "k--", linewidth=0.8)
+            ax.set_xlim(0, lim)
+            ax.set_ylim(0, lim)
     ax.set_xlabel("GT w/h")
     ax.set_ylabel("Pred w/h")
-    ax.set_title("w/h ratio: Pred vs GT (all boxes per image, not matched)")
+    ax.set_title("w/h ratio: Pred vs GT (Hungarian-matched pairs)")
 
-    # ── angle scatter: pred vs GT ──
+    # ── angle scatter: matched pred vs GT ──
     ax = axes[1, 1]
-    gt_ang_deg = np.array([b[4] for b in gt_boxes_raw]) * 180.0 / np.pi
-    pred_ang_deg = np.array([b[4] for b in pred_boxes_raw]) * 180.0 / np.pi
-    n_pts = min(len(gt_ang_deg), len(pred_ang_deg), 5000)
-    if n_pts > 0:
-        idx = np.random.RandomState(42).choice(
-            min(len(gt_ang_deg), len(pred_ang_deg)), size=n_pts, replace=False,
-        )
-        ax.scatter(gt_ang_deg[idx], pred_ang_deg[idx], s=4, alpha=0.3, color="tab:orange")
-        ax.plot([0, 180], [0, 180], "k--", linewidth=0.8)
-        ax.set_xlim(0, 180)
-        ax.set_ylim(0, 180)
+    if matched_ang:
+        gt_ang_arr = np.array([p[0] for p in matched_ang])
+        pr_ang_arr = np.array([p[1] for p in matched_ang])
+        n_pts = min(len(gt_ang_arr), 3000)
+        if n_pts > 1:
+            idx = np.random.RandomState(42).choice(len(gt_ang_arr), size=n_pts, replace=False)
+            ax.scatter(
+                gt_ang_arr[idx], pr_ang_arr[idx], s=5, alpha=0.35, color="tab:orange"
+            )
+            ax.plot([0, 180], [0, 180], "k--", linewidth=0.8)
+            ax.set_xlim(0, 180)
+            ax.set_ylim(0, 180)
     ax.set_xlabel("GT θ (degrees)")
     ax.set_ylabel("Pred θ (degrees)")
-    ax.set_title("Angle: Pred vs GT (all boxes per image, not matched)")
+    ax.set_title("Angle: Pred vs GT (Hungarian-matched pairs)")
 
     # ── summary annotation ──
     summary = (
@@ -260,8 +344,14 @@ def plot_difference_analysis(
         f"Δ w/h std:      {np.std(wh_diffs):.4f}\n"
         f"Δ |θ| mean:     {np.mean(np.abs(angle_diffs)):.1f}°"
     )
-    fig.text(0.02, 0.02, summary, fontfamily="monospace", fontsize=9,
-             bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8))
+    fig.text(
+        0.02,
+        0.02,
+        summary,
+        fontfamily="monospace",
+        fontsize=9,
+        bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8),
+    )
 
     fig.suptitle(f"Per-sample OBB Difference: {pred_name}", fontsize=14, y=1.01)
     plt.tight_layout()
@@ -271,7 +361,9 @@ def plot_difference_analysis(
     print(f"\nSaved: {output_path}")
 
 
-def compute_difference_stats(wh_diffs, angle_diffs, n_matched, n_unmatched_pred, n_unmatched_gt):
+def compute_difference_stats(
+    wh_diffs, angle_diffs, n_matched, n_unmatched_pred, n_unmatched_gt
+):
     wh = np.array(wh_diffs) if wh_diffs else np.array([])
     ang = np.array(angle_diffs) if angle_diffs else np.array([])
     return {
@@ -288,8 +380,12 @@ def compute_difference_stats(wh_diffs, angle_diffs, n_matched, n_unmatched_pred,
         "ang_std_deg": float(np.std(ang)) if len(ang) else None,
         "ang_p50_abs_deg": float(np.percentile(np.abs(ang), 50)) if len(ang) else None,
         "ang_p90_abs_deg": float(np.percentile(np.abs(ang), 90)) if len(ang) else None,
-        "ang_over_15deg_pct": float(np.mean(np.abs(ang) > 15) * 100) if len(ang) else None,
-        "ang_over_30deg_pct": float(np.mean(np.abs(ang) > 30) * 100) if len(ang) else None,
+        "ang_over_15deg_pct": (
+            float(np.mean(np.abs(ang) > 15) * 100) if len(ang) else None
+        ),
+        "ang_over_30deg_pct": (
+            float(np.mean(np.abs(ang) > 30) * 100) if len(ang) else None
+        ),
     }
 
 
@@ -326,20 +422,37 @@ def format_diff_stats(name, st):
 # Main
 # ──────────────────────────────────────────────────────────────────
 
+
 def main():
-    GT_DOTA_DIR = "./test/data/outputs/dlzdt_obb_compare_train/gt_dota"
+    GT_DOTA_DIR = "./test/data/outputs/dlzdt_obb_compare_val/gt_dota"
     DET_DIRS = [
-        "./test/data/outputs/dlzdt_sp_rep0_train",
-        "./test/data/outputs/dlzdt_sp_rep1_train",
+        "./test/data/outputs/dlzdt_obb_compare_val/yolo_dota",
+        "./test/data/outputs/dlzdt_res/sp_ft_rep0_0714_val",
+        "./test/data/outputs/dlzdt_res/sp_ft_rep0_0715_val",
+        "./test/data/outputs/dlzdt_res/sp_ft_rep1_0714_val",
+        "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
+        "./test/data/outputs/dlzdt_res/sp_ft_rep3_0714_val",
     ]
-    MODEL_NAMES = ["DEIMv2-SP-Rep0", "DEIMv2-SP-Rep1"]
-    OUTPUT_DIR = "./test/data/outputs/obb_diff_analysis"
+    MODEL_NAMES = [
+        "YOLO-OBB",
+        "sp_ft_rep0_14",
+        "sp_ft_rep0_15",
+        "sp_ft_rep1_14",
+        "sp_ft_rep1_15",
+        "sp_ft_rep3_14",
+    ]
+    OUTPUT_DIR = "./test/data/outputs/dlzdt_obb_compare_val/obb_diff_analysis"
     OUTPUT_TXT = os.path.join(OUTPUT_DIR, "difference_report.txt")
     IOU_THR = 0.1
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    report = ["=" * 60, "OBB Per-Sample Difference Report", "=" * 60,
-              f"GT dir: {GT_DOTA_DIR}", f"IoU threshold: {IOU_THR}"]
+    report = [
+        "=" * 60,
+        "OBB Per-Sample Difference Report",
+        "=" * 60,
+        f"GT dir: {GT_DOTA_DIR}",
+        f"IoU threshold: {IOU_THR}",
+    ]
 
     # ── Load per-image ──
     print("Loading GT per image...")
@@ -361,22 +474,33 @@ def main():
         print(f"  Total pred boxes: {len(pred_boxes_raw)}")
 
         print(f"  Matching (Hungarian, IoU threshold={IOU_THR})...")
-        wh_diffs, angle_diffs, n_matched, n_unmatched_pred, n_unmatched_gt = \
-            match_and_compute_diffs(gt_per_img, pred_per_img, iou_thr=IOU_THR)
-        print(f"  Matched: {n_matched},  Unmatched pred: {n_unmatched_pred},  "
-              f"Unmatched GT: {n_unmatched_gt}")
+        (
+            wh_diffs, angle_diffs, n_matched, n_unmatched_pred, n_unmatched_gt,
+            matched_wh, matched_ang,
+        ) = match_and_compute_diffs(gt_per_img, pred_per_img, iou_thr=IOU_THR)
+        print(
+            f"  Matched: {n_matched},  Unmatched pred: {n_unmatched_pred},  "
+            f"Unmatched GT: {n_unmatched_gt}"
+        )
 
-        st = compute_difference_stats(wh_diffs, angle_diffs,
-                                       n_matched, n_unmatched_pred, n_unmatched_gt)
+        st = compute_difference_stats(
+            wh_diffs, angle_diffs, n_matched, n_unmatched_pred, n_unmatched_gt
+        )
         s = format_diff_stats(name, st)
         print(s.strip())
         report.append(s)
         report.append(f"  pred dir: {det_dir}")
 
         plot_difference_analysis(
-            gt_boxes_raw, pred_boxes_raw, wh_diffs, angle_diffs,
-            n_matched, n_unmatched_pred, n_unmatched_gt,
-            name, os.path.join(OUTPUT_DIR, f"diff_analysis_{name.replace(' ', '_')}.png"),
+            wh_diffs,
+            angle_diffs,
+            n_matched,
+            n_unmatched_pred,
+            n_unmatched_gt,
+            matched_wh,
+            matched_ang,
+            name,
+            os.path.join(OUTPUT_DIR, f"diff_analysis_{name.replace(' ', '_')}.png"),
         )
 
     with open(OUTPUT_TXT, "w") as f:

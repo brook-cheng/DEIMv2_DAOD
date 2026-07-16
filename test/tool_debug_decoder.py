@@ -1,14 +1,74 @@
 #!/usr/bin/env python3
 """
 Decoder 逐层诊断工具 — 定位 w/h 偏方和角度误差的来源层。
+=================================================================
 
-Phase 1: 推理导出 — 每层输出 → DOTA txt
-Phase 2: 分布对比 — 每层 vs GT 的 w/h, angle 分布
-Phase 3: 差异分析 — 每层 vs GT 的配对差异
-Phase 4: 可视化   — GT + pre + L0 + L3 + L5 叠加
-Phase 5: PCA      — backbone 特征按 w/h, angle 着色
+Overview
+--------
+对 DEIMv2-OBB 模型的每个 decoder 层（pre + L0…L5）单独推理并导出 DOTA 格式，
+然后运行分布对比、差异分析、可视化和特征相似度分析，形成完整的逐层诊断报告。
 
-用法:  python test/tool_debug_decoder.py
+5-Phase Pipeline
+-----------------
+Phase 1 ─ 推理导出   : 每层输出 → per-image DOTA txt
+Phase 2 ─ 分布对比   : 叠加直方图（w/h, w, h, angle）+ Wasserstein/JS 相似度 + 文本报告
+Phase 3 ─ 差异分析   : 匈牙利匹配 pred↔GT 的配对差值 + 分布图
+Phase 4 ─ 可视化     : GT + 所有 decoder 层的框叠加在同一张图上（蓝色渐变区分层）
+Phase 5 ─ 特征相似度 : backbone c2/c3/c4 + encoder stride-8/16/32 的余弦相似度热力图
+
+Entry Points
+------------
+Single model:
+    Edit ``main()`` and run::
+
+        python test/tool_debug_decoder.py
+
+Multi model (batch compare):
+    Edit ``main_multi()`` MODEL_LIST and run::
+
+        python test/tool_debug_decoder.py
+
+API:
+    ``run_debug(config_path, ckpt_path, img_dir, gt_dota_dir, output_root, ...)``
+    — runs all 5 phases for one model. Can be imported and called from other scripts.
+
+Parameters
+----------
+config_path   : str  — training YAML (e.g. ``configs/custom_obb/dlzdt/sp_ft_rep0.yml``)
+ckpt_path     : str  — model checkpoint (e.g. ``outputs/sp_ft_rep0_0714.pth``)
+img_dir       : str  — directory of input images (.jpg, .png, .bmp)
+gt_dota_dir   : str  — directory of GT labels in DOTA format (per-image .txt)
+output_root   : str  — output directory (creates pre/, layer_0/…layer_5/, reports/)
+imgsz         : tuple — inference size, default (640, 640)
+score_thr     : float — confidence threshold for bounding boxes, default 0.01
+infer_step    : int   — process every Nth image during inference, default 1 (all)
+vis_step      : int   — sample every Nth image for visualization + feature heatmaps
+infer_flag    : bool  — if False and layer dirs exist, skip Phase 1 (time saver)
+device        : str   — default "cuda:0"
+
+Output Structure
+----------------
+output_root/
+├── gt_dota/                    # copy of GT DOTA labels
+├── pre/                        # encoder output (pre-decoder)
+├── layer_0/ … layer_5/         # decoder layers L0–L5
+├── reports/
+│   ├── dist/                   # Phase 2: *_distribution.png + *_report.txt
+│   ├── diff/                   # Phase 3: diff_analysis_*.png + difference_report.txt
+│   ├── vis/                    # Phase 4: visualization PNGs
+│   └── feat_sim/               # Phase 5: cosine similarity heatmaps
+└── *_pca_explain.png           # feature PCA visualization
+
+Time-Saving Tips
+----------------
+- First run: ``infer_flag=True`` — runs all 5 phases (~10-30 min depending on data size)
+- Subsequent runs: ``infer_flag=False`` — skips inference, runs Phase 2-5 only (~1-5 min)
+- ``infer_step=N`` — process only every Nth image to speed up initial exploration
+- ``vis_step=N`` — control visualization density independently of inference
+
+Usage
+-----
+    python test/tool_debug_decoder.py
 """
 
 import os, sys, shutil
@@ -233,19 +293,19 @@ def phase1_export(
 
 def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root):
     """Run distribution comparison and difference analysis for all layers."""
-    import importlib.util
-
-    def _load_module(path):
-        spec = importlib.util.spec_from_file_location("_tool_mod", path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod
-
-    dist_mod = _load_module(
-        os.path.join(ROOT_DIR, "test", "tool_obb_distribution_compare.py")
+    from tool_obb_distribution_compare import (
+        load_boxes_from_dota_dir as dist_load_boxes,
+        compute_stats,
+        format_stats,
+        compute_similarity,
+        plot_distribution_comparison,
     )
-    diff_mod = _load_module(
-        os.path.join(ROOT_DIR, "test", "tool_obb_difference_analysis.py")
+    from tool_obb_difference_analysis import (
+        load_boxes_per_image as diff_load_boxes,
+        match_and_compute_diffs,
+        compute_difference_stats,
+        format_diff_stats,
+        plot_difference_analysis,
     )
 
     report_dir = os.path.join(output_root, "reports")
@@ -253,17 +313,17 @@ def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root):
 
     # Distribution comparison
     report_lines = []
-    gt_boxes = dist_mod.load_boxes_from_dota_dir(gt_dota_dir, is_gt=True)
-    report_lines.append(dist_mod.format_stats("GT", dist_mod.compute_stats(gt_boxes)))
+    gt_boxes = dist_load_boxes(gt_dota_dir, is_gt=True)
+    report_lines.append(format_stats("GT", compute_stats(gt_boxes)))
     pred_list, name_list = [], []
     for d, n in zip(det_dirs, model_names):
-        pred = dist_mod.load_boxes_from_dota_dir(d, is_gt=False)
+        pred = dist_load_boxes(d, is_gt=False)
         pred_list.append(pred)
         name_list.append(n)
-        stats = dist_mod.compute_stats(pred)
-        stats.update(dist_mod.compute_similarity(gt_boxes, pred))
-        report_lines.append(dist_mod.format_stats(n, stats))
-    png = dist_mod.plot_distribution_comparison(
+        stats = compute_stats(pred)
+        stats.update(compute_similarity(gt_boxes, pred))
+        report_lines.append(format_stats(n, stats))
+    png = plot_distribution_comparison(
         gt_boxes,
         pred_list,
         name_list,
@@ -275,27 +335,18 @@ def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root):
         f.write("\n".join(report_lines))
 
     # Difference analysis per layer
-    gt_per_img = diff_mod.load_boxes_per_image(gt_dota_dir, is_gt=True)
+    gt_per_img = diff_load_boxes(gt_dota_dir, is_gt=True)
     diff_report = []
     for d, n in zip(det_dirs, model_names):
-        pred_per_img = diff_mod.load_boxes_per_image(d, is_gt=False)
-        wh_diffs, ang_diffs, nm, nup, nug = diff_mod.match_and_compute_diffs(
-            gt_per_img,
-            pred_per_img,
-            iou_thr=0.1,
-        )
-        st = diff_mod.compute_difference_stats(wh_diffs, ang_diffs, nm, nup, nug)
-        diff_report.append(diff_mod.format_diff_stats(n, st))
-        pred_raw = [b for boxes in pred_per_img.values() for b in boxes]
-        gt_raw = [b for boxes in gt_per_img.values() for b in boxes]
-        png = diff_mod.plot_difference_analysis(
-            gt_raw,
-            pred_raw,
-            wh_diffs,
-            ang_diffs,
-            nm,
-            nup,
-            nug,
+        pred_per_img = diff_load_boxes(d, is_gt=False)
+        (
+            wh_diffs, angle_diffs, nm, nup, nug, matched_wh, matched_ang,
+        ) = match_and_compute_diffs(gt_per_img, pred_per_img, iou_thr=0.1)
+        st = compute_difference_stats(wh_diffs, angle_diffs, nm, nup, nug)
+        diff_report.append(format_diff_stats(n, st))
+        png = plot_difference_analysis(
+            wh_diffs, angle_diffs, nm, nup, nug,
+            matched_wh, matched_ang,
             n,
             os.path.join(report_dir, f"diff_{n}.png"),
         )
@@ -684,32 +735,32 @@ def main_multi():
         {
             "config": "configs/custom_obb/dlzdt/sp_ft_rep0.yml",
             "ckpt": "outputs/sp_ft_rep0_0714.pth",
-            "output": "./test/data/outputs/debug_decoder/sp_ft_rep0_0714_train",
-            "infer_flag": True,
+            "output_dir": "./test/data/outputs/debug_decoder/sp_ft_rep0_0714_train",
+            "infer_flag": False,
         },
         {
             "config": "configs/custom_obb/dlzdt/sp_ft_rep0.yml",
             "ckpt": "outputs/sp_ft_rep0_0715.pth",
-            "output": "./test/data/outputs/debug_decoder/sp_ft_rep0_0715_train",
-            "infer_flag": True,
+            "output_dir": "./test/data/outputs/debug_decoder/sp_ft_rep0_0715_train",
+            "infer_flag": False,
         },
         {
             "config": "configs/custom_obb/dlzdt/sp_ft_rep1.yml",
             "ckpt": "outputs/sp_ft_rep1_0714.pth",
-            "output": "./test/data/outputs/debug_decoder/sp_ft_rep1_0714_train",
-            "infer_flag": True,
+            "output_dir": "./test/data/outputs/debug_decoder/sp_ft_rep1_0714_train",
+            "infer_flag": False,
         },
         {
             "config": "configs/custom_obb/dlzdt/sp_ft_rep1.yml",
             "ckpt": "outputs/sp_ft_rep1_0715.pth",
-            "output": "./test/data/outputs/debug_decoder/sp_ft_rep1_0715_train",
-            "infer_flag": True,
+            "output_dir": "./test/data/outputs/debug_decoder/sp_ft_rep1_0715_train",
+            "infer_flag": False,
         },
         {
             "config": "configs/custom_obb/dlzdt/sp_ft_rep3.yml",
             "ckpt": "outputs/sp_ft_rep3_0714.pth",
-            "output": "./test/data/outputs/debug_decoder/sp_ft_rep3_0714_train",
-            "infer_flag": True,
+            "output_dir": "./test/data/outputs/debug_decoder/sp_ft_rep3_0714_train",
+            "infer_flag": False,
         },
     ]
 
@@ -719,7 +770,7 @@ def main_multi():
             ckpt_path=m["ckpt"],
             img_dir=IMG_DIR,
             gt_dota_dir=GT_DOTA,
-            output_root=m["output"],
+            output_root=m["output_dir"],
             imgsz=IMGSZ,
             score_thr=SCORE_THR,
             infer_step=INFER_STEP,

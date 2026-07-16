@@ -326,7 +326,7 @@ class TransformerDecoder(nn.Module):
             pred_corners_undetach = pred_corners
 
             if self.box_mode == "obb":
-                if self.angle_rep != 0 and self.angle_rep != 1:
+                if self.angle_rep == 2 or self.angle_rep == 3:
                     # ref_dec_angle_input 首次为(x,y,w,h,offset_w,offset_h)，后续为(x,y,w,h,r)
                     ref_dec_angle_input = ref_dec_angle_detach.unsqueeze(2)
                     dec_angle_output = self.decouple_angle_layers[layer_idx](

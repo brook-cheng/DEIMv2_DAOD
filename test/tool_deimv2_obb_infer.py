@@ -1,10 +1,57 @@
+#!/usr/bin/env python3
 """
-DEIMv2-OBB 模型推理与结果导出脚本
+DEIMv2-OBB 模型推理与 DOTA 导出工具
+=====================================
 
-将 OBB 检测结果保存为 per-image DOTA 格式，支持后续模型比对。
+Overview
+--------
+加载 DEIMv2-OBB 模型 checkpoint，对图像目录批量推理，将 OBB 检测结果保存为
+per-image DOTA 格式（8 坐标 + 类别名 + 置信度），供后续模型比对和可视化使用。
 
-Usage:
-    python test/test_deimv2_obb_infer.py
+Each image gets a .txt file with one detection per line::
+
+    x1 y1 x2 y2 x3 y3 x4 y4 class_name confidence
+
+Maintains a list of model variants and iterates over them, so a single run can
+export predictions for multiple checkpoints/configs in batch.
+
+Entry Points
+------------
+Programmatic:
+    ``infer_obb_and_export(img_dir, ckpt, config, output_dir, classes_txt, ...)``
+    — run inference on one model variant, export to DOTA dir.
+
+Batch via ``__main__``:
+    Edit the ``infoes`` list and run::
+
+        python test/tool_deimv2_obb_infer.py
+
+Parameters (per model variant)
+------------------------------
+img_dir         : str   — directory of input images
+ckpt            : str   — path to .pth checkpoint
+config          : str   — training YAML config path
+output_dir      : str   — directory for per-image .txt outputs
+classes_txt     : str   — path to classes.txt (one class name per line)
+imgsz           : tuple — (H, W) inference size, default (640, 640)
+max_det         : int   — maximum number of detections per image (num_queries)
+score_threshold : float — confidence threshold for filtering (default 0.2)
+device          : str   — "cuda:0" or "cpu"
+
+Output Structure
+----------------
+output_dir/
+├── img_001.txt    # OBB detections in DOTA format
+├── img_002.txt
+└── ...
+
+Each line::
+
+    x1 y1 x2 y2 x3 y3 x4 y4 class_name confidence
+
+Usage
+-----
+    python test/tool_deimv2_obb_infer.py
 """
 
 import os
@@ -66,8 +113,8 @@ def load_checkpoint(model: nn.Module, ckpt_path: str, map_location: str = "cpu")
 
 def infer_obb_and_export(
     img_dir: str,
-    model_weight: str,
-    config_path: str,
+    ckpt: str,
+    config: str,
     output_dir: str,
     classes_txt: str,
     imgsz: tuple = (640, 640),
@@ -91,7 +138,7 @@ def infer_obb_and_export(
     # ── build model config from training YAML ──
     from engine.core.yaml_utils import load_config
 
-    config = load_config(config_path)
+    config = load_config(config)
     model_cfg = {
         "DINOv3STAsResAtten": config["DINOv3STAsResAtten"],
         "HybridEncoder": config["HybridEncoder"],
@@ -107,10 +154,10 @@ def infer_obb_and_export(
         },
     }
     # Path supplied by the caller overrides whatever the training config says
-    model_cfg["DINOv3STAsResAtten"]["weights_path"] = model_weight
+    model_cfg["DINOv3STAsResAtten"]["weights_path"] = ckpt
 
     model = DEIMv2OBB(model_cfg, device)
-    load_checkpoint(model, model_weight)
+    load_checkpoint(model, ckpt)
     model.eval()
 
     transform = transforms.Compose(
@@ -200,35 +247,39 @@ if __name__ == "__main__":
     score_threshold = 0.2
     device = "cuda:0"
 
-    config_path = (
-        "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml"
-    )
-    output_dir = "./test/data/outputs/dlzdt_sp_rep0_val"
-    model_weight = "outputs/last_rep0.pth"
-
     infoes = [
         {
-            "model_weight": "outputs/sp_ft_rep0.pth",
-            "config_path": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml",
-            "output_dir": "./test/data/outputs/dlzdt_val_sp_ft_rep0",
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep0.yml",
+            "ckpt": "outputs/sp_ft_rep0_0714.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep0_0714_val",
         },
         {
-            "model_weight": "outputs/sp_ft_rep1.pth",
-            "config_path": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep1_p[15,45,75].yml",
-            "output_dir": "./test/data/outputs/dlzdt_val_sp_ft_rep1",
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep0.yml",
+            "ckpt": "outputs/sp_ft_rep0_0715.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep0_0715_val",
         },
         {
-            "model_weight": "outputs/sp_ft_rep3.pth",
-            "config_path": "configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep3_p[15,45,75].yml",
-            "output_dir": "./test/data/outputs/dlzdt_val_sp_ft_rep3",
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep1.yml",
+            "ckpt": "outputs/sp_ft_rep1_0714.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep1_0714_val",
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep1.yml",
+            "ckpt": "outputs/sp_ft_rep1_0715.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep3.yml",
+            "ckpt": "outputs/sp_ft_rep3_0714.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_0714_val",
         },
     ]
 
     for info in infoes:
         infer_obb_and_export(
             img_dir=img_dir,
-            model_weight=info["model_weight"],
-            config_path=info["config_path"],
+            ckpt=info["ckpt"],
+            config=info["config"],
             output_dir=info["output_dir"],
             classes_txt=classes_txt,
             imgsz=imgsz,

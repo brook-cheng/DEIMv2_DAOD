@@ -1,9 +1,46 @@
+#!/usr/bin/env python3
 """
-dlzdt OBB model comparison — DEIMv2-OBB vs YOLO-OBB on pj_dlzdt dataset.
+dlzdt OBB 模型对比工具 — DEIMv2-OBB vs YOLO-OBB
+==================================================
 
-Converts YOLO GT labels (YOLO-OBB xywhr format → DOTA 8-coord),
-converts YOLO predictions (JSON → DOTA per-image),
-then runs metrics + visualization comparison.
+Overview
+--------
+Multi-model comparison pipeline for OBB detection on the dlzdt dataset:
+
+1. Converts YOLO-OBB GT labels (xywhr normalized) → DOTA 8-coord format
+2. Converts YOLO-OBB predictions (JSON) → DOTA format
+3. Runs metric comparison (mAP, IoU distribution, PR curves)
+4. Generates side-by-side visualization overlays
+
+Designed for comparing DEIMv2-OBB variants against YOLO-OBB baselines.
+
+Entry Points
+------------
+    python test/tool_dlzdt_obb_compare.py
+
+Configuration (edit in-file)
+-----------------------------
+BASE_DATA       : str   — root dir with images/val/ and labels/val/
+CLASSES_TXT     : str   — path to classes.txt
+YOLO_PRED_JSON  : str   — YOLO predictions.json path
+OUTPUT_ROOT     : str   — output directory
+DET_DIRS        : list  — model prediction directories (YOLO + DEIMv2 variants)
+MODEL_NAMES     : list  — display names matching DET_DIRS order
+IOUV            : ndarray — IoU thresholds for evaluation (None = default [0.5:0.95:0.05])
+VIS_IMAGE_NUM   : int   — max images for visualization output
+
+Output Structure
+----------------
+OUTPUT_ROOT/
+├── gt_dota/                       # converted GT in DOTA format
+├── yolo_dota/                     # converted YOLO predictions in DOTA format
+├── comparison_images_train/       # side-by-side visualization PNGs
+└── (metrics printed to stdout)
+
+Usage
+-----
+    1. Set paths at the top of the script
+    2. python test/tool_dlzdt_obb_compare.py
 """
 
 import os
@@ -42,11 +79,20 @@ OUTPUT_VISUAL_DIR = os.path.join(OUTPUT_ROOT, "comparison_images_train")
 
 DET_DIRS = [
     OUTPUT_YOLO_DOTA_DIR,
-    "./test/data/outputs/dlzdt_val_sp_ft_rep0",
-    "./test/data/outputs/dlzdt_val_sp_ft_rep1",
-    "./test/data/outputs/dlzdt_val_sp_ft_rep3",
+    "./test/data/outputs/dlzdt_res/sp_ft_rep0_0714_val",
+    "./test/data/outputs/dlzdt_res/sp_ft_rep0_0715_val",
+    "./test/data/outputs/dlzdt_res/sp_ft_rep1_0714_val",
+    "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
+    "./test/data/outputs/dlzdt_res/sp_ft_rep3_0714_val",
 ]
-MODEL_NAMES = ["YOLO-OBB", "SP-FT-Rep0", "SP-FT-Rep1", "SP-FT-Rep3"]
+MODEL_NAMES = [
+    "YOLO-OBB",
+    "sp_ft_rep0_14",
+    "sp_ft_rep0_15",
+    "sp_ft_rep1_14",
+    "sp_ft_rep1_15",
+    "sp_ft_rep3_14",
+]
 # DET_DIRS = [
 #     "./test/data/outputs/dlzdt_sp_rep0_train",
 #     "./test/data/outputs/dlzdt_sp_rep1_train",
@@ -54,8 +100,8 @@ MODEL_NAMES = ["YOLO-OBB", "SP-FT-Rep0", "SP-FT-Rep1", "SP-FT-Rep3"]
 # MODEL_NAMES = ["DEIMv2-OBB-SP-Rep0", "DEIMv2-OBB-SP-Rep1"]
 VIS_IMAGE_NUM = 259
 
-IOUV = np.array([0.3])
-# IOUV = None
+# IOUV = np.array([0.3])
+IOUV = None
 
 
 def yolo_gt_to_dota(

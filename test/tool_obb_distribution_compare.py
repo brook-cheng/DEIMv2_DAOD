@@ -1,12 +1,56 @@
 #!/usr/bin/env python3
 """
-Pred vs GT OBB 几何分布对比工具。
+OBB 几何分布对比工具
+=====================
 
-从 DOTA 格式的标注/预测文件中提取 (cx,cy,w,h,θ)，
-用直方图对比 pred 和 GT 在 w/h、w、h、angle 上的分布差异。
-同时输出格式化的文本统计报告。
+Overview
+--------
+Loads OBB boxes from multiple DOTA-format directories (GT + predictions),
+extracts (cx, cy, w, h, θ) and compares distributions between prediction sets
+and ground truth using:
 
-用法:
+- Overlaid histograms for w/h ratio, w, h, and angle (in degrees)
+- Wasserstein distance (EMD) + Jensen-Shannon divergence per metric
+- Annotated text statistics on the histogram PNG
+- Paired scatter plots with Hungarian matching per image
+
+Outputs a single multi-panel PNG and a text report for quick model ranking.
+
+Entry Points
+------------
+Programmatic:
+    ``plot_distribution_comparison(gt_boxes, pred_boxes_list, model_names, output_png)``
+    — generate overlaid histogram comparison.
+
+Script:
+    Edit ``main()`` paths and run::
+
+        python test/tool_obb_distribution_compare.py
+
+Configuration (edit in-file)
+-----------------------------
+GT_DOTA_DIR   : str   — DOTA-format GT directory
+DET_DIRS      : list  — list of prediction directories (one per model)
+MODEL_NAMES   : list  — display names matching DET_DIRS order
+OUTPUT_PNG    : str   — path for histogram PNG (scatter → *_scatter.png)
+OUTPUT_TXT    : str   — path for text report
+
+Metrics
+-------
+Each model gets a report line with:
+    w/h W-distance, w/h JS-div, w W-distance, w JS-div,
+    h W-distance, h JS-div, angle W-distance, angle JS-div
+
+Lower is better (more similar to GT distribution).
+
+Output Structure
+----------------
+OUTPUT_PNG                    # histogram comparison
+OUTPUT_PNG (→ _scatter.png)  # matched-pair scatter plots per model
+OUTPUT_TXT                    # text report with all metrics
+
+Usage
+-----
     python test/tool_obb_distribution_compare.py
 """
 
@@ -395,17 +439,22 @@ def main():
     GT_DOTA_DIR = "./test/data/outputs/dlzdt_obb_compare_val/gt_dota"
     DET_DIRS = [
         "./test/data/outputs/dlzdt_obb_compare_val/yolo_dota",
-        "./test/data/outputs/dlzdt_val_sp_ft_rep0",
-        "./test/data/outputs/dlzdt_val_sp_ft_rep1",
-        "./test/data/outputs/dlzdt_val_sp_ft_rep3",
+        "./test/data/outputs/dlzdt_res/sp_ft_rep0_0714_val",
+        "./test/data/outputs/dlzdt_res/sp_ft_rep0_0715_val",
+        "./test/data/outputs/dlzdt_res/sp_ft_rep1_0714_val",
+        "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
+        "./test/data/outputs/dlzdt_res/sp_ft_rep3_0714_val",
     ]
-    MODEL_NAMES = ["YOLO-OBB", "SP-FT-Rep0", "SP-FT-Rep1", "SP-FT-Rep3"]
-    OUTPUT_PNG = (
-        "./test/data/outputs/obb_distribution_compare/obb_distribution_compare.png"
-    )
-    OUTPUT_TXT = (
-        "./test/data/outputs/obb_distribution_compare/obb_distribution_compare.txt"
-    )
+    MODEL_NAMES = [
+        "YOLO-OBB",
+        "sp_ft_rep0_14",
+        "sp_ft_rep0_15",
+        "sp_ft_rep1_14",
+        "sp_ft_rep1_15",
+        "sp_ft_rep3_14",
+    ]
+    OUTPUT_PNG = "./test/data/outputs/dlzdt_obb_compare_val/obb_distribution_compare/obb_distribution_compare.png"
+    OUTPUT_TXT = "./test/data/outputs/dlzdt_obb_compare_val/obb_distribution_compare/obb_distribution_compare.txt"
 
     report = []
     report.append("=" * 60)
