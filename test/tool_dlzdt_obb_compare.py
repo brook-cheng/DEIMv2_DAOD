@@ -84,7 +84,7 @@ DET_DIRS = [
     # "./test/data/outputs/dlzdt_res/sp_ft_rep0_0714_val",
     # "./test/data/outputs/dlzdt_res/sp_ft_rep0_0715_val",
     # "./test/data/outputs/dlzdt_res/sp_ft_rep1_0714_val",
-    "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
+    # "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
     # "./test/data/outputs/dlzdt_res/sp_ft_rep3_0714_val",
     # "./test/data/outputs/dlzdt_res/sp_ft_rep3_0717_val",
 ]
@@ -95,7 +95,7 @@ MODEL_NAMES = [
     # "sp_ft_rep0_14",
     # "sp_ft_rep0_15",
     # "sp_ft_rep1_14",
-    "sp_ft_rep1_15",
+    # "sp_ft_rep1_15",
     # "sp_ft_rep3_14",
     # "sp_ft_rep3_17",
 ]
@@ -104,9 +104,9 @@ MODEL_NAMES = [
 #     "./test/data/outputs/dlzdt_sp_rep1_train",
 # ]
 # MODEL_NAMES = ["DEIMv2-OBB-SP-Rep0", "DEIMv2-OBB-SP-Rep1"]
-VIS_IMAGE_NUM = 100
+VIS_IMAGE_NUM = 10
 
-IOUV = np.array([0.3])
+IOUV = None
 # IOUV = None
 
 

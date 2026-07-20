@@ -43,6 +43,7 @@ def compare_obb_models(
     classes_file: str,
     model_names: Optional[List[str]] = None,
     iouv=None,
+    conf_thresh: float = 0.01,
 ):
     """Evaluate multiple OBB models against the same GT and print comparison tables.
 
@@ -52,6 +53,8 @@ def compare_obb_models(
         classes_file: path to classes.txt (one class per line).
         model_names:  list of model names (auto if None).
         iouv:         IoU thresholds (default 0.5:0.95).
+        conf_thresh:  minimum confidence score to keep a prediction (default 0.01,
+                      aligned with training eval obb_evaluate).
 
     Returns:
         (df_overall, df_per_class) pandas DataFrames.
@@ -63,7 +66,7 @@ def compare_obb_models(
 
     for name, det_dir in zip(model_names, det_dirs):
         print(f"[INFO] Evaluating: {name}")
-        result = evaluate_dota(det_dir, gt_dir, classes_file, iouv=iouv)
+        result = evaluate_dota(det_dir, gt_dir, classes_file, iouv=iouv, conf_thresh=conf_thresh)
         all_results[name] = result
         print(
             f"       mAP={result['mAP']:.4f}  AP50={result['AP50']:.4f}  "

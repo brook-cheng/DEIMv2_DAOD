@@ -71,6 +71,7 @@ import numpy as np
 from engine.backbone import DINOv3STAsResAtten
 from engine.deim import HybridEncoder, DEIMTransformer
 from engine.deim.postprocessor import PostProcessor
+from engine.data.transforms import ConvertPILImage
 from tools.model_compare.obb_utils import deimv2_obb_outputs_to_dota
 
 
@@ -163,7 +164,8 @@ def infer_obb_and_export(
     transform = transforms.Compose(
         [
             transforms.Resize(imgsz),
-            transforms.ToTensor(),
+            ConvertPILImage(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     )
 
@@ -243,21 +245,21 @@ if __name__ == "__main__":
         "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/classes.txt"
     )
     imgsz = (640, 640)
-    max_det = 50
-    score_threshold = 0.1
+    max_det = 300
+    score_threshold = 0.01
     device = "cuda:0"
 
     infoes = [
-        # {
-        #     "config": "configs/custom_obb/dlzdt/hp_fz_rep0.yml",
-        #     "ckpt": "outputs/hp_fz_rep0_0717.pth",
-        #     "output_dir": "./test/data/outputs/dlzdt_res/hp_fz_rep0_0717_val",
-        # },
         {
-            "config": "configs/custom_obb/dlzdt/hp_fz_rep3.yml",
-            "ckpt": "outputs/hp_fz_rep3_0717.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/hp_fz_rep3_0717_val",
+            "config": "configs/custom_obb/dlzdt/hp_fz_rep0.yml",
+            "ckpt": "outputs/hp_fz_rep0_0717.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/hp_fz_rep0_0717_val",
         },
+        # {
+        #     "config": "configs/custom_obb/dlzdt/hp_fz_rep3.yml",
+        #     "ckpt": "outputs/hp_fz_rep3_0717.pth",
+        #     "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
+        # },
     ]
 
     for info in infoes:

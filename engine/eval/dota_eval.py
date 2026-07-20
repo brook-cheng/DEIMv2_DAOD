@@ -140,7 +140,7 @@ def _load_classes(classes):
 
 
 def evaluate_dota(
-    det_dir, gt_dir, classes, image_list=None, iouv=None, conf_thresh=0.25
+    det_dir, gt_dir, classes, image_list=None, iouv=None, conf_thresh=0.01
 ):
     """Offline DOTA evaluation — aligned with obb_evaluate metrics.
 
@@ -155,6 +155,7 @@ def evaluate_dota(
         classes:   str (path to classes.txt) or list[str] of class names.
         image_list: optional list of image names. Auto-discovered from gt_dir.
         iouv:      IoU thresholds (default: 0.5, 0.55, ..., 0.95).
+        conf_thresh: minimum confidence score to keep a prediction (default 0.01).
 
     Returns:
         dict with mAP, AP50, AP75, mAP50_95, precision, recall, f1,
