@@ -16,7 +16,7 @@ import math
 from .box_ops import box_cxcywh_to_xyxy, generalized_box_iou, box_iou, ciou
 from .obb_ops import batch_probiou
 from .chamfer_cost import chamfer_cost_obb
-from .obb_geometry import periodic_angle_distance
+from .yolo_obb_loss import compute_angle_cost_matrix
 
 from ..core import register
 import numpy as np
@@ -24,13 +24,6 @@ import numpy as np
 
 @register()
 class HungarianMatcher(nn.Module):
-    """This class computes an assignment between the targets and the predictions of the network
-
-    For efficiency reasons, the targets don't include the no_object. Because of this, in general,
-    there are more predictions than targets. In this case, we do a 1-to-1 matching of the best predictions,
-    while the others are un-matched (and thus treated as non-objects).
-    """
-
     __share__ = [
         "use_focal_loss",
     ]
@@ -47,26 +40,20 @@ class HungarianMatcher(nn.Module):
         box_mode="hbb",
         angle_factor=math.pi,
         lambda_angle=1.0,
+        angle_order_alpha=1.0,
     ):
-        """Creates the matcher
-
-        Params:
-            cost_class: This is the relative weight of the classification error in the matching cost
-            cost_bbox: This is the relative weight of the L1 error of the bounding box coordinates in the matching cost
-            cost_giou: This is the relative weight of the giou loss of the bounding box in the matching cost
-            cost_chamber: This is the relative weight of the chamfer loss of the oriented box in the matching cost
-            cost_kld: This is the relative weight of the KLD loss of the oriented box in the matching cost
-        """
-
         super().__init__()
         self.cost_class = weight_dict.get("cost_class", 0)
         self.cost_bbox = weight_dict.get("cost_bbox", 0)
         self.cost_giou = weight_dict.get("cost_giou", 0)  # hbb
         self.cost_chamfer = weight_dict.get("cost_chamfer", 0)  # obb
         self.cost_probiou = weight_dict.get("cost_probiou", 0)  # obb
+        self.cost_angle = weight_dict.get("cost_angle", 0)
+        self.late_cost_bbox = weight_dict.get("late_cost_bbox", 0.0)
 
         self.change_matcher = change_matcher
         self.iou_order_alpha = iou_order_alpha
+        self.angle_order_alpha = angle_order_alpha
         self.matcher_change_epoch = matcher_change_epoch
 
         if self.change_matcher:
@@ -88,6 +75,7 @@ class HungarianMatcher(nn.Module):
                 self.cost_class != 0
                 or self.cost_bbox != 0
                 or self.cost_probiou != 0
+                or self.cost_angle != 0
                 or self.cost_chamfer != 0
             )
 
@@ -130,6 +118,18 @@ class HungarianMatcher(nn.Module):
         tgt_ids = torch.cat([v["labels"] for v in targets])
         tgt_bbox = torch.cat([v["boxes"] for v in targets])
 
+        if tgt_bbox.numel() == 0:
+            empty_indices = [
+                (
+                    torch.empty(0, dtype=torch.int64),
+                    torch.empty(0, dtype=torch.int64),
+                )
+                for _ in targets
+            ]
+            if return_topk:
+                return {"indices_o2m": empty_indices}
+            return {"indices": empty_indices}
+
         if self.change_matcher and epoch >= self.matcher_change_epoch:
             # Compute the class_score
             class_score = out_prob[
@@ -148,8 +148,34 @@ class HungarianMatcher(nn.Module):
                     box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox)
                 )
 
-            # Final cost matrix
-            C = (-1) * (class_score * torch.pow(bbox_iou, self.iou_order_alpha))
+            if self.box_mode == "obb":
+                pred_center = out_bbox[..., :2]
+                tgt_center = tgt_bbox[..., :2]
+                pred_sides = torch.sort(out_bbox[..., 2:4], dim=-1).values
+                tgt_sides = torch.sort(tgt_bbox[..., 2:4], dim=-1).values
+                cost_center = torch.cdist(pred_center, tgt_center, p=1)
+                cost_sides = torch.cdist(pred_sides, tgt_sides, p=1)
+                cost_bbox = cost_center + cost_sides
+
+                if self.cost_angle != 0:
+                    angle_cost = compute_angle_cost_matrix(
+                        out_bbox,
+                        tgt_bbox,
+                        lambda_val=3.0,
+                    )
+                    angle_quality = (1.0 - angle_cost).clamp(0.0, 1.0)
+                else:
+                    angle_quality = torch.ones_like(bbox_iou)
+
+                geometry_quality = (
+                    class_score
+                    * torch.pow(bbox_iou, self.iou_order_alpha)
+                    * torch.pow(angle_quality, self.angle_order_alpha)
+                )
+                C = -geometry_quality + self.late_cost_bbox * cost_bbox
+            else:
+                # Final cost matrix
+                C = (-1) * (class_score * torch.pow(bbox_iou, self.iou_order_alpha))
         else:
             # Compute the classification cost. Contrary to the loss, we don't use the NLL,
             # but approximate it in 1 - proba[target class].
@@ -170,20 +196,25 @@ class HungarianMatcher(nn.Module):
             else:
                 cost_class = -out_prob[:, tgt_ids]
             if self.box_mode == "obb":
-                spatial_cost = torch.cdist(out_bbox[..., :4], tgt_bbox[..., :4], p=1)
-                angle_cost = (
-                    periodic_angle_distance(
-                        out_bbox[:, None, 4:], tgt_bbox[None, :, 4:]
-                    ).squeeze(-1)
-                    / self.angle_factor
-                )
-                cost_bbox = spatial_cost + self.lambda_angle * angle_cost
+                pred_center = out_bbox[..., :2]
+                tgt_center = tgt_bbox[..., :2]
+                pred_sides = torch.sort(out_bbox[..., 2:4], dim=-1).values
+                tgt_sides = torch.sort(tgt_bbox[..., 2:4], dim=-1).values
+                cost_center = torch.cdist(pred_center, tgt_center, p=1)
+                cost_sides = torch.cdist(pred_sides, tgt_sides, p=1)
+                cost_bbox = cost_center + cost_sides
                 cost_probiou = -batch_probiou(out_bbox, tgt_bbox, eps=1e-8)
                 C = (
                     self.cost_bbox * cost_bbox
                     + self.cost_class * cost_class
                     + self.cost_probiou * cost_probiou
                 )
+                if self.cost_angle != 0:
+                    C += self.cost_angle * compute_angle_cost_matrix(
+                        out_bbox,
+                        tgt_bbox,
+                        lambda_val=3.0,
+                    )
                 if self.cost_chamfer > 0:
                     C += self.cost_chamfer * chamfer_cost_obb(out_bbox, tgt_bbox)
             elif self.box_mode == "hbb":

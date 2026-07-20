@@ -150,7 +150,7 @@ def test_decouple_angle_reference_dimensionality_consistent(seed):
       - out_bboxes (pred_boxes) is finite, last-dim == 5 (OBB).
       - out_refs is finite, last-dim == 5 (OBB).
       - pre_bboxes is finite, last-dim == 5 (OBB).
-      - out_corners (pred_corners) is finite, last-dim == 6*(reg_max+1).
+      - out_corners (pred_corners) is finite, last-dim == 5*(reg_max+1).
       - No NaN/Inf in any output tensor.
     """
     torch.manual_seed(seed)
@@ -232,11 +232,10 @@ def test_decouple_angle_reference_dimensionality_consistent(seed):
     assert (
         out_refs.shape[-1] == 5
     ), f"ref_points last-dim must be 5 (OBB), got {out_refs.shape[-1]}"
-    # pred_corners: (n_layers or 1, bs, n_queries, 6*(reg_max+1)) — ADR 6-dof
-    expected_corners_dim = 6 * (reg_max + 1)
+    expected_corners_dim = 5 * (reg_max + 1)
     assert out_corners.shape[-1] == expected_corners_dim, (
         f"pred_corners last-dim must be {expected_corners_dim} "
-        f"(6*(reg_max+1)), got {out_corners.shape[-1]}"
+        f"(5*(reg_max+1)), got {out_corners.shape[-1]}"
     )
 
     # --- theta range: out_bboxes theta in [0, pi] (DEIMTransformer rescales) ---

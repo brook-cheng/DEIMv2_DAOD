@@ -154,8 +154,12 @@ optimizer:
 ### Loss
 DEIMCriterion:
   box_mode: obb #obb or hbb
-  weight_dict: {loss_mal: 1, loss_bbox: 5, loss_kld: 2, loss_fgl: 0.15}
+  weight_dict: {loss_mal: 1, loss_bbox: 2, loss_probiou: 5, loss_angle: 3, loss_kld: 1, loss_fgl: 0.15}
   losses: ['mal', 'boxes', 'local']
+  use_yolo_probiou: true
+  use_yolo_angle: true
+  keep_kld: true
+  angle_lambda: 3.0
   gamma: 1.5 # 值越小iou损失对mal损失影响越小，mal_iou_type!='iou'时，gamma应当设置较小值[0,0.5]，否则可设置[0,2]
   # mal_alpha: 1.5 # 负样本预测错误损失权重
   mal_iou_type: 'giou' # 仅hbb有效，mal损失iou类型: iou,giou,diou,ciou,eiou
@@ -166,12 +170,13 @@ DEIMCriterion:
   matcher:
     type: HungarianMatcher
     box_mode: obb
-    weight_dict: {cost_class: 2, cost_bbox: 5,  cost_chamfer: 5,cost_probiou: 2}
+    weight_dict: {cost_class: 2, cost_bbox: 2, cost_probiou: 4, cost_angle: 3, cost_chamfer: 5, late_cost_bbox: 0.25}
     alpha: 0.25
     gamma: 2.0
     # change matcher
     change_matcher: True
     iou_order_alpha: 4.0
+    angle_order_alpha: 1.0
     matcher_change_epoch: 45
 
 ## Dense O2O: Mosaic + Mixup + CopyBlend

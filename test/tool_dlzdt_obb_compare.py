@@ -79,29 +79,35 @@ OUTPUT_VISUAL_DIR = os.path.join(OUTPUT_ROOT, "comparison_images_train")
 
 DET_DIRS = [
     OUTPUT_YOLO_DOTA_DIR,
-    "./test/data/outputs/dlzdt_res/sp_ft_rep0_0714_val",
-    "./test/data/outputs/dlzdt_res/sp_ft_rep0_0715_val",
-    "./test/data/outputs/dlzdt_res/sp_ft_rep1_0714_val",
+    "./test/data/outputs/dlzdt_res/hp_fz_rep0_0717_val",
+    # "./test/data/outputs/dlzdt_res/hp_fz_rep3_0717_val",
+    # "./test/data/outputs/dlzdt_res/sp_ft_rep0_0714_val",
+    # "./test/data/outputs/dlzdt_res/sp_ft_rep0_0715_val",
+    # "./test/data/outputs/dlzdt_res/sp_ft_rep1_0714_val",
     "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
-    "./test/data/outputs/dlzdt_res/sp_ft_rep3_0714_val",
+    # "./test/data/outputs/dlzdt_res/sp_ft_rep3_0714_val",
+    # "./test/data/outputs/dlzdt_res/sp_ft_rep3_0717_val",
 ]
 MODEL_NAMES = [
     "YOLO-OBB",
-    "sp_ft_rep0_14",
-    "sp_ft_rep0_15",
-    "sp_ft_rep1_14",
+    "hp_fz_rep0_17",
+    # "hp_fz_rep3_17",
+    # "sp_ft_rep0_14",
+    # "sp_ft_rep0_15",
+    # "sp_ft_rep1_14",
     "sp_ft_rep1_15",
-    "sp_ft_rep3_14",
+    # "sp_ft_rep3_14",
+    # "sp_ft_rep3_17",
 ]
 # DET_DIRS = [
 #     "./test/data/outputs/dlzdt_sp_rep0_train",
 #     "./test/data/outputs/dlzdt_sp_rep1_train",
 # ]
 # MODEL_NAMES = ["DEIMv2-OBB-SP-Rep0", "DEIMv2-OBB-SP-Rep1"]
-VIS_IMAGE_NUM = 259
+VIS_IMAGE_NUM = 100
 
-# IOUV = np.array([0.3])
-IOUV = None
+IOUV = np.array([0.3])
+# IOUV = None
 
 
 def yolo_gt_to_dota(

@@ -103,7 +103,7 @@ train_dataloader:
     - 0.25
     ema_restart_decay: 0.9999
   shuffle: true
-  total_batch_size: 12
+  total_batch_size: 4
   num_workers: 2
   type: DataLoader
   drop_last: true

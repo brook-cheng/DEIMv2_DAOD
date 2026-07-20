@@ -244,34 +244,19 @@ if __name__ == "__main__":
     )
     imgsz = (640, 640)
     max_det = 50
-    score_threshold = 0.2
+    score_threshold = 0.1
     device = "cuda:0"
 
     infoes = [
+        # {
+        #     "config": "configs/custom_obb/dlzdt/hp_fz_rep0.yml",
+        #     "ckpt": "outputs/hp_fz_rep0_0717.pth",
+        #     "output_dir": "./test/data/outputs/dlzdt_res/hp_fz_rep0_0717_val",
+        # },
         {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep0.yml",
-            "ckpt": "outputs/sp_ft_rep0_0714.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep0_0714_val",
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep0.yml",
-            "ckpt": "outputs/sp_ft_rep0_0715.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep0_0715_val",
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep1.yml",
-            "ckpt": "outputs/sp_ft_rep1_0714.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep1_0714_val",
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep1.yml",
-            "ckpt": "outputs/sp_ft_rep1_0715.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep3.yml",
-            "ckpt": "outputs/sp_ft_rep3_0714.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_0714_val",
+            "config": "configs/custom_obb/dlzdt/hp_fz_rep3.yml",
+            "ckpt": "outputs/hp_fz_rep3_0717.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/hp_fz_rep3_0717_val",
         },
     ]
 

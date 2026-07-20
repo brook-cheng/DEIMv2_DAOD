@@ -118,22 +118,27 @@ KendallWeighting:
   enabled: true
   sigma_lr: 0.001
   init_log_sigma: 0.0
+  loss_names: [loss_mal, loss_bbox, loss_probiou, loss_angle, loss_kld, loss_fgl]
 
 DEIMCriterion:
-  weight_dict: {loss_mal: 4, loss_bbox: 1, loss_kld: 1, loss_fgl: 0.5}
+  weight_dict: {loss_mal: 4, loss_bbox: 2, loss_probiou: 5, loss_angle: 3, loss_kld: 1, loss_fgl: 0.5}
   losses: ['mal', 'boxes', 'local']
+  use_yolo_probiou: true
+  use_yolo_angle: true
+  keep_kld: true
+  angle_lambda: 3.0
   gamma: 1.5
   alpha: 0.75
   reg_max: 32
 
   matcher:
     type: HungarianMatcher
-    weight_dict: {cost_class: 2, cost_bbox: 5,  cost_chamfer: 5,cost_probiou: 2}
+    weight_dict: {cost_class: 2, cost_bbox: 2, cost_probiou: 4, cost_angle: 3, cost_chamfer: 5, late_cost_bbox: 0.25}
     alpha: 0.25
     gamma: 2.0
     # change matcher
     change_matcher: True
     iou_order_alpha: 4.0
+    angle_order_alpha: 1.0
     # 0.75~0.85 * epoches
     matcher_change_epoch: 112
-

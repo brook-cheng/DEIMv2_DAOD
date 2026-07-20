@@ -26,6 +26,11 @@ from .box_ops import (
     siou,
 )
 from .obb_ops import probiou, kld_loss
+from .yolo_obb_loss import (
+    canonical_side_l1_loss,
+    yolo_angle_loss,
+    yolo_probiou_loss,
+)
 from ..misc.dist_utils import get_world_size, is_dist_available_and_initialized
 from ..core import register
 
@@ -61,6 +66,10 @@ class DEIMCriterion(nn.Module):
         lambda_angle=1.0,
         obbox_rep_dim=6,
         periodic_angle_flag=True,
+        use_yolo_probiou=False,
+        use_yolo_angle=False,
+        keep_kld=True,
+        angle_lambda=3.0,
     ):
         """Create the criterion.
         Parameters:
@@ -94,6 +103,27 @@ class DEIMCriterion(nn.Module):
         self.lambda_angle = lambda_angle
         self.obbox_rep_dim = obbox_rep_dim
         self.periodic_angle_flag = periodic_angle_flag
+        self.use_yolo_probiou = use_yolo_probiou
+        self.use_yolo_angle = use_yolo_angle
+        self.keep_kld = keep_kld
+        self.angle_lambda = angle_lambda
+
+        if self.box_mode == "obb" and (
+            self.use_yolo_probiou or self.use_yolo_angle
+        ):
+            required_keys = ["loss_bbox"]
+            if self.use_yolo_probiou:
+                required_keys.append("loss_probiou")
+            if self.use_yolo_angle:
+                required_keys.append("loss_angle")
+            if self.keep_kld:
+                required_keys.append("loss_kld")
+            missing_keys = [key for key in required_keys if key not in weight_dict]
+            if missing_keys:
+                raise ValueError(
+                    "OBB new-mode weight_dict is missing required keys: "
+                    + ", ".join(missing_keys)
+                )
 
     def loss_labels_focal(self, outputs, targets, indices, num_boxes):
         assert "pred_logits" in outputs
@@ -262,29 +292,55 @@ class DEIMCriterion(nn.Module):
             loss_giou = loss_giou if boxes_weight is None else loss_giou * boxes_weight
             losses["loss_giou"] = loss_giou.sum() / num_boxes
         elif self.box_mode == "obb":
-            # FIXME: L1距离存在缺陷
-            if self.periodic_angle_flag:
-                spatial_l1 = F.l1_loss(
-                    src_boxes[..., :4], target_boxes[..., :4], reduction="none"
+            if self.use_yolo_probiou or self.use_yolo_angle:
+                losses["loss_bbox"] = canonical_side_l1_loss(
+                    src_boxes, target_boxes, num_boxes
                 )
-                angle_term = (
-                    self.lambda_angle
-                    * periodic_angle_distance(src_boxes[..., 4:], target_boxes[..., 4:])
-                    / torch.pi
-                )
-                loss_bbox = torch.cat([spatial_l1, angle_term], dim=-1)
+                if self.use_yolo_probiou:
+                    losses["loss_probiou"] = yolo_probiou_loss(
+                        src_boxes, target_boxes, num_boxes
+                    )
+                if self.use_yolo_angle:
+                    losses["loss_angle"] = yolo_angle_loss(
+                        src_boxes,
+                        target_boxes,
+                        num_boxes,
+                        lambda_val=self.angle_lambda,
+                    )
+                if self.keep_kld:
+                    loss_kld = kld_loss(src_boxes, target_boxes, reduction="none")
+                    losses["loss_kld"] = loss_kld.sum() / num_boxes
             else:
-                # 统一空间和角度量纲到[0,1]
-                src_boxes_l1 = torch.cat(
-                    [src_boxes[..., :4], src_boxes[..., 4:] / torch.pi], dim=-1
-                )
-                target_boxes_l1 = torch.cat(
-                    [target_boxes[..., :4], target_boxes[..., 4:] / torch.pi], dim=-1
-                )
-                loss_bbox = F.l1_loss(src_boxes_l1, target_boxes_l1, reduction="none")
-            losses["loss_bbox"] = loss_bbox.sum() / num_boxes
-            loss_kld = kld_loss(src_boxes, target_boxes, reduction="none")
-            losses["loss_kld"] = loss_kld.sum() / num_boxes
+                if self.periodic_angle_flag:
+                    spatial_l1 = F.l1_loss(
+                        src_boxes[..., :4], target_boxes[..., :4], reduction="none"
+                    )
+                    angle_term = (
+                        self.lambda_angle
+                        * periodic_angle_distance(
+                            src_boxes[..., 4:], target_boxes[..., 4:]
+                        )
+                        / torch.pi
+                    )
+                    loss_bbox = torch.cat([spatial_l1, angle_term], dim=-1)
+                else:
+                    # 统一空间和角度量纲到[0,1]
+                    src_boxes_l1 = torch.cat(
+                        [src_boxes[..., :4], src_boxes[..., 4:] / torch.pi], dim=-1
+                    )
+                    target_boxes_l1 = torch.cat(
+                        [
+                            target_boxes[..., :4],
+                            target_boxes[..., 4:] / torch.pi,
+                        ],
+                        dim=-1,
+                    )
+                    loss_bbox = F.l1_loss(
+                        src_boxes_l1, target_boxes_l1, reduction="none"
+                    )
+                losses["loss_bbox"] = loss_bbox.sum() / num_boxes
+                loss_kld = kld_loss(src_boxes, target_boxes, reduction="none")
+                losses["loss_kld"] = loss_kld.sum() / num_boxes
 
         return losses
 
@@ -710,8 +766,6 @@ class DEIMCriterion(nn.Module):
                     l_dict = {k + "_dn_pre": v for k, v in l_dict.items()}
                     losses.update(l_dict)
 
-        # For debugging Objects365 pre-train.
-        losses = {k: torch.nan_to_num(v, nan=0.0) for k, v in losses.items()}
         return losses
 
     def get_loss_meta_info(self, loss, outputs, targets, indices):

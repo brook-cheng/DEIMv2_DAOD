@@ -1,0 +1,29 @@
+runs:
+  synthetic_exp_020_loss_kld:
+    status: completed
+    declared_epochs: 80
+    snapshot: synthetic_exp_020_loss_kld.completed.yml
+    known_switches:
+      use_yolo_probiou: false
+      use_yolo_angle: false
+    known_geometry_weights:
+      loss_bbox: 5
+      loss_kld: 2
+    resolved_config_available: false
+    output_artifacts_available: false
+    snapshot_sha256: 4b140a8cb592e11d783f120da050783c5a889d93a5e670d4c3863c3d7e910584
+  synthetic_exp_020_loss_prob_kld:
+    status: completed
+    declared_epochs: 80
+    snapshot: synthetic_exp_020_loss_prob_kld.completed.yml
+    known_switches:
+      use_yolo_probiou: true
+      use_yolo_angle: true
+    known_geometry_weights:
+      loss_bbox: 5
+      loss_probiou: 5
+      loss_angle: 3
+      loss_kld: 2
+    resolved_config_available: false
+    output_artifacts_available: false
+    snapshot_sha256: 2f9d32fb20930bc6eb1244b17ea34b46cc3ac30c72aa98471b83bbbac562995d

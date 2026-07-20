@@ -10,8 +10,19 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import torch
 import torch.nn as nn
+import yaml
 
 from engine.solver.kendall import KendallWeighting
+
+
+OBB_FAMILIES = [
+    "loss_mal",
+    "loss_bbox",
+    "loss_probiou",
+    "loss_angle",
+    "loss_kld",
+    "loss_fgl",
+]
 
 
 def test_init_weights():
@@ -54,6 +65,35 @@ def test_aggregate_loss():
     assert abs(agg_a.item() - 6.0) < 0.01, f"Expected 6.0, got {agg_a.item()}"
     assert abs(agg_b.item() - 22.0) < 0.01, f"Expected 22.0, got {agg_b.item()}"
     print("[PASS] test_aggregate_loss")
+
+
+def test_obb_families_aggregate_all_supported_suffixes():
+    kw = KendallWeighting(OBB_FAMILIES)
+    suffixes = ["", "_aux_0", "_dn_0", "_enc_0", "_pre"]
+    loss_dict = {
+        f"{family}{suffix}": torch.tensor(1.0)
+        for family in OBB_FAMILIES
+        for suffix in suffixes
+    }
+
+    for family in OBB_FAMILIES:
+        assert kw._aggregate_loss(loss_dict, family).item() == len(suffixes)
+
+
+def test_obb_configured_families_have_produced_criterion_keys():
+    config_path = os.path.join(
+        os.path.dirname(__file__), "..", "configs", "custom_obb", "deimv2_obb_sp.yml"
+    )
+    with open(config_path, encoding="utf-8") as stream:
+        configured = yaml.safe_load(stream)["KendallWeighting"]["loss_names"]
+    produced = {
+        f"{family}{suffix}": torch.tensor(1.0)
+        for family in OBB_FAMILIES
+        for suffix in ("", "_aux_0", "_dn_0", "_enc_0", "_pre")
+    }
+
+    assert configured == OBB_FAMILIES
+    assert all(family in produced for family in configured)
 
 
 def test_regularizer_present():

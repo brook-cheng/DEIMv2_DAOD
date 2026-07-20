@@ -9,7 +9,7 @@ import sys, os
 import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from engine.eval.obb_eval import _voc_ap, _tpfp
+from engine.eval.obb_eval import ap_per_class, compute_ap, match_predictions
 from engine.deim.obb_ops import batch_probiou
 
 
@@ -22,52 +22,68 @@ def _make_iou(det_boxes, gt_boxes):
     return batch_probiou(det_t, gt_t).numpy()
 
 
-def test_voc_ap_perfect():
-    """Perfect detection: AP should be 1.0."""
+def test_compute_ap_perfect():
     rec = np.array([0.0, 0.5, 1.0, 1.0, 1.0])
     prec = np.array([1.0, 1.0, 1.0, 0.75, 0.6])
-    ap = _voc_ap(rec, prec, use_07_metric=True)
-    assert abs(ap - 1.0) < 1e-6
+    ap, _, _ = compute_ap(rec, prec)
+    assert abs(ap - 0.995) < 1e-6
 
 
-def test_voc_ap_zero():
-    """No ground truths: AP is 0 (undefined recall)."""
-    rec = np.array([])
-    prec = np.array([])
-    ap = _voc_ap(rec, prec, use_07_metric=True)
-    assert ap == 0.0
+def test_ap_per_class_no_predictions():
+    stats = ap_per_class(
+        np.zeros((0, 1), dtype=bool),
+        np.zeros(0),
+        np.zeros(0, dtype=np.int64),
+        np.array([0], dtype=np.int64),
+    )
+    assert stats["ap"].shape == (1, 1)
+    assert stats["ap50"].tolist() == [0.0]
 
 
-def test_tpfp_perfect_match():
+def test_match_predictions_perfect_match():
     """All detections perfectly match GTs."""
     det = np.array([[100., 100., 50., 50., 0., 0.9]])
     gt  = np.array([[100., 100., 50., 50., 0.]])
     ious = _make_iou(det, gt)
-    tp, fp = _tpfp(ious, det[:, 5], iou_thr=0.5)
-    assert tp.sum() == 1
-    assert fp.sum() == 0
+    correct = match_predictions(
+        np.zeros(len(det), dtype=np.int64),
+        np.zeros(len(gt), dtype=np.int64),
+        ious.T,
+        (0.5,),
+    )
+    assert correct.sum() == 1
 
 
-def test_tpfp_no_detections():
+def test_match_predictions_no_detections():
     """No detections, some GTs: all TP=0."""
     det = np.zeros((0, 6))
     gt  = np.array([[100., 100., 50., 50., 0.]])
     ious = _make_iou(det, gt)
-    tp, fp = _tpfp(ious, np.zeros(0), iou_thr=0.5)
-    assert len(tp) == 0
+    correct = match_predictions(
+        np.zeros(0, dtype=np.int64),
+        np.zeros(len(gt), dtype=np.int64),
+        ious.T,
+        (0.5,),
+    )
+    assert correct.shape == (0, 1)
 
 
-def test_tpfp_no_gts():
+def test_match_predictions_no_gts():
     """Detections but no GTs: all FP."""
     det = np.array([[100., 100., 50., 50., 0., 0.9]])
     gt  = np.zeros((0, 5))
     ious = _make_iou(det, gt)
-    tp, fp = _tpfp(ious, det[:, 5], iou_thr=0.5)
-    assert tp.sum() == 0
-    assert fp.sum() == 1
+    correct = match_predictions(
+        np.zeros(len(det), dtype=np.int64),
+        np.zeros(0, dtype=np.int64),
+        ious.T,
+        (0.5,),
+    )
+    assert correct.shape == (1, 1)
+    assert not correct.any()
 
 
-def test_tpfp_double_match():
+def test_match_predictions_double_match():
     """Two detections, one GT: higher score wins, second is FP."""
     det = np.array([
         [100., 100., 50., 50., 0., 0.9],
@@ -75,9 +91,14 @@ def test_tpfp_double_match():
     ])
     gt  = np.array([[100., 100., 50., 50., 0.]])
     ious = _make_iou(det, gt)
-    tp, fp = _tpfp(ious, det[:, 5], iou_thr=0.5)
-    assert tp.sum() == 1
-    assert fp.sum() == 1
+    correct = match_predictions(
+        np.zeros(len(det), dtype=np.int64),
+        np.zeros(len(gt), dtype=np.int64),
+        ious.T,
+        (0.5,),
+    )
+    assert correct.sum() == 1
+    assert (~correct[:, 0]).sum() == 1
 
 
 def test_poly_iou_self_vs_1():

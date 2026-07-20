@@ -6,8 +6,6 @@ Modified from DETR (https://github.com/facebookresearch/detr/blob/main/engine.py
 Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 """
 
-import sys
-import math
 from typing import Iterable
 
 import torch
@@ -23,6 +21,12 @@ from ..optim import ModelEMA, Warmup
 from ..data import CocoEvaluator
 from ..misc import MetricLogger, SmoothedValue, dist_utils
 from ..eval.obb_eval import obb_evaluate
+from .training_diagnostics import (
+    validate_max_optimizer_steps,
+    raise_for_nonfinite_losses,
+    raise_for_nonfinite_total,
+    inspect_gradients,
+)
 
 # ---------------------------------------------------------------------------
 #  Loss key parser: "loss_mal_aux_3" → ("loss_mal", "aux", 3)
@@ -133,7 +137,14 @@ def train_one_epoch(
     comet_exp = kwargs.get("comet_exp", None)
     comet_step = kwargs.get("comet_step", None)
 
+    max_optimizer_steps = kwargs.get("max_optimizer_steps", None)
+    fail_on_zero_grad = kwargs.get("fail_on_zero_grad", False)
+    validate_max_optimizer_steps(max_optimizer_steps)
+
     cur_iters = epoch * len(data_loader)
+
+    _optimizer_step_count = 0
+    _step_cap_reached = False
 
     use_tqdm = tqdm is not None
     if use_tqdm:
@@ -159,6 +170,11 @@ def train_one_epoch(
             epoch_step=len(data_loader),
         )
 
+        # ── Step cap: break early if limit reached ────────────────────────────
+        if max_optimizer_steps is not None and _optimizer_step_count >= max_optimizer_steps:
+            _step_cap_reached = True
+            break
+
         if scaler is not None:
             with torch.autocast(device_type=str(device), cache_enabled=True):
                 outputs = model(samples, targets=targets)
@@ -181,11 +197,23 @@ def train_one_epoch(
             with torch.autocast(device_type=str(device), enabled=False):
                 loss_dict = criterion(outputs, targets, **metas)
 
+            raise_for_nonfinite_losses(loss_dict, epoch=epoch, step=i, global_step=global_step)
+
             loss = sum(loss_dict.values())
+            raise_for_nonfinite_total(loss, epoch=epoch, step=i, global_step=global_step)
             scaler.scale(loss).backward()
 
+            # Always unscale before gradient inspection and clipping
+            scaler.unscale_(optimizer)
+            inspect_gradients(
+                model.named_parameters(),
+                fail_on_zero_grad=fail_on_zero_grad,
+                epoch=epoch,
+                step=i,
+                global_step=global_step,
+            )
+
             if max_norm > 0:
-                scaler.unscale_(optimizer)
                 grad_norm_before = torch.nn.utils.clip_grad_norm_(
                     model.parameters(), max_norm
                 )
@@ -199,10 +227,12 @@ def train_one_epoch(
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad()
+            _optimizer_step_count += 1
 
         else:
             outputs = model(samples, targets=targets)
             loss_dict = criterion(outputs, targets, **metas)
+            raise_for_nonfinite_losses(loss_dict, epoch=epoch, step=i, global_step=global_step)
 
             optimizer.zero_grad()
             if kendall_optimizer is not None:
@@ -210,7 +240,16 @@ def train_one_epoch(
 
             if kendall is not None:
                 loss = kendall.weighted_loss(loss_dict)
+                raise_for_nonfinite_total(loss, epoch=epoch, step=i, global_step=global_step)
                 loss.backward()
+
+                inspect_gradients(
+                    model.named_parameters(),
+                    fail_on_zero_grad=fail_on_zero_grad,
+                    epoch=epoch,
+                    step=i,
+                    global_step=global_step,
+                )
 
                 if max_norm > 0:
                     grad_norm_before = torch.nn.utils.clip_grad_norm_(
@@ -226,6 +265,7 @@ def train_one_epoch(
                 optimizer.step()
                 if kendall_optimizer is not None:
                     kendall_optimizer.step()
+                _optimizer_step_count += 1
 
                 if dist_utils.is_main_process() and global_step % 50 == 0:
                     weights = kendall.get_weights()
@@ -239,7 +279,16 @@ def train_one_epoch(
                             pass
             else:
                 loss: torch.Tensor = sum(loss_dict.values())
+                raise_for_nonfinite_total(loss, epoch=epoch, step=i, global_step=global_step)
                 loss.backward()
+
+                inspect_gradients(
+                    model.named_parameters(),
+                    fail_on_zero_grad=fail_on_zero_grad,
+                    epoch=epoch,
+                    step=i,
+                    global_step=global_step,
+                )
 
                 if max_norm > 0:
                     grad_norm_before = torch.nn.utils.clip_grad_norm_(
@@ -253,6 +302,7 @@ def train_one_epoch(
                     grad_norm_after = grad_norm_before
 
                 optimizer.step()
+                _optimizer_step_count += 1
 
             param_norm = (
                 sum(p.data.float().norm(2).item() ** 2 for p in model.parameters())
@@ -270,11 +320,6 @@ def train_one_epoch(
 
         loss_dict_reduced = dist_utils.reduce_dict(loss_dict)
         loss_value = sum(loss_dict_reduced.values())
-
-        if not math.isfinite(loss_value):
-            print("Loss is {}, stopping training".format(loss_value))
-            print(loss_dict_reduced)
-            sys.exit(1)
 
         metric_logger.update(loss=loss_value, **loss_dict_reduced)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
@@ -320,6 +365,12 @@ def train_one_epoch(
                 comet_exp.log_metric("param/norm", param_norm, step=global_step)
             except Exception:
                 pass
+
+    # ── Step cap early return: if reached, skip EMA, scheduler, and final logging ──
+    if _step_cap_reached:
+        train_stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+        train_stats["_step_cap_reached"] = True
+        return train_stats
 
     metric_logger.synchronize_between_processes()
 

@@ -127,6 +127,9 @@ class DetSolver(BaseSolver):
             )
             print(f"[KendallWeighting] enabled — prior={[f'{p:.3f}' for p in prior]}")
 
+        _max_optimizer_steps = args.yaml_cfg.get("max_optimizer_steps")
+        _fail_on_zero_grad = args.yaml_cfg.get("fail_on_zero_grad", False)
+
         for epoch in range(start_epoch, args.epoches):
 
             self.train_dataloader.set_epoch(epoch)
@@ -157,7 +160,13 @@ class DetSolver(BaseSolver):
                 comet_step=epoch,
                 kendall=kendall,
                 kendall_optimizer=kendall_optimizer,
+                max_optimizer_steps=_max_optimizer_steps,
+                fail_on_zero_grad=_fail_on_zero_grad,
             )
+
+            if train_stats.pop("_step_cap_reached", False):
+                print(f"[Diagnostic] step cap reached at epoch {epoch}. Stopping.")
+                break
 
             if not self.self_lr_scheduler:  # update by epoch
                 if (

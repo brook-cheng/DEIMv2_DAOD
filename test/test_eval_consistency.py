@@ -14,7 +14,7 @@ import torch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.data.dataset.dota_dataset import DotaDataset
-from engine.eval.obb_eval import _voc_ap, _tpfp
+from engine.eval.obb_eval import ap_per_class, match_predictions
 from engine.eval.dota_eval import evaluate_dota, DOTA_CLASSES
 from engine.deim.obb_ops import batch_probiou
 from engine.deim.obb_geometry import xywhr_to_xyxyxyxy
@@ -43,47 +43,41 @@ def _perturb_gt(gt_boxes, rng):
 
 def _compute_online_aps(all_gt_boxes, all_gt_labels,
                          all_pred_boxes, all_pred_scores, all_pred_labels):
-    """Run online AP computation — per-image TP/FP, matching evaluate_dota."""
     n_imgs = len(all_gt_boxes)
-    aps = []
-    for cls_id in range(NUM_CLASSES):
-        all_tp, all_fp, all_scores = [], [], []
-        total_gt = 0
-        for i in range(n_imgs):
-            gb, gl = all_gt_boxes[i], all_gt_labels[i]
-            pb, ps, pl = all_pred_boxes[i], all_pred_scores[i], all_pred_labels[i]
-            mp, mg = pl == cls_id, gl == cls_id
-            det = np.concatenate([pb[mp], ps[mp, None]], axis=1) if mp.any() else np.zeros((0, 6), dtype=np.float32)
-            gt  = gb[mg].astype(np.float32) if mg.any() else np.zeros((0, 5), dtype=np.float32)
-            total_gt += len(gt)
-            if len(det) == 0 or len(gt) == 0:
-                if len(det) > 0:
-                    all_tp.append(np.zeros(len(det), dtype=np.float32))
-                    all_fp.append(np.ones(len(det), dtype=np.float32))
-                    all_scores.append(det[:, 5])
-                continue
-            det_t = torch.tensor(det[:, :5], dtype=torch.float32)
-            gt_t  = torch.tensor(gt, dtype=torch.float32)
-            ious = batch_probiou(det_t, gt_t).numpy()
-            tp, fp = _tpfp(ious, det[:, 5], IOU_THR)
-            all_tp.append(tp); all_fp.append(fp); all_scores.append(det[:, 5])
-        if total_gt == 0:
-            aps.append(0.0); continue
-        tp_cat = np.concatenate(all_tp); fp_cat = np.concatenate(all_fp)
-        s_cat  = np.concatenate(all_scores)
-        idx = np.argsort(-s_cat)
-        tp_cum = np.cumsum(tp_cat[idx]); fp_cum = np.cumsum(fp_cat[idx])
-        eps = np.finfo(np.float32).eps
-        rec = tp_cum / max(total_gt, 1)
-        prec = tp_cum / np.maximum(tp_cum + fp_cum, eps)
-        aps.append(_voc_ap(rec, prec, use_07_metric=True))
+    all_tp, all_scores, all_pred_classes = [], [], []
+    for i in range(n_imgs):
+        gt_boxes = torch.tensor(all_gt_boxes[i], dtype=torch.float32)
+        pred_boxes = torch.tensor(all_pred_boxes[i], dtype=torch.float32)
+        gt_labels = all_gt_labels[i]
+        pred_labels = all_pred_labels[i]
+        ious = batch_probiou(gt_boxes, pred_boxes)
+        all_tp.append(
+            match_predictions(
+                torch.tensor(pred_labels),
+                torch.tensor(gt_labels),
+                ious,
+                (IOU_THR,),
+            )
+        )
+        all_scores.append(all_pred_scores[i])
+        all_pred_classes.append(pred_labels)
+
+    stats = ap_per_class(
+        np.concatenate(all_tp),
+        np.concatenate(all_scores),
+        np.concatenate(all_pred_classes),
+        np.concatenate(all_gt_labels),
+    )
+    aps = [0.0] * NUM_CLASSES
+    for class_id, ap50 in zip(stats["unique_classes"], stats["ap50"]):
+        aps[int(class_id)] = float(ap50)
     return aps
 
 
 def test_online_vs_offline_ap():
     rng = np.random.RandomState(99)
 
-    ds = DotaDataset(**DATA, transforms=None)
+    ds = DotaDataset(**DATA, transforms=None, format="DOTA")
     all_gt_boxes, all_gt_labels, img_names = [], [], []
     for idx in range(len(ds)):
         _, tgt = ds[idx]
@@ -136,11 +130,20 @@ def test_online_vs_offline_ap():
             with open(os.path.join(det_dir, f"{name}.txt"), "w") as f:
                 f.writelines(lines)
 
-        result_offline = evaluate_dota(det_dir, gt_dir)
+        result_offline = evaluate_dota(
+            det_dir,
+            gt_dir,
+            DOTA_CLASSES,
+            iouv=(IOU_THR,),
+            conf_thresh=0.0,
+        )
     finally:
         shutil.rmtree(tmpdir)
 
-    offline_aps = [result_offline["per_class"].get(c, 0.0) for c in DOTA_CLASSES]
+    offline_aps = [
+        result_offline["per_class"].get(c, {}).get("AP50", 0.0)
+        for c in DOTA_CLASSES
+    ]
 
     print(f"\n{'Class':<20s} {'Online':>8s} {'Offline':>8s} {'Delta':>8s} {'GT':>5s}")
     print("-" * 55)
