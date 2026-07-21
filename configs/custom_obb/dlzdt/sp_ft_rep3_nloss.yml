@@ -8,7 +8,7 @@ __include__: [
 ]
 
 #### 项目配置
-output_dir: ./outputs/deimv2_obb_dlzdt_sp_ft_rep3
+output_dir: ./outputs/deimv2_obb_dlzdt_sp_ft_rep3_nloss
 comet_project_name: 'deimv2_obb_sp_dlzdt'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
@@ -144,8 +144,8 @@ DEIMCriterion:
     loss_ddf: 1.5
     }
   losses: ['mal', 'boxes', 'local']
-  use_yolo_probiou: false
-  use_yolo_angle: false
+  use_yolo_probiou: true
+  use_yolo_angle: true
   keep_kld: true
   angle_lambda: 3.0
   gamma: 1.0
