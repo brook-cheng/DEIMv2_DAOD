@@ -138,7 +138,9 @@ class DetSolver(BaseSolver):
                 self.train_dataloader.sampler.set_epoch(epoch)
 
             if epoch == self.train_dataloader.collate_fn.stop_epoch:
+                saved_epoch = self.last_epoch
                 self.load_resume_state(str(self.output_dir / "best_stg1.pth"))
+                self.last_epoch = saved_epoch
                 self.ema.decay = self.train_dataloader.collate_fn.ema_restart_decay
                 print(f"Refresh EMA at epoch {epoch} with decay {self.ema.decay}")
 
@@ -270,7 +272,9 @@ class DetSolver(BaseSolver):
                 elif epoch >= self.train_dataloader.collate_fn.stop_epoch:
                     best_stat = {"epoch": -1}
                     self.ema.decay -= 0.0001
+                    saved_epoch = self.last_epoch
                     self.load_resume_state(str(self.output_dir / "best_stg1.pth"))
+                    self.last_epoch = saved_epoch
                     print(f"Refresh EMA at epoch {epoch} with decay {self.ema.decay}")
             else:
                 if self.writer and dist_utils.is_main_process():
