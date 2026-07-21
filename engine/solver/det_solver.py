@@ -89,10 +89,10 @@ class DetSolver(BaseSolver):
                     best_stat[k] = test_stats[k][0]
                     top1 = test_stats[k][0]
             else:
-                for k, v in test_stats.items():
-                    best_stat["epoch"] = self.last_epoch
-                    best_stat[k] = v
-                    top1 = v
+                v = test_stats.get("mAP50_95", 0)
+                best_stat["epoch"] = self.last_epoch
+                best_stat["mAP50_95"] = v
+                top1 = v
                 print(f"best_stat: {best_stat}")
 
         best_stat_print = best_stat.copy()
@@ -177,7 +177,7 @@ class DetSolver(BaseSolver):
 
             self.last_epoch += 1
 
-            if self.output_dir and epoch < self.train_dataloader.collate_fn.stop_epoch:
+            if self.output_dir :
                 checkpoint_paths = [self.output_dir / "last.pth"]
                 # extra checkpoint before LR drop and every 100 epochs
                 if (epoch + 1) % args.checkpoint_freq == 0:
@@ -226,31 +226,29 @@ class DetSolver(BaseSolver):
                                 self.state_dict(), self.output_dir / "best_stg2.pth"
                             )
             else:
-                for k, v in test_stats.items():
-                    if self.writer and dist_utils.is_main_process():
+                # Log all metrics to writer
+                if self.writer and dist_utils.is_main_process():
+                    for k, v in test_stats.items():
                         self.writer.add_scalar(f"Test/{k}", v, epoch)
-                    if k in best_stat:
-                        best_stat["epoch"] = (
-                            epoch if v > best_stat[k] else best_stat["epoch"]
+                # Checkpoint selection: mAP@0.5:0.95 (same standard as HBB's AP@0.5:0.95)
+                v = test_stats.get("mAP50_95", 0)
+                if v > best_stat.get("mAP50_95", -1.0):
+                    best_stat["epoch"] = epoch
+                    best_stat["mAP50_95"] = v
+                if v > top1:
+                    best_stat_print["epoch"] = epoch
+                    top1 = v
+                    if (
+                        self.output_dir
+                        and epoch >= self.train_dataloader.collate_fn.stop_epoch
+                    ):
+                        dist_utils.save_on_master(
+                            self.state_dict(), self.output_dir / "best_stg2.pth"
                         )
-                        best_stat[k] = max(best_stat[k], v)
                     else:
-                        best_stat["epoch"] = epoch
-                        best_stat[k] = v
-                    if best_stat[k] > top1:
-                        best_stat_print["epoch"] = epoch
-                        top1 = best_stat[k]
-                        if (
-                            self.output_dir
-                            and epoch >= self.train_dataloader.collate_fn.stop_epoch
-                        ):
-                            dist_utils.save_on_master(
-                                self.state_dict(), self.output_dir / "best_stg2.pth"
-                            )
-                        else:
-                            dist_utils.save_on_master(
-                                self.state_dict(), self.output_dir / "best_stg1.pth"
-                            )
+                        dist_utils.save_on_master(
+                            self.state_dict(), self.output_dir / "best_stg1.pth"
+                        )
 
             if box_mode == "hbb":
                 best_stat_print[k] = max(best_stat[k], top1)
