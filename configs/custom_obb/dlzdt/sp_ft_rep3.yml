@@ -15,10 +15,10 @@ checkpoint_freq: 10    # save freq
 num_classes: 1
 
 ## DEIM LR-Scheduler
-epoches: 160 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
-warmup_iter: 15   # 0.1 * epoches
-flat_epoch: 90    # epoch // 2 + warmup_iter
-no_aug_epoch: 15
+epoches: 250 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+warmup_iter: 25   # 0.1 * epoches
+flat_epoch: 125    # epoch // 2 + warmup_iter
+no_aug_epoch: 25
 
 #### 设置训练数据
 ## Dense O2O: Mosaic + Mixup + CopyBlend
@@ -45,7 +45,7 @@ train_dataloader:
         - {type: OBBConvertBoxes, normalize: True, img_size: [640, 640]}
         - {type: Normalize, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}
       policy:
-        epoch: [15, 35, 55] # stop_epoch, 2阶段数据增强：0-无-> A(0.05~0.1)*epoch -强-> B(0.2~0.45)*epoch -弱-> C(0.3 *0.7)*epoch ->无
+        epoch: [25, 50, 125] # stop_epoch, 2阶段数据增强：0-无-> A(0.05~0.1)*epoch -强-> B(0.2~0.45)*epoch -弱-> C(0.3 *0.7)*epoch ->无
         ops: ['Mosaic', 'RandomPhotometricDistort', 'OBBZoomOut', 'OBBIoUCrop']
       mosaic_prob: 0.5
 
@@ -54,11 +54,11 @@ train_dataloader:
     base_size: 640
     # Mixup options
     mixup_prob: 0.5
-    mixup_epochs: [15, 35]
-    stop_epoch: 55    # epoch in [72, ~) stop `multiscales`
+    mixup_epochs: [25, 50]
+    stop_epoch: 125    # epoch in [72, ~) stop `multiscales`
     # CopyBlend options
     copyblend_prob: 0.5
-    copyblend_epochs: [4, 55]
+    copyblend_epochs: [25,125]
     area_threshold: 100
     num_objects: 3
     with_expand: True
