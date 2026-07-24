@@ -340,13 +340,24 @@ def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root):
     for d, n in zip(det_dirs, model_names):
         pred_per_img = diff_load_boxes(d, is_gt=False)
         (
-            wh_diffs, angle_diffs, nm, nup, nug, matched_wh, matched_ang,
+            wh_diffs,
+            angle_diffs,
+            nm,
+            nup,
+            nug,
+            matched_wh,
+            matched_ang,
         ) = match_and_compute_diffs(gt_per_img, pred_per_img, iou_thr=0.1)
         st = compute_difference_stats(wh_diffs, angle_diffs, nm, nup, nug)
         diff_report.append(format_diff_stats(n, st))
         png = plot_difference_analysis(
-            wh_diffs, angle_diffs, nm, nup, nug,
-            matched_wh, matched_ang,
+            wh_diffs,
+            angle_diffs,
+            nm,
+            nup,
+            nug,
+            matched_wh,
+            matched_ang,
             n,
             os.path.join(report_dir, f"diff_{n}.png"),
         )
@@ -733,34 +744,16 @@ def main_multi():
 
     MODEL_LIST = [
         {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep0.yml",
-            "ckpt": "outputs/sp_ft_rep0_0714.pth",
-            "output_dir": "./test/data/outputs/debug_decoder/sp_ft_rep0_0714_train",
-            "infer_flag": False,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep0.yml",
-            "ckpt": "outputs/sp_ft_rep0_0715.pth",
-            "output_dir": "./test/data/outputs/debug_decoder/sp_ft_rep0_0715_train",
-            "infer_flag": False,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep1.yml",
-            "ckpt": "outputs/sp_ft_rep1_0714.pth",
-            "output_dir": "./test/data/outputs/debug_decoder/sp_ft_rep1_0714_train",
-            "infer_flag": False,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep1.yml",
-            "ckpt": "outputs/sp_ft_rep1_0715.pth",
-            "output_dir": "./test/data/outputs/debug_decoder/sp_ft_rep1_0715_train",
-            "infer_flag": False,
-        },
-        {
             "config": "configs/custom_obb/dlzdt/sp_ft_rep3.yml",
-            "ckpt": "outputs/sp_ft_rep3_0714.pth",
-            "output_dir": "./test/data/outputs/debug_decoder/sp_ft_rep3_0714_train",
-            "infer_flag": False,
+            "ckpt": "outputs/sp_ft_rep3_0722.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_0722_train",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep3_nloss.yml",
+            "ckpt": "outputs/sp_ft_rep3_nloss_0722.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_nloss_0722_train",
+            "infer_flag": True,
         },
     ]
 

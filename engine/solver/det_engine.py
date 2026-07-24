@@ -7,6 +7,7 @@ Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 """
 
 from typing import Iterable
+from pathlib import Path
 
 import torch
 import torch.amp
@@ -22,11 +23,15 @@ from ..data import CocoEvaluator
 from ..misc import MetricLogger, SmoothedValue, dist_utils
 from ..eval.obb_eval import obb_evaluate
 from .training_diagnostics import (
+    NanGradientTracker,
     validate_max_optimizer_steps,
     raise_for_nonfinite_losses,
     raise_for_nonfinite_total,
     inspect_gradients,
 )
+
+# Parameters whose NaN/Inf gradients are zeroed (not crashed) with a log warning.
+_NAN_ZERO_PATTERNS: frozenset[str] = frozenset({"cls_token"})
 
 # ---------------------------------------------------------------------------
 #  Loss key parser: "loss_mal_aux_3" → ("loss_mal", "aux", 3)
@@ -107,6 +112,49 @@ def _log_gradient_stats(model: torch.nn.Module, comet_exp, epoch: int) -> None:
         )
 
 
+import json
+
+
+def _save_nan_snapshot(
+    tracker: NanGradientTracker,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    loss_dict: dict[str, torch.Tensor],
+    epoch: int,
+    step: int,
+    output_dir: Path | str | None,
+) -> None:
+    """Save a full training snapshot when NaN grads are first seen for a param."""
+    firsts = tracker.pop_firsts()
+    if not firsts or output_dir is None:
+        return
+
+    out = Path(output_dir) / "nan_snapshots"
+    out.mkdir(parents=True, exist_ok=True)
+    stem = f"nan_e{epoch}_s{step}"
+
+    loss_snapshot = {k: float(v.detach().cpu()) for k, v in loss_dict.items()}
+    (out / f"{stem}_loss.json").write_text(json.dumps(loss_snapshot, indent=2))
+
+    if dist_utils.is_main_process():
+        dist_utils.save_on_master(
+            model.state_dict(),
+            out / f"{stem}_model.pth",
+        )
+        torch.save(optimizer.state_dict(), out / f"{stem}_optimizer.pth")
+
+    (out / f"{stem}_params.txt").write_text(
+        f"epoch={epoch} step={step}\n"
+        + "\n".join(firsts)
+        + f"\n\ntotal_nan_events={tracker.count}"
+    )
+
+    print(
+        f"[WARN] NaN gradient snapshot saved to {out}/{stem}_* "
+        f"(params: {', '.join(firsts)})"
+    )
+
+
 def train_one_epoch(
     self_lr_scheduler,
     lr_scheduler,
@@ -139,7 +187,11 @@ def train_one_epoch(
 
     max_optimizer_steps = kwargs.get("max_optimizer_steps", None)
     fail_on_zero_grad = kwargs.get("fail_on_zero_grad", False)
+    nan_max_events = kwargs.get("nan_max_events", 10)
+    nan_output_dir = kwargs.get("output_dir", None)
     validate_max_optimizer_steps(max_optimizer_steps)
+
+    nan_tracker = NanGradientTracker(max_events=int(nan_max_events))
 
     cur_iters = epoch * len(data_loader)
 
@@ -205,13 +257,16 @@ def train_one_epoch(
 
             # Always unscale before gradient inspection and clipping
             scaler.unscale_(optimizer)
-            inspect_gradients(
+            _, zeroed = inspect_gradients(
                 model.named_parameters(),
                 fail_on_zero_grad=fail_on_zero_grad,
                 epoch=epoch,
                 step=i,
                 global_step=global_step,
+                nan_zero_patterns=_NAN_ZERO_PATTERNS,
+                nan_tracker=nan_tracker,
             )
+            _save_nan_snapshot(nan_tracker, model, optimizer, loss_dict, epoch, i, nan_output_dir)
 
             if max_norm > 0:
                 grad_norm_before = torch.nn.utils.clip_grad_norm_(
@@ -243,13 +298,16 @@ def train_one_epoch(
                 raise_for_nonfinite_total(loss, epoch=epoch, step=i, global_step=global_step)
                 loss.backward()
 
-                inspect_gradients(
+                _, zeroed = inspect_gradients(
                     model.named_parameters(),
                     fail_on_zero_grad=fail_on_zero_grad,
                     epoch=epoch,
                     step=i,
                     global_step=global_step,
+                    nan_zero_patterns=_NAN_ZERO_PATTERNS,
+                    nan_tracker=nan_tracker,
                 )
+                _save_nan_snapshot(nan_tracker, model, optimizer, loss_dict, epoch, i, nan_output_dir)
 
                 if max_norm > 0:
                     grad_norm_before = torch.nn.utils.clip_grad_norm_(
@@ -282,13 +340,16 @@ def train_one_epoch(
                 raise_for_nonfinite_total(loss, epoch=epoch, step=i, global_step=global_step)
                 loss.backward()
 
-                inspect_gradients(
+                _, zeroed = inspect_gradients(
                     model.named_parameters(),
                     fail_on_zero_grad=fail_on_zero_grad,
                     epoch=epoch,
                     step=i,
                     global_step=global_step,
+                    nan_zero_patterns=_NAN_ZERO_PATTERNS,
+                    nan_tracker=nan_tracker,
                 )
+                _save_nan_snapshot(nan_tracker, model, optimizer, loss_dict, epoch, i, nan_output_dir)
 
                 if max_norm > 0:
                     grad_norm_before = torch.nn.utils.clip_grad_norm_(

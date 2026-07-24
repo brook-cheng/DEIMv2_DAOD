@@ -164,6 +164,8 @@ class DetSolver(BaseSolver):
                 kendall_optimizer=kendall_optimizer,
                 max_optimizer_steps=_max_optimizer_steps,
                 fail_on_zero_grad=_fail_on_zero_grad,
+                output_dir=self.output_dir,
+                nan_max_events=args.yaml_cfg.get("nan_max_events", 10),
             )
 
             if train_stats.pop("_step_cap_reached", False):

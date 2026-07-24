@@ -251,15 +251,25 @@ if __name__ == "__main__":
 
     infoes = [
         {
-            "config": "configs/custom_obb/dlzdt/hp_fz_rep0.yml",
-            "ckpt": "outputs/hp_fz_rep0_0717.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/hp_fz_rep0_0717_val",
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep3.yml",
+            "ckpt": "outputs/sp_ft_rep3_0722.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_0722_val",
         },
-        # {
-        #     "config": "configs/custom_obb/dlzdt/hp_fz_rep3.yml",
-        #     "ckpt": "outputs/hp_fz_rep3_0717.pth",
-        #     "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
-        # },
+        {
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep3.yml",
+            "ckpt": "outputs/sp_ft_rep3_0722_best.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_0722_best_val",
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep3_nloss.yml",
+            "ckpt": "outputs/sp_ft_rep3_nloss_0722.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_nloss_0722_val",
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep3_nloss.yml",
+            "ckpt": "outputs/sp_ft_rep3_nloss_0722_best.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_nloss_0722_best_val",
+        },
     ]
 
     for info in infoes:
