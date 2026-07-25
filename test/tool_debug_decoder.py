@@ -291,7 +291,7 @@ def phase1_export(
 # ──────────────────────────────────────────────────────────────────
 
 
-def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root):
+def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root, img_dir=None):
     """Run distribution comparison and difference analysis for all layers."""
     from tool_obb_distribution_compare import (
         load_boxes_from_dota_dir as dist_load_boxes,
@@ -306,6 +306,7 @@ def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root):
         compute_difference_stats,
         format_diff_stats,
         plot_difference_analysis,
+        draw_outlier_images,
     )
 
     report_dir = os.path.join(output_root, "reports")
@@ -347,6 +348,7 @@ def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root):
             nug,
             matched_wh,
             matched_ang,
+            outlier_records,
         ) = match_and_compute_diffs(gt_per_img, pred_per_img, iou_thr=0.1)
         st = compute_difference_stats(wh_diffs, angle_diffs, nm, nup, nug)
         diff_report.append(format_diff_stats(n, st))
@@ -362,6 +364,12 @@ def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root):
             os.path.join(report_dir, f"diff_{n}.png"),
         )
         print(f"  Diff {n}: {png}")
+
+        if img_dir is not None:
+            draw_outlier_images(
+                outlier_records, img_dir, report_dir, n,
+                wh_threshold=1.0, angle_threshold=20.0,
+            )
 
     with open(os.path.join(report_dir, "difference_report.txt"), "w") as f:
         f.write("\n".join(diff_report))
@@ -688,7 +696,7 @@ def run_debug(
     # Phase 2-3: Analysis
     print("\n" + "=" * 60)
     print("Phase 2-3: Distribution + Difference analysis")
-    phase_analysis(gt_dir, det_dirs, model_names, output_root)
+    phase_analysis(gt_dir, det_dirs, model_names, output_root, img_dir=img_dir)
 
     # Phase 4: Visualization
     print("\n" + "=" * 60)
@@ -744,15 +752,27 @@ def main_multi():
 
     MODEL_LIST = [
         {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep3.yml",
-            "ckpt": "outputs/sp_ft_rep3_0722.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_0722_train",
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep0_nloss.yml",
+            "ckpt": "outputs/sp_ft_rep0_nloss_0723_last.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep0_nloss_0723_last_train",
             "infer_flag": True,
         },
         {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep3_nloss.yml",
-            "ckpt": "outputs/sp_ft_rep3_nloss_0722.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_nloss_0722_train",
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep1_nloss.yml",
+            "ckpt": "outputs/sp_ft_rep1_nloss_0723_last.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep1_nloss_0723_last_train",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep2_nloss.yml",
+            "ckpt": "outputs/sp_ft_rep2_nloss_0723_last.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep2_nloss_0723_last_train",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep3.yml",
+            "ckpt": "outputs/sp_ft_rep3_0723_last.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_0723_last_train",
             "infer_flag": True,
         },
     ]

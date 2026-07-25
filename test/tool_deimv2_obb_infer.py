@@ -251,24 +251,24 @@ if __name__ == "__main__":
 
     infoes = [
         {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep3.yml",
-            "ckpt": "outputs/sp_ft_rep3_0722.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_0722_val",
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep0_nloss.yml",
+            "ckpt": "outputs/sp_ft_rep0_nloss_0723_last.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep0_nloss_0723_last_val",
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep1_nloss.yml",
+            "ckpt": "outputs/sp_ft_rep1_nloss_0723_last.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep1_nloss_0723_last_val",
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/sp_ft_rep2_nloss.yml",
+            "ckpt": "outputs/sp_ft_rep2_nloss_0723_last.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep2_nloss_0723_last_val",
         },
         {
             "config": "configs/custom_obb/dlzdt/sp_ft_rep3.yml",
-            "ckpt": "outputs/sp_ft_rep3_0722_best.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_0722_best_val",
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep3_nloss.yml",
-            "ckpt": "outputs/sp_ft_rep3_nloss_0722.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_nloss_0722_val",
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep3_nloss.yml",
-            "ckpt": "outputs/sp_ft_rep3_nloss_0722_best.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_nloss_0722_best_val",
+            "ckpt": "outputs/sp_ft_rep3_0723_last.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_0723_last_val",
         },
     ]
 

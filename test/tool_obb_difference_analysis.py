@@ -19,12 +19,14 @@ Report includes:
 - angle difference distribution (histogram + text: mean abs, % within ±5°)
 - Matched / unmatched count statistics
 - Scatter plots: pred w/h vs GT w/h for matched pairs
+- Outlier visualization: per-image rendering of GT vs pred boxes for pairs
+  exceeding configurable w/h and angle thresholds (green=GT, red=pred)
 
 Entry Points
 ------------
 Programmatic:
     ``match_and_compute_diffs(gt_per_img, pred_per_img, iou_thr)``
-    — returns wh_diffs, angle_diffs, match counts.
+    — returns wh_diffs, angle_diffs, match counts, outlier_records.
 
 Script:
     Edit ``main()`` paths and run::
@@ -39,6 +41,11 @@ MODEL_NAMES   : list  — display names matching DET_DIRS order
 OUTPUT_DIR    : str   — output directory for PNGs and report
 OUTPUT_TXT    : str   — path for text report
 IOU_THR       : float — minimum ProbIoU for valid matching (default 0.1)
+VIS_LARGE_DIFFS    : bool  — enable outlier image rendering
+WH_DIFF_THRESHOLD  : float | None — |pred_w/h−gt_w/h| > this → drawn (None = disable)
+ANGLE_DIFF_THRESHOLD : float | None — |Δθ| > this ° → drawn (None = disable)
+IMAGE_DIR      : str   — original image directory (for drawing on)
+MAX_OUTLIER_IMAGES_PER_MODEL : int — cap per model
 
 Metrics
 -------
@@ -52,7 +59,10 @@ Output Structure
 ----------------
 OUTPUT_DIR/
 ├── diff_analysis_<model_name>.png  # histograms + scatter per model
-└── difference_report.txt           # text report with all metrics
+├── difference_report.txt           # text report with all metrics
+└── outliers/<model_name>/          # per-image GT+pred rendering
+    ├── <stem>.jpg
+    └── ...
 
 Usage
 -----
@@ -66,8 +76,11 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
+import cv2
 import numpy as np
 import torch
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.ticker import PercentFormatter
 from scipy.optimize import linear_sum_assignment
@@ -163,18 +176,20 @@ def match_and_compute_diffs(gt_boxes_per_img, pred_boxes_per_img, iou_thr=0.1):
     """For each image, Hungarian-match pred↔GT and collect paired differences.
 
     Returns:
-        wh_diffs:   list of (pred_w/h - gt_w/h) for matched pairs
-        angle_diffs: list of signed shortest angular difference
-        n_matched:   total matched pairs
+        wh_diffs:       list of (pred_w/h - gt_w/h) for matched pairs
+        angle_diffs:    list of signed shortest angular difference
+        n_matched:      total matched pairs
         n_unmatched_pred: pred boxes unmatched
         n_unmatched_gt:   GT boxes unmatched
-        matched_wh:  list of (gt_wh, pred_wh) tuples for matched pairs
-        matched_ang: list of (gt_θ°, pred_θ°) tuples for matched pairs
+        matched_wh:     list of (gt_wh, pred_wh) tuples for matched pairs
+        matched_ang:    list of (gt_θ°, pred_θ°) tuples for matched pairs
+        outlier_records: list of dicts with stem, coords, and diffs for outlier viz
     """
     wh_diffs = []
     angle_diffs = []
     matched_wh = []
     matched_ang = []
+    outlier_records = []
     n_matched = 0
     n_unmatched_pred = 0
     n_unmatched_gt = 0
@@ -217,14 +232,25 @@ def match_and_compute_diffs(gt_boxes_per_img, pred_boxes_per_img, iou_thr=0.1):
 
             gt_wh = gt_arr[g, 2] / max(gt_arr[g, 3], 1e-6)
             pred_wh = pred_arr[p, 2] / max(pred_arr[p, 3], 1e-6)
-            wh_diffs.append(pred_wh - gt_wh)
-            angle_diffs.append(
-                _signed_periodic_angle_diff(pred_arr[p, 4], gt_arr[g, 4])
-            )
+            wh_diff = pred_wh - gt_wh
+            ang_diff = _signed_periodic_angle_diff(pred_arr[p, 4], gt_arr[g, 4])
+            wh_diffs.append(wh_diff)
+            angle_diffs.append(ang_diff)
             matched_wh.append((gt_wh, pred_wh))
             matched_ang.append(
                 (float(gt_arr[g, 4] * 180.0 / np.pi), float(pred_arr[p, 4] * 180.0 / np.pi))
             )
+            outlier_records.append({
+                "stem": stem,
+                "gt_cx": float(gt_arr[g, 0]), "gt_cy": float(gt_arr[g, 1]),
+                "gt_w": float(gt_arr[g, 2]),  "gt_h": float(gt_arr[g, 3]),
+                "gt_theta": float(gt_arr[g, 4]),
+                "pred_cx": float(pred_arr[p, 0]), "pred_cy": float(pred_arr[p, 1]),
+                "pred_w": float(pred_arr[p, 2]),  "pred_h": float(pred_arr[p, 3]),
+                "pred_theta": float(pred_arr[p, 4]),
+                "wh_diff": float(wh_diff),
+                "angle_diff": float(ang_diff),
+            })
 
         # unmatched counts
         if N > M:
@@ -234,7 +260,7 @@ def match_and_compute_diffs(gt_boxes_per_img, pred_boxes_per_img, iou_thr=0.1):
 
     return (
         wh_diffs, angle_diffs, n_matched, n_unmatched_pred, n_unmatched_gt,
-        matched_wh, matched_ang,
+        matched_wh, matched_ang, outlier_records,
     )
 
 
@@ -419,6 +445,121 @@ def format_diff_stats(name, st):
 
 
 # ──────────────────────────────────────────────────────────────────
+# Outlier object visualization
+# ──────────────────────────────────────────────────────────────────
+
+# ── Configuration ──
+VIS_LARGE_DIFFS = True
+WH_DIFF_THRESHOLD = 2.0       # |pred_w/h - gt_w/h| > 1.0  → 抓取; None → 不筛 w/h
+ANGLE_DIFF_THRESHOLD = 20.0   # |Δθ| > 20°  → 抓取; None → 不筛角度
+MAX_OUTLIER_IMAGES_PER_MODEL = 50
+
+
+def _xywhr_to_poly(cx, cy, w, h, theta_rad):
+    """Convert (cx,cy,w,h,θ_rad) to 4×2 polygon corners."""
+    cos_t = np.cos(theta_rad)
+    sin_t = np.sin(theta_rad)
+    dx = w / 2.0
+    dy = h / 2.0
+    corners = np.array([
+        [-dx, -dy], [+dx, -dy], [+dx, +dy], [-dx, +dy]
+    ])
+    rot = np.array([[cos_t, -sin_t], [sin_t, cos_t]])
+    return (corners @ rot.T) + np.array([cx, cy])
+
+
+def _draw_polygon(img, poly, color, thickness=2):
+    """Draw a polygon on *img* (BGR uint8) in-place."""
+    pts = np.intp(poly).reshape((-1, 1, 2))
+    cv2.polylines(img, [pts], isClosed=True, color=color, thickness=thickness)
+
+
+def _find_image_path(stem, image_dir):
+    """Return the full path to *stem*.{jpg,png,bmp} in *image_dir*."""
+    for ext in (".jpg", ".jpeg", ".png", ".bmp"):
+        p = os.path.join(image_dir, f"{stem}{ext}")
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def draw_outlier_images(
+    outlier_records,
+    image_dir,
+    output_dir,
+    model_name,
+    *,
+    wh_threshold: float | None = None,
+    angle_threshold: float | None = None,
+):
+    """Render worst-diff GT/pred pairs on original images, per-stem.
+
+    Args:
+        outlier_records: list of dicts from :func:`match_and_compute_diffs`.
+        image_dir:      directory containing original images.
+        output_dir:     root output directory (``outliers/<model>/`` created).
+        model_name:     display name for directory naming.
+        wh_threshold:   override module-level ``WH_DIFF_THRESHOLD``.
+        angle_threshold: override module-level ``ANGLE_DIFF_THRESHOLD``.
+    """
+    wh = wh_threshold if wh_threshold is not None else WH_DIFF_THRESHOLD
+    ang = angle_threshold if angle_threshold is not None else ANGLE_DIFF_THRESHOLD
+    records = [
+        r for r in outlier_records
+        if (wh is not None and abs(r["wh_diff"]) > wh)
+        or (ang is not None and abs(r["angle_diff"]) > ang)
+    ]
+    if not records:
+        print(f"  No outlier objects found for {model_name}")
+        return
+
+    out_dir = os.path.join(output_dir, "outliers", model_name.replace(" ", "_"))
+    os.makedirs(out_dir, exist_ok=True)
+
+    by_stem: dict[str, list[dict]] = {}
+    for r in records:
+        by_stem.setdefault(r["stem"], []).append(r)
+
+    drawn = 0
+    for stem in sorted(by_stem):
+        if drawn >= MAX_OUTLIER_IMAGES_PER_MODEL:
+            break
+        img_path = _find_image_path(stem, image_dir)
+        if img_path is None:
+            continue
+        img = cv2.imread(img_path)
+        if img is None:
+            continue
+        drawn += 1
+
+        for r in by_stem[stem]:
+            gt_poly = _xywhr_to_poly(r["gt_cx"], r["gt_cy"], r["gt_w"], r["gt_h"], r["gt_theta"])
+            pr_poly = _xywhr_to_poly(r["pred_cx"], r["pred_cy"], r["pred_w"], r["pred_h"], r["pred_theta"])
+            _draw_polygon(img, gt_poly, color=(0, 255, 0))        # green = GT
+            _draw_polygon(img, pr_poly, color=(0, 0, 255))        # red  = pred
+
+            # annotate near center
+            cx, cy = int(r["gt_cx"]), int(r["gt_cy"])
+            label = f"w/h={r['wh_diff']:+.2f}  θ={r['angle_diff']:+.1f}°"
+            cv2.putText(img, label, (cx + 5, cy - 5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1,
+                        cv2.LINE_AA)
+
+        out_path = os.path.join(out_dir, f"{stem}.jpg")
+        cv2.imwrite(out_path, img)
+
+    parts = []
+    if wh is not None:
+        parts.append(f"wh>{wh}")
+    if ang is not None:
+        parts.append(f"|Δθ|>{ang}°")
+    print(
+        f"  Outlier images: {drawn} → {out_dir}/  "
+        f"({', '.join(parts)})"
+    )
+
+
+# ──────────────────────────────────────────────────────────────────
 # Main
 # ──────────────────────────────────────────────────────────────────
 
@@ -443,6 +584,7 @@ def main():
     ]
     OUTPUT_DIR = "./test/data/outputs/dlzdt_obb_compare_val/obb_diff_analysis"
     OUTPUT_TXT = os.path.join(OUTPUT_DIR, "difference_report.txt")
+    IMAGE_DIR = "./test/data/outputs/dlzdt_obb_compare_val/images/val"
     IOU_THR = 0.1
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -476,7 +618,7 @@ def main():
         print(f"  Matching (Hungarian, IoU threshold={IOU_THR})...")
         (
             wh_diffs, angle_diffs, n_matched, n_unmatched_pred, n_unmatched_gt,
-            matched_wh, matched_ang,
+            matched_wh, matched_ang, outlier_records,
         ) = match_and_compute_diffs(gt_per_img, pred_per_img, iou_thr=IOU_THR)
         print(
             f"  Matched: {n_matched},  Unmatched pred: {n_unmatched_pred},  "
@@ -502,6 +644,9 @@ def main():
             name,
             os.path.join(OUTPUT_DIR, f"diff_analysis_{name.replace(' ', '_')}.png"),
         )
+
+        if VIS_LARGE_DIFFS:
+            draw_outlier_images(outlier_records, IMAGE_DIR, OUTPUT_DIR, name)
 
     with open(OUTPUT_TXT, "w") as f:
         f.write("\n".join(report))

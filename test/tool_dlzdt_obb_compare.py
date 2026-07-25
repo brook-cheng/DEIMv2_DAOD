@@ -86,11 +86,13 @@ DET_DIRS = [
     # "./test/data/outputs/dlzdt_res/sp_ft_rep1_0714_val",
     # "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
     # "./test/data/outputs/dlzdt_res/sp_ft_rep3_0714_val",
-    "./test/data/outputs/dlzdt_res/sp_ft_rep3_0717_val",
+    # "./test/data/outputs/dlzdt_res/sp_ft_rep3_0717_val",
     "./test/data/outputs/dlzdt_res/sp_ft_rep3_0722_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep3_0722_best_val",
+    "./test/data/outputs/dlzdt_res/sp_ft_rep3_0723_last_val",
     "./test/data/outputs/dlzdt_res/sp_ft_rep3_nloss_0722_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep3_nloss_0722_best_val",
+    "./test/data/outputs/dlzdt_res/sp_ft_rep2_nloss_0723_last_val",
+    "./test/data/outputs/dlzdt_res/sp_ft_rep1_nloss_0723_last_val",
+    "./test/data/outputs/dlzdt_res/sp_ft_rep0_nloss_0723_last_val",
 ]
 MODEL_NAMES = [
     "YOLO-OBB",
@@ -101,11 +103,13 @@ MODEL_NAMES = [
     # "sp_ft_rep1_14",
     # "sp_ft_rep1_15",
     # "sp_ft_rep3_14",
-    "sp_ft_rep3_17",
+    # "sp_ft_rep3_17",
     "sp_ft_rep3_22",
-    # "sp_ft_rep3_22_b",
+    "sp_ft_rep3_23",
     "sp_ft_rep3_22_n",
-    # "sp_ft_rep3_22_nb",
+    "sp_ft_rep2_n_23",
+    "sp_ft_rep1_n_23",
+    "sp_ft_rep0_n_23",
 ]
 # DET_DIRS = [
 #     "./test/data/outputs/dlzdt_sp_rep0_train",
