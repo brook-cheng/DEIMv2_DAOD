@@ -906,7 +906,7 @@ class DEIMTransformer(nn.Module):
                     # r = grid_x / torch.tensor(
                     #     w, dtype=grid_xy.dtype, device=grid_xy.device
                     # )
-                    r = r.unsqueeze(0).unsqueeze(-1)
+                    # r = r.unsqueeze(0).unsqueeze(-1)
                     lvl_anchors = torch.concat([grid_xy, wh, r], dim=-1).reshape(
                         -1, h * w, self._num_box_dof
                     )
