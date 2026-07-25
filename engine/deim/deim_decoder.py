@@ -897,15 +897,15 @@ class DEIMTransformer(nn.Module):
                     )
                     wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
 
-                    # r = 0.5 * torch.ones(
-                    #     *grid_xy.shape[:-1],
-                    #     1,
-                    #     dtype=grid_xy.dtype,
-                    #     device=grid_xy.device,
-                    # )
-                    r = grid_x / torch.tensor(
-                        w, dtype=grid_xy.dtype, device=grid_xy.device
+                    r = 0.5 * torch.ones(
+                        *grid_xy.shape[:-1],
+                        1,
+                        dtype=grid_xy.dtype,
+                        device=grid_xy.device,
                     )
+                    # r = grid_x / torch.tensor(
+                    #     w, dtype=grid_xy.dtype, device=grid_xy.device
+                    # )
                     r = r.unsqueeze(0).unsqueeze(-1)
                     lvl_anchors = torch.concat([grid_xy, wh, r], dim=-1).reshape(
                         -1, h * w, self._num_box_dof
