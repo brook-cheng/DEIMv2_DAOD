@@ -751,31 +751,37 @@ def main_multi():
     VIS_STEP = 20
 
     MODEL_LIST = [
-        {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep0_nloss.yml",
-            "ckpt": "outputs/sp_ft_rep0_nloss_0723_last.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep0_nloss_0723_last_train",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep1_nloss.yml",
-            "ckpt": "outputs/sp_ft_rep1_nloss_0723_last.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep1_nloss_0723_last_train",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep2_nloss.yml",
-            "ckpt": "outputs/sp_ft_rep2_nloss_0723_last.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep2_nloss_0723_last_train",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/sp_ft_rep3.yml",
-            "ckpt": "outputs/sp_ft_rep3_0723_last.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/sp_ft_rep3_0723_last_train",
-            "infer_flag": True,
-        },
-    ]
+            # {
+            #     "config": "configs/custom_obb/dlzdt/sp_fz_rep0_nloss.yml",
+            #     "ckpt": "outputs/sp_fz_rep0_nloss_0725.pth",
+            #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep0_nloss_0725_train",
+            #     "infer_flag": True,
+            # },
+            # {
+            #     "config": "configs/custom_obb/dlzdt/sp_fz_rep1_nloss.yml",
+            #     "ckpt": "outputs/sp_fz_rep1_nloss_0725.pth",
+            #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep1_nloss_0725_train",
+            #     "infer_flag": True,
+            # },
+            # {
+            #     "config": "configs/custom_obb/dlzdt/sp_fz_rep2_nloss.yml",
+            #     "ckpt": "outputs/sp_fz_rep2_nloss_0725.pth",
+            #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep2_nloss_0725_train",
+            #     "infer_flag": True,
+            # },
+            # {
+            #     "config": "configs/custom_obb/dlzdt/sp_fz_rep3_nloss.yml",
+            #     "ckpt": "outputs/sp_fz_rep3_nloss_0725.pth",
+            #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_0725_train",
+            #     "infer_flag": True,
+            # },
+            {
+                "config": "configs/custom_obb/dlzdt/sp_fz_rep3_nloss_a0.yml",
+                "ckpt": "outputs/sp_fz_rep3_nloss_a0_0725.pth",
+                "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_a0_0725_train",
+                "infer_flag": True,
+            },
+        ]
 
     for m in MODEL_LIST:
         run_debug(
