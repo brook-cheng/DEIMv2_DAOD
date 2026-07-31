@@ -896,7 +896,7 @@ class DEIMTransformer(nn.Module):
                         [w, h], dtype=dtype
                     )
                     wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
-
+                    # TODO：调整为更加多元的角度
                     r = 0.5 * torch.ones(
                         *grid_xy.shape[:-1],
                         1,

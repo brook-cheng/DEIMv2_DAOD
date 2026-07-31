@@ -307,7 +307,10 @@ def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root, img_dir=None
         format_diff_stats,
         plot_difference_analysis,
         draw_outlier_images,
+        match_and_get_obbs,
     )
+
+    from engine.deim.obb_error_classify import classify_errors
 
     report_dir = os.path.join(output_root, "reports")
     os.makedirs(report_dir, exist_ok=True)
@@ -364,6 +367,16 @@ def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root, img_dir=None
             os.path.join(report_dir, f"diff_{n}.png"),
         )
         print(f"  Diff {n}: {png}")
+
+        matched_gt_obbs, matched_pred_obbs = match_and_get_obbs(gt_per_img, pred_per_img, iou_thr=0.1)
+        if matched_gt_obbs:
+            cls = classify_errors(
+                torch.tensor(np.array(matched_gt_obbs)),
+                torch.tensor(np.array(matched_pred_obbs)),
+                iou_threshold=0.5,
+                angle_threshold_deg=15.0,
+            )
+            diff_report.append(f"  [classification] ok={cls['ok']} swap={cls['swap_artifact']} genuine={cls['genuine_angle_error']}")
 
         if img_dir is not None:
             draw_outlier_images(

@@ -264,6 +264,37 @@ def match_and_compute_diffs(gt_boxes_per_img, pred_boxes_per_img, iou_thr=0.1):
     )
 
 
+def match_and_get_obbs(gt_boxes_per_img, pred_boxes_per_img, iou_thr=0.1):
+    """Hungarian-match pred↔GT and return matched OBB parameter pairs.
+
+    Returns:
+        matched_gt:   list of (cx,cy,w,h,theta) GT boxes
+        matched_pred: list of (cx,cy,w,h,theta) pred boxes
+    """
+    matched_gt = []
+    matched_pred = []
+    common = set(gt_boxes_per_img.keys()) & set(pred_boxes_per_img.keys())
+    for stem in sorted(common):
+        gt_list = gt_boxes_per_img[stem]
+        pred_list = pred_boxes_per_img[stem]
+        M, N = len(gt_list), len(pred_list)
+        if M == 0 or N == 0:
+            continue
+        gt_arr = np.array([[b[0], b[1], b[2], b[3], b[4]] for b in gt_list], dtype=np.float32)
+        pred_arr = np.array([[b[0], b[1], b[2], b[3], b[4]] for b in pred_list], dtype=np.float32)
+        gt_t = torch.tensor(gt_arr)
+        pred_t = torch.tensor(pred_arr)
+        iou = batch_probiou(gt_t, pred_t).numpy()
+        cost = -iou
+        gt_idx, pred_idx = linear_sum_assignment(cost)
+        for g, p in zip(gt_idx, pred_idx):
+            if iou[g, p] < iou_thr:
+                continue
+            matched_gt.append(gt_arr[g])
+            matched_pred.append(pred_arr[p])
+    return matched_gt, matched_pred
+
+
 # ──────────────────────────────────────────────────────────────────
 # 可视化
 # ──────────────────────────────────────────────────────────────────
@@ -568,19 +599,19 @@ def main():
     GT_DOTA_DIR = "./test/data/outputs/dlzdt_obb_compare_val/gt_dota"
     DET_DIRS = [
         "./test/data/outputs/dlzdt_obb_compare_val/yolo_dota",
-        "./test/data/outputs/dlzdt_res/sp_ft_rep0_0714_val",
-        "./test/data/outputs/dlzdt_res/sp_ft_rep0_0715_val",
-        "./test/data/outputs/dlzdt_res/sp_ft_rep1_0714_val",
-        "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
-        "./test/data/outputs/dlzdt_res/sp_ft_rep3_0714_val",
+        "./test/data/outputs/dlzdt_res/sp_fz_rep0_nloss_0725_val",
+        "./test/data/outputs/dlzdt_res/sp_fz_rep1_nloss_0725_val",
+        "./test/data/outputs/dlzdt_res/sp_fz_rep2_nloss_0725_val",
+        "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_0725_val",
+        "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_a0_0725_val"
     ]
     MODEL_NAMES = [
         "YOLO-OBB",
-        "sp_ft_rep0_14",
-        "sp_ft_rep0_15",
-        "sp_ft_rep1_14",
-        "sp_ft_rep1_15",
-        "sp_ft_rep3_14",
+        "sp_fz_rep0",
+        "sp_fz_rep1",
+        "sp_fz_rep2",
+        "sp_fz_rep3",
+        "sp_fz_rep3_a0",
     ]
     OUTPUT_DIR = "./test/data/outputs/dlzdt_obb_compare_val/obb_diff_analysis"
     OUTPUT_TXT = os.path.join(OUTPUT_DIR, "difference_report.txt")
@@ -632,6 +663,27 @@ def main():
         print(s.strip())
         report.append(s)
         report.append(f"  pred dir: {det_dir}")
+
+        # ── Geometry-validated classification ──
+        from engine.deim.obb_error_classify import classify_errors  # noqa: E402
+        matched_gt_list, matched_pred_list = match_and_get_obbs(
+            gt_per_img, pred_per_img, iou_thr=IOU_THR
+        )
+        if matched_gt_list:
+            cls = classify_errors(
+                torch.tensor(np.array(matched_gt_list)),
+                torch.tensor(np.array(matched_pred_list)),
+                iou_threshold=0.5,
+                angle_threshold_deg=15.0,
+            )
+            raw_large = cls["genuine_angle_error"] + cls["swap_artifact"]
+            artifact_rate = cls["swap_artifact"] / max(raw_large, 1) * 100
+            report.append(f"  ── Geometry-Validated Classification ──")
+            report.append(f"    Large angle errors (raw):  {raw_large}")
+            report.append(f"    Swap artifacts (ProbIoU>0.5): {cls['swap_artifact']} ({artifact_rate:.1f}%)")
+            report.append(f"    Genuine angle errors:      {cls['genuine_angle_error']}")
+            report.append(f"    OK pairs:                  {cls['ok']}")
+            print(f"  Classification: raw_large={raw_large} swap={cls['swap_artifact']} ({artifact_rate:.0f}%) genuine={cls['genuine_angle_error']}")
 
         plot_difference_analysis(
             wh_diffs,

@@ -65,7 +65,7 @@ def xywhr_to_xyxyxyxy(xywhr: Tensor) -> Tensor:
     pt4 = ctr - vec1 + vec2
     return torch.stack([pt1, pt2, pt3, pt4], -2)
 
-
+# TODO：调整角度范围到[-90,0]，减小需要检索的特征空间
 def xyxyxyxy_to_xywhr(xyxyxyxy: Tensor) -> Tensor:
     """Convert four corner vertices to OBB (cx, cy, w, h, theta).
 

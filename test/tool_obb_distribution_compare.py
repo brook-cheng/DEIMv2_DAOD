@@ -439,19 +439,19 @@ def main():
     GT_DOTA_DIR = "./test/data/outputs/dlzdt_obb_compare_val/gt_dota"
     DET_DIRS = [
         "./test/data/outputs/dlzdt_obb_compare_val/yolo_dota",
-        "./test/data/outputs/dlzdt_res/sp_ft_rep0_0714_val",
-        "./test/data/outputs/dlzdt_res/sp_ft_rep0_0715_val",
-        "./test/data/outputs/dlzdt_res/sp_ft_rep1_0714_val",
-        "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
-        "./test/data/outputs/dlzdt_res/sp_ft_rep3_0714_val",
+        "./test/data/outputs/dlzdt_res/sp_fz_rep0_nloss_0725_val",
+        "./test/data/outputs/dlzdt_res/sp_fz_rep1_nloss_0725_val",
+        "./test/data/outputs/dlzdt_res/sp_fz_rep2_nloss_0725_val",
+        "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_0725_val",
+        "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_a0_0725_val"
     ]
     MODEL_NAMES = [
         "YOLO-OBB",
-        "sp_ft_rep0_14",
-        "sp_ft_rep0_15",
-        "sp_ft_rep1_14",
-        "sp_ft_rep1_15",
-        "sp_ft_rep3_14",
+        "sp_fz_rep0",
+        "sp_fz_rep1",
+        "sp_fz_rep2",
+        "sp_fz_rep3",
+        "sp_fz_rep3_a0",
     ]
     OUTPUT_PNG = "./test/data/outputs/dlzdt_obb_compare_val/obb_distribution_compare/obb_distribution_compare.png"
     OUTPUT_TXT = "./test/data/outputs/dlzdt_obb_compare_val/obb_distribution_compare/obb_distribution_compare.txt"
