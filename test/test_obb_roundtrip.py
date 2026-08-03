@@ -63,7 +63,8 @@ _check("w=0.4 h=0.2 θ=π/6",    torch.tensor([[0.5, 0.5, 0.4, 0.2, 0.523599]]))
 _check("w=0.4 h=0.2 θ=π/4",    torch.tensor([[0.5, 0.5, 0.4, 0.2, 0.785398]]))
 _check("w=0.4 h=0.2 θ=π/2",    torch.tensor([[0.5, 0.5, 0.4, 0.2, 1.570796]]))
 _check("w=0.4 h=0.2 θ=2π/3",   torch.tensor([[0.5, 0.5, 0.4, 0.2, 2.094395]]))
-_check("w=0.4 h=0.2 θ=π-0.01", torch.tensor([[0.5, 0.5, 0.4, 0.2, 3.131593]]))
+_check("w=0.4 h=0.2 θ=π-0.01", torch.tensor([[0.5, 0.5, 0.4, 0.2, 3.131593]]),
+       expect_param_match=False)
 
 # ── Swapped cases (w < h): geometric match, parameter swap ──
 print("\n-- w < h (vertex match expected, w/h swap + θ+π/2) --")
@@ -88,7 +89,8 @@ _check("needle w=0.9 h=0.001",   torch.tensor([[0.5, 0.5, 0.9, 0.001, 0.0]]))
 
 print("\n-- angle boundary values --")
 _check("θ=1e-6",                 torch.tensor([[0.5, 0.5, 0.3, 0.1, 1e-6]]))
-_check("θ=π-1e-6",               torch.tensor([[0.5, 0.5, 0.3, 0.1, torch.pi - 1e-6]]))
+_check("θ=π-1e-6",               torch.tensor([[0.5, 0.5, 0.3, 0.1, torch.pi - 1e-6]]),
+       expect_param_match=False)
 _check("θ=π/2-1e-6",             torch.tensor([[0.5, 0.5, 0.3, 0.1, torch.pi / 2 - 1e-6]]))
 _check("θ=π/2+1e-6",             torch.tensor([[0.5, 0.5, 0.3, 0.1, torch.pi / 2 + 1e-6]]))
 
@@ -121,17 +123,21 @@ else:
     failed += 1
     print(f"  [FAIL] batch 2000: max_vertex_err={v_err_batch:.2e}")
 
-# Canonical (w>h) subset should have exact parameter match
+# Canonical (w>h) subset: spatial params exact, angle periodic
 mask_wh = obbs[:, 2] >= obbs[:, 3]
 n_wh = mask_wh.sum().item()
 if n_wh > 0:
-    p_err = (recon_batch[mask_wh] - obbs[mask_wh]).abs().max().item()
-    if p_err < 1e-3:  # 极端长宽比下 atan2 精度有限
+    spatial_err = (recon_batch[mask_wh, :4] - obbs[mask_wh, :4]).abs().max().item()
+    ang_diff = (recon_batch[mask_wh, 4] - obbs[mask_wh, 4]).abs()
+    ang_diff = torch.minimum(ang_diff % torch.pi, torch.pi - (ang_diff % torch.pi))
+    ang_err = ang_diff.max().item()
+    p_err = max(spatial_err, ang_err)
+    if p_err < 1e-3:
         passed += 1
-        print(f"  [PASS] canonical (w>=h) subset {n_wh}: max_param_err={p_err:.2e}")
+        print(f"  [PASS] canonical (w>=h) subset {n_wh}: max_err={p_err:.2e}")
     else:
         failed += 1
-        print(f"  [FAIL] canonical (w>=h) subset {n_wh}: max_param_err={p_err:.2e}")
+        print(f"  [FAIL] canonical (w>=h) subset {n_wh}: spatial={spatial_err:.2e} angle={ang_err:.2e}")
 
 print(f"\n{'='*60}")
 print("DEIM vs Ultralytics comparison")
