@@ -168,6 +168,14 @@ class BaseSolver(object):
             self.cfg.val_dataloader, shuffle=self.cfg.val_dataloader.shuffle
         )
 
+        # DOTA dataset disk cache pre-generation (spec 2026-08-03)
+        train_ds = self.train_dataloader.dataset
+        if getattr(train_ds, "cache_images", "none") == "disk":
+            if dist_utils.is_main_process():
+                train_ds.precache_images(num_workers=8)
+            if dist_utils.is_dist_available_and_initialized():
+                torch.distributed.barrier()
+
         self.evaluator = self.cfg.evaluator
 
         # NOTE: Instantiating order

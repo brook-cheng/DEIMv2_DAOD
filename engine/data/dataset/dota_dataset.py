@@ -2,6 +2,8 @@ import os
 import torch
 import torchvision
 
+from collections import OrderedDict
+import numpy as np
 from PIL import Image
 from ._dataset import DetDataset
 from ...core import register
@@ -13,7 +15,16 @@ __all__ = ["DotaDataset"]
 class DotaDataset(DetDataset):
     __inject__ = ["transforms"]
 
-    def __init__(self, img_folder, ann_folder, classes_file, transforms, format):
+    def __init__(
+        self,
+        img_folder,
+        ann_folder,
+        classes_file,
+        transforms,
+        format,
+        cache_images: str = "none",
+        cache_ram: int = 0,
+    ):
         super(DotaDataset, self).__init__()
         from ...deim.obb_geometry import xyxyxyxy_to_xywhr
 
@@ -31,57 +42,103 @@ class DotaDataset(DetDataset):
             raise ValueError(
                 f"Unsupported format: {self.format}, must be DOTA or YOLO-OBB"
             )
-        self._img_ann_dict: dict[str, str] = None
+        self.cache_images = cache_images
+        self.cache_ram = cache_ram
+        # 一次性构建，替代原 property
+        self._img_ann_dict = self._build_img_ann_dict()
+        self._image_names = list(self._img_ann_dict.keys())
+        self._cat2id = {name: id for id, name in enumerate(self.label_names)}
+        self._id2cat = {id: name for id, name in enumerate(self.label_names)}
+        # 一次性解析标注（存原始行）
+        self._ann_cache: dict[str, list[str]] = {}
+        self._preload_annotations()
+        # 图片缓存
+        self._img_cache = OrderedDict()
+        self._npy_dir_path = os.path.join(img_folder + "_npy")
 
     def __len__(self):
-        self.img_ann_dict
         return len(self._img_ann_dict)
 
-    @property
-    def img_ann_dict(self) -> dict[str, str]:
+    def _build_img_ann_dict(self) -> dict:
         image_files = [
             f
             for f in os.listdir(self.img_folder)
             if str.lower(os.path.splitext(f)[-1]) in self.img_extensions
         ]
-        ann_files = [f for f in os.listdir(self.ann_folder) if f.endswith(".txt")]
-
-        self._img_ann_dict = {
+        ann_files = set(os.listdir(self.ann_folder))
+        result = {
             img_file: img_file.replace(os.path.splitext(img_file)[-1], ".txt")
             for img_file in image_files
             if img_file.replace(os.path.splitext(img_file)[-1], ".txt") in ann_files
         }
-        if len(self._img_ann_dict) == 0:
+        if len(result) == 0:
             raise ValueError(
                 f"Valid annotation is empty, in {self.img_folder} and {self.ann_folder}"
             )
-        return self._img_ann_dict
+        return result
 
-    @property
-    def cat2id(self):
-        return {name: id for id, name in enumerate(self.label_names)}
+    def _preload_annotations(self) -> None:
+        for img_name, ann_name in self._img_ann_dict.items():
+            stem = os.path.splitext(img_name)[0]
+            ann_path = os.path.join(self.ann_folder, ann_name)
+            with open(ann_path, "r") as f:
+                self._ann_cache[stem] = f.readlines()
 
-    @property
-    def id2cat(self):
-        return {id: name for id, name in enumerate(self.label_names)}
+    def _npy_dir(self) -> str:
+        return self._npy_dir_path
 
-    def load_item(self, index):
-        self.img_ann_dict
-        image_names = list(self._img_ann_dict.keys())
-        image_absolute_path = os.path.join(self.img_folder, image_names[index])
-        ann_absolute_path = os.path.join(
-            self.ann_folder,
-            self._img_ann_dict[image_names[index]],
-        )
-        img = Image.open(image_absolute_path)
-        w, h = img.size
-        cat_id_dict = self.cat2id
+    def _convert_one(self, task) -> None:
+        stem, img_path, npy_path = task
+        if os.path.exists(npy_path):
+            return
+        try:
+            img = Image.open(img_path).convert("RGB")
+            np.save(npy_path, np.array(img), allow_pickle=False)
+        except Exception as e:
+            print(f"[DotaDataset] Failed to cache {img_path}: {e}")
+
+    def precache_images(self, num_workers: int = 8) -> None:
+        from multiprocessing.pool import ThreadPool
+
+        os.makedirs(self._npy_dir(), exist_ok=True)
+        tasks = [
+            (
+                os.path.splitext(img_name)[0],
+                os.path.join(self.img_folder, img_name),
+                os.path.join(self._npy_dir(), f"{os.path.splitext(img_name)[0]}.npy"),
+            )
+            for img_name in self._img_ann_dict.keys()
+        ]
+        with ThreadPool(num_workers) as pool:
+            pool.map(self._convert_one, tasks)
+        print(f"[DotaDataset] Cached {len(tasks)} images to {self._npy_dir()}")
+
+    def _load_image(self, stem, image_path):
+        if self.cache_ram > 0 and stem in self._img_cache:
+            self._img_cache.move_to_end(stem)
+            return self._img_cache[stem].copy()
+
+        if self.cache_images == "disk":
+            npy_path = os.path.join(self._npy_dir(), f"{stem}.npy")
+            try:
+                img = Image.fromarray(np.load(npy_path))
+            except Exception:
+                if os.path.exists(npy_path):
+                    os.remove(npy_path)
+                img = Image.open(image_path).convert("RGB")
+        else:
+            img = Image.open(image_path).convert("RGB")
+
+        if self.cache_ram > 0:
+            self._img_cache[stem] = img
+            if len(self._img_cache) > self.cache_ram:
+                self._img_cache.popitem(last=False)
+        return img.copy()
+
+    def _parse_from_lines(self, ann_lines, w, h):
+        cat_id_dict = self._cat2id
         boxes, labels = [], []
-        with open(ann_absolute_path, "r") as f:
-            ann_lines = f.readlines()
-
         if self.format == "YOLO-OBB":
-            # YOLO-OBB: label_id x1 y1 x2 y2 x3 y3 x4 y4（归一化坐标）
             for line in ann_lines:
                 parts = line.strip().split()
                 if len(parts) < 9:
@@ -93,14 +150,12 @@ class DotaDataset(DetDataset):
                 )
                 pts = [float(p) for p in parts[1:9]]
                 xyxyxyxy = torch.tensor(pts).reshape(4, 2)
-                # 反归一化：归一化坐标 × 图像尺寸 → 像素坐标
                 xyxyxyxy[:, 0] *= w
                 xyxyxyxy[:, 1] *= h
                 xywhr = self.xyxyxyxy_to_xywhr(xyxyxyxy)
                 boxes.append(xywhr)
                 labels.append(cls_id)
         elif self.format == "DOTA":
-            # DOTA: x1 y1 x2 y2 x3 y3 x4 y4 label_name difficulty（像素坐标）
             for line in ann_lines:
                 parts = line.strip().split()
                 if len(parts) < 9:
@@ -116,12 +171,24 @@ class DotaDataset(DetDataset):
             raise ValueError(
                 f"Unsupported format: {self.format}, must be DOTA or YOLO-OBB"
             )
+        return (
+            torch.stack(boxes) if boxes else torch.zeros(0, 5),
+            torch.tensor(labels) if labels else torch.zeros(0, dtype=torch.long),
+        )
+
+    def load_item(self, index):
+        image_absolute_path = os.path.join(self.img_folder, self._image_names[index])
+        stem = os.path.splitext(self._image_names[index])[0]
+
+        img = self._load_image(stem, image_absolute_path)
+        w, h = img.size
+
+        ann_lines = self._ann_cache[stem]
+        boxes, labels = self._parse_from_lines(ann_lines, w, h)
 
         target = {
-            "boxes": torch.stack(boxes) if boxes else torch.zeros(0, 5),
-            "labels": (
-                torch.tensor(labels) if labels else torch.zeros(0, dtype=torch.long)
-            ),
+            "boxes": boxes,
+            "labels": labels,
             "orig_size": torch.tensor([w, h]),
         }
         return img, target
