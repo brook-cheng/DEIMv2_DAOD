@@ -78,11 +78,25 @@ class DotaDataset(DetDataset):
         return result
 
     def _preload_annotations(self) -> None:
-        for img_name, ann_name in self._img_ann_dict.items():
+        import time
+        from tqdm import tqdm
+
+        n = len(self._img_ann_dict)
+        t0 = time.time()
+        pbar = tqdm(
+            self._img_ann_dict.items(), total=n,
+            desc="[DotaDataset] Annotations", unit="file",
+        )
+        for img_name, ann_name in pbar:
             stem = os.path.splitext(img_name)[0]
             ann_path = os.path.join(self.ann_folder, ann_name)
             with open(ann_path, "r") as f:
                 self._ann_cache[stem] = f.readlines()
+        elapsed = time.time() - t0
+        print(
+            f"[DotaDataset] Annotations loaded: {n} files in {elapsed:.1f}s",
+            flush=True,
+        )
 
     def _npy_dir(self) -> str:
         return self._npy_dir_path
@@ -98,7 +112,9 @@ class DotaDataset(DetDataset):
             print(f"[DotaDataset] Failed to cache {img_path}: {e}")
 
     def precache_images(self, num_workers: int = 8) -> None:
+        import time
         from multiprocessing.pool import ThreadPool
+        from tqdm import tqdm
 
         os.makedirs(self._npy_dir(), exist_ok=True)
         tasks = [
@@ -109,9 +125,30 @@ class DotaDataset(DetDataset):
             )
             for img_name in self._img_ann_dict.keys()
         ]
+        total = len(tasks)
+        skip = sum(1 for _, _, npy in tasks if os.path.exists(npy))
+        conv = total - skip
+        if conv == 0:
+            print(
+                f"[DotaDataset] Disk cache: {skip}/{total} already cached, skipping",
+                flush=True,
+            )
+            return
+
+        t0 = time.time()
+        pbar = tqdm(
+            total=conv, desc="[DotaDataset] Disk cache", unit="img",
+        )
         with ThreadPool(num_workers) as pool:
-            pool.map(self._convert_one, tasks)
-        print(f"[DotaDataset] Cached {len(tasks)} images to {self._npy_dir()}")
+            for _ in pool.imap_unordered(self._convert_one, tasks):
+                pbar.update(1)
+        pbar.close()
+        elapsed = time.time() - t0
+        print(
+            f"[DotaDataset] Disk cache complete: {conv} converted, "
+            f"{skip} cached, {conv/max(elapsed,1e-6):.0f} img/s, {elapsed:.1f}s",
+            flush=True,
+        )
 
     def _load_image(self, stem, image_path):
         if self.cache_ram > 0 and stem in self._img_cache:
