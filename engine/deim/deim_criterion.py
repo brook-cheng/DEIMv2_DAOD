@@ -15,9 +15,10 @@ import torchvision
 import copy
 
 from .dfine_utils import bbox2distance, bbox2distance_obb
-from .obb_geometry import periodic_angle_distance
+from .obb_geometry import periodic_angle_distance, oriented_box_to_external_rect
 from .box_ops import (
     box_cxcywh_to_xyxy,
+    box_xyxy_to_cxcywh,
     box_iou,
     generalized_box_iou,
     diou,
@@ -70,6 +71,7 @@ class DEIMCriterion(nn.Module):
         use_yolo_angle=False,
         keep_kld=True,
         angle_lambda=3.0,
+        adr_loss=False,
     ):
         """Create the criterion.
         Parameters:
@@ -107,6 +109,18 @@ class DEIMCriterion(nn.Module):
         self.use_yolo_angle = use_yolo_angle
         self.keep_kld = keep_kld
         self.angle_lambda = angle_lambda
+        self.adr_loss = adr_loss
+
+        if self.box_mode == "obb" and self.adr_loss:
+            required_keys = ["loss_extrect_l1", "loss_extrect_giou", "loss_offset_l1"]
+            if self.keep_kld:
+                required_keys.append("loss_kld")
+            missing_keys = [key for key in required_keys if key not in weight_dict]
+            if missing_keys:
+                raise ValueError(
+                    "OBB ADR-loss mode weight_dict is missing required keys: "
+                    + ", ".join(missing_keys)
+                )
 
         if self.box_mode == "obb" and (
             self.use_yolo_probiou or self.use_yolo_angle
@@ -292,7 +306,42 @@ class DEIMCriterion(nn.Module):
             loss_giou = loss_giou if boxes_weight is None else loss_giou * boxes_weight
             losses["loss_giou"] = loss_giou.sum() / num_boxes
         elif self.box_mode == "obb":
-            if self.use_yolo_probiou or self.use_yolo_angle:
+            if self.adr_loss:
+                if src_boxes.shape[0] == 0:
+                    zero = torch.zeros(
+                        (), device=src_boxes.device, dtype=src_boxes.dtype
+                    )
+                    losses["loss_extrect_l1"] = zero
+                    losses["loss_extrect_giou"] = zero
+                    losses["loss_offset_l1"] = zero
+                    if self.keep_kld:
+                        losses["loss_kld"] = zero
+                    return losses
+
+                ext_rect_src, offsets_src = oriented_box_to_external_rect(src_boxes)
+                ext_rect_tgt, offsets_tgt = oriented_box_to_external_rect(target_boxes)
+
+                ext_src_cxcywh = box_xyxy_to_cxcywh(ext_rect_src)
+                ext_tgt_cxcywh = box_xyxy_to_cxcywh(ext_rect_tgt)
+                loss_extrect_l1 = F.l1_loss(
+                    ext_src_cxcywh, ext_tgt_cxcywh, reduction="none"
+                ).sum(-1)
+                loss_extrect_giou = 1 - torch.diag(
+                    generalized_box_iou(ext_rect_src, ext_rect_tgt)
+                )
+                loss_offset_l1 = F.l1_loss(
+                    offsets_src, offsets_tgt, reduction="none"
+                ).sum(-1)
+
+                losses["loss_extrect_l1"] = loss_extrect_l1.sum() / num_boxes
+                losses["loss_extrect_giou"] = loss_extrect_giou.sum() / num_boxes
+                losses["loss_offset_l1"] = loss_offset_l1.sum() / num_boxes
+                if self.keep_kld:
+                    losses["loss_kld"] = (
+                        kld_loss(src_boxes, target_boxes, reduction="none").sum()
+                        / num_boxes
+                    )
+            elif self.use_yolo_probiou or self.use_yolo_angle:
                 losses["loss_bbox"] = canonical_side_l1_loss(
                     src_boxes, target_boxes, num_boxes
                 )
@@ -324,14 +373,14 @@ class DEIMCriterion(nn.Module):
                     )
                     loss_bbox = torch.cat([spatial_l1, angle_term], dim=-1)
                 else:
-                    # 统一空间和角度量纲到[0,1]
+                    # [-pi/4, 3pi/4) → [0,1]: (θ + π/4) / π
                     src_boxes_l1 = torch.cat(
-                        [src_boxes[..., :4], src_boxes[..., 4:] / torch.pi], dim=-1
+                        [src_boxes[..., :4], (src_boxes[..., 4:] + torch.pi / 4) / torch.pi], dim=-1
                     )
                     target_boxes_l1 = torch.cat(
                         [
                             target_boxes[..., :4],
-                            target_boxes[..., 4:] / torch.pi,
+                            (target_boxes[..., 4:] + torch.pi / 4) / torch.pi,
                         ],
                         dim=-1,
                     )
@@ -561,6 +610,7 @@ class DEIMCriterion(nn.Module):
         self.num_pos, self.num_neg = None, None
 
     def get_loss(self, loss, outputs, targets, indices, num_boxes, **kwargs):
+        #TODO:针对rep0/rep2去除关于角度loss的计算
         loss_map = {
             "boxes": self.loss_boxes,
             "focal": self.loss_labels_focal,

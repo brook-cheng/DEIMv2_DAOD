@@ -65,7 +65,7 @@ def xywhr_to_xyxyxyxy(xywhr: Tensor) -> Tensor:
     pt4 = ctr - vec1 + vec2
     return torch.stack([pt1, pt2, pt3, pt4], -2)
 
-# TODO：调整角度范围到[-90,0]，减小需要检索的特征空间
+# TODO：调整角度范围为[-π/4, 3π/4)
 def xyxyxyxy_to_xywhr(xyxyxyxy: Tensor) -> Tensor:
     """Convert four corner vertices to OBB (cx, cy, w, h, theta).
 
@@ -96,7 +96,8 @@ def xyxyxyxy_to_xywhr(xyxyxyxy: Tensor) -> Tensor:
     h = torch.where(w_mask, len2, len1)
     w_dx = torch.where(w_mask.squeeze(-1), edg1[..., 0], edg2[..., 0])
     w_dy = torch.where(w_mask.squeeze(-1), edg1[..., 1], edg2[..., 1])
-    theta = torch.atan2(w_dy, w_dx) % torch.pi
+    theta = torch.atan2(w_dy, w_dx)
+    theta = torch.remainder(theta + torch.pi / 4, torch.pi) - torch.pi / 4
     return torch.stack([ctr[..., 0], ctr[..., 1], w, h, theta], dim=-1)
 
 
@@ -233,7 +234,8 @@ def external_rect_to_oriented_box(
     w_dx = torch.where(w_is_ab, edge_ab[..., 0], edge_bc[..., 0])
     w_dy = torch.where(w_is_ab, edge_ab[..., 1], edge_bc[..., 1])
 
-    theta = torch.atan2(w_dy, w_dx) % torch.pi
+    theta = torch.atan2(w_dy, w_dx)
+    theta = torch.remainder(theta + torch.pi / 4, torch.pi) - torch.pi / 4
 
     return torch.stack([cx, cy, w_len, h_len, theta], dim=-1)
 

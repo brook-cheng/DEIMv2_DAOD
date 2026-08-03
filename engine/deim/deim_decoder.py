@@ -147,6 +147,8 @@ class TransformerDecoder(nn.Module):
         box_mode="hbb",
         angle_rep=0,
         offset_scale_source="pre",
+        use_gate_fusion=False,
+        use_angle_first=False,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -158,6 +160,8 @@ class TransformerDecoder(nn.Module):
         self.box_mode = box_mode
         self.angle_rep = angle_rep
         self.offset_scale_source = offset_scale_source
+        self.use_gate_fusion = use_gate_fusion
+        self.use_angle_first = use_angle_first
         self.num_decouple_layers = num_layers
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
@@ -282,7 +286,44 @@ class TransformerDecoder(nn.Module):
             query_pos_embed = query_pos_head(ref_points_detach).clamp(min=-10, max=10)
 
         for layer_idx, layer in enumerate(self.layers):
-            ref_points_input = ref_points_detach.unsqueeze(2)
+
+            if self.use_angle_first and self.box_mode == "obb" and self.angle_rep in (2, 3):
+                ref_dec_angle_input = ref_dec_angle_detach.unsqueeze(2)
+                dec_angle_output = self.decouple_angle_layers[layer_idx](
+                    dec_angle_output,
+                    ref_dec_angle_input,
+                    value,
+                    spatial_shapes,
+                    attn_mask,
+                    query_dec_angle_embed,
+                )
+                if layer_idx == 0:
+                    dec_angle_initial = torch.sigmoid(
+                        pre_angle_head(dec_angle_output)
+                        + inverse_sigmoid(ref_dec_angle_detach)[..., 4:]
+                    )
+                dec_angle_pred_corners = (
+                    dec_angle_head[layer_idx](
+                        dec_angle_output + dec_angle_output_detach
+                    )
+                    + dec_angle_pred_corners_undetach
+                )
+                dec_angle_output_detach = dec_angle_output.detach()
+                dec_angle_pred_corners_undetach = dec_angle_pred_corners
+                if self.use_gate_fusion and layer_idx < len(self.gate_fusions):
+                    dec_angle_output = self.gate_fusions[layer_idx](
+                        [output, dec_angle_output], query=dec_angle_output
+                    )
+                angle_for_box_ref = (
+                    dec_angle_initial if layer_idx == 0 else ref_dec_angle_detach[..., 4:5]
+                )
+                ref_with_angle = torch.cat(
+                    [ref_points_detach, angle_for_box_ref], dim=-1
+                )
+                ref_points_input = ref_with_angle.unsqueeze(2)
+                query_pos_embed = query_pos_head(ref_with_angle).clamp(min=-10, max=10)
+            else:
+                ref_points_input = ref_points_detach.unsqueeze(2)
 
             if layer_idx >= self.eval_idx + 1 and self.layer_scale > 1:
                 query_pos_embed = F.interpolate(
@@ -327,49 +368,63 @@ class TransformerDecoder(nn.Module):
 
             if self.box_mode == "obb":
                 if self.angle_rep == 2 or self.angle_rep == 3:
-                    # ref_dec_angle_input 首次为(x,y,w,h,offset_w,offset_h)，后续为(x,y,w,h,r)
-                    ref_dec_angle_input = ref_dec_angle_detach.unsqueeze(2)
-                    dec_angle_output = self.decouple_angle_layers[layer_idx](
-                        dec_angle_output,
-                        ref_dec_angle_input,
-                        value,
-                        spatial_shapes,
-                        attn_mask,
-                        query_dec_angle_embed,
-                    )
-                    if layer_idx == 0:
-                        dec_angle_initial = torch.sigmoid(
-                            pre_angle_head(dec_angle_output)
-                            + inverse_sigmoid(ref_dec_angle_detach)[..., 4:]
+                    if self.use_angle_first:
+                        if layer_idx == 0:
+                            if self.angle_rep == 2:
+                                pre_bboxes = external_rect_to_oriented_box(
+                                    ref_points_initial, dec_angle_initial
+                                )
+                            elif self.angle_rep == 3:
+                                pre_bboxes = torch.concat(
+                                    [pre_bboxes, dec_angle_initial], dim=-1
+                                )
+                            ref_points_initial = pre_bboxes.detach()
+                        pred_corners = torch.concat(
+                            [pred_corners, dec_angle_pred_corners], dim=-1
                         )
-                        if self.angle_rep == 2:
-                            # convert offset to angle
-                            pre_bboxes = external_rect_to_oriented_box(
-                                ref_points_initial, dec_angle_initial
-                            )
-                        elif self.angle_rep == 3:
-                            pre_bboxes = torch.concat(
-                                [pre_bboxes, dec_angle_initial], dim=-1
-                            )
-                        ref_points_initial = pre_bboxes.detach()
-
-                    dec_angle_pred_corners = (
-                        dec_angle_head[layer_idx](
-                            dec_angle_output + dec_angle_output_detach
+                    else:
+                        # ref_dec_angle_input 首次为(x,y,w,h,offset_w,offset_h)，后续为(x,y,w,h,r)
+                        ref_dec_angle_input = ref_dec_angle_detach.unsqueeze(2)
+                        dec_angle_output = self.decouple_angle_layers[layer_idx](
+                            dec_angle_output,
+                            ref_dec_angle_input,
+                            value,
+                            spatial_shapes,
+                            attn_mask,
+                            query_dec_angle_embed,
                         )
-                        + dec_angle_pred_corners_undetach
-                    )
-                    dec_angle_output_detach = dec_angle_output.detach()
-                    dec_angle_pred_corners_undetach = dec_angle_pred_corners
-                    # if i < len(self.gate_fusions):
-                    #     offset_output = self.gate_fusions[i](
-                    #         [output, offset_output], query=offset_output
-                    #     )
+                        if layer_idx == 0:
+                            dec_angle_initial = torch.sigmoid(
+                                pre_angle_head(dec_angle_output)
+                                + inverse_sigmoid(ref_dec_angle_detach)[..., 4:]
+                            )
+                            if self.angle_rep == 2:
+                                pre_bboxes = external_rect_to_oriented_box(
+                                    ref_points_initial, dec_angle_initial
+                                )
+                            elif self.angle_rep == 3:
+                                pre_bboxes = torch.concat(
+                                    [pre_bboxes, dec_angle_initial], dim=-1
+                                )
+                            ref_points_initial = pre_bboxes.detach()
 
-                    # 1:(α,β,γ,δ)(ε,η)->(α,β,γ,δ,ε,η) 2:(α,β,γ,δ)(deta_theta)->(α,β,γ,δ,deta_theta)
-                    pred_corners = torch.concat(
-                        [pred_corners, dec_angle_pred_corners], dim=-1
-                    )
+                        dec_angle_pred_corners = (
+                            dec_angle_head[layer_idx](
+                                dec_angle_output + dec_angle_output_detach
+                            )
+                            + dec_angle_pred_corners_undetach
+                        )
+                        dec_angle_output_detach = dec_angle_output.detach()
+                        dec_angle_pred_corners_undetach = dec_angle_pred_corners
+                        if self.use_gate_fusion and layer_idx < len(self.gate_fusions):
+                            dec_angle_output = self.gate_fusions[layer_idx](
+                                [output, dec_angle_output], query=dec_angle_output
+                            )
+
+                        # 1:(α,β,γ,δ)(ε,η)->(α,β,γ,δ,ε,η) 2:(α,β,γ,δ)(deta_theta)->(α,β,γ,δ,deta_theta)
+                        pred_corners = torch.concat(
+                            [pred_corners, dec_angle_pred_corners], dim=-1
+                        )
 
             if self.box_mode == "hbb":
                 inter_ref_bbox = distance2bbox(
@@ -382,7 +437,6 @@ class TransformerDecoder(nn.Module):
                 ref_points_initial_scaled = ref_points_initial * theta_scale
                 distance = integral(pred_corners, project)
                 if self.angle_rep == 1:
-                    # TODO: need to check
                     distance[..., 4] *= torch.pi
                 inter_ref_bbox = distance2bbox_obb(
                     ref_points_initial_scaled,
@@ -459,6 +513,9 @@ class DEIMTransformer(nn.Module):
         box_mode="hbb",
         angle_rep=0,
         offset_scale_source="pre",
+        use_gate_fusion=False,
+        angle_step=0.0,
+        use_angle_first=False,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -483,7 +540,17 @@ class DEIMTransformer(nn.Module):
         self.box_mode = box_mode
         self.angle_rep = angle_rep
         self.offset_scale_source = offset_scale_source
+        self.use_gate_fusion = use_gate_fusion
+        self.angle_step = angle_step
+        self.use_angle_first = use_angle_first
         self.num_r_layers = num_layers
+
+        if use_angle_first and angle_rep == 2:
+            raise ValueError(
+                "use_angle_first=True is incompatible with angle_rep=2: "
+                "rep2 decouple_angle produces 2-D (ε,η) but angle-first "
+                "expects 1-D θ for 5-D ref_points_input. Use angle_rep=3."
+            )
 
         # num_reg_dist: vertex bias for refienment, used in LQE
         # _num_box_dof: bbox representation, used to define headers
@@ -560,6 +627,8 @@ class DEIMTransformer(nn.Module):
             box_mode=self.box_mode,
             angle_rep=self.angle_rep,
             offset_scale_source=self.offset_scale_source,
+            use_gate_fusion=self.use_gate_fusion,
+            use_angle_first=self.use_angle_first,
         )
         # denoising
         self.num_denoising = num_denoising
@@ -613,15 +682,15 @@ class DEIMTransformer(nn.Module):
                 num_query_pos_in = 5
                 num_reg_dist_xywh = 5  # (α,β,γ,δ,deta_theta)
             elif self.angle_rep == 2:
-                pre_bbox_head_out_dim = 4  # (cx,cy,w,h)
-                num_query_pos_in = 4
-                num_reg_dist_xywh = 4  # (α,β,γ,δ)
-                num_angle_describer = 2  # (ε,η))
+                pre_bbox_head_out_dim = 4
+                num_query_pos_in = 5 if self.use_angle_first else 4
+                num_reg_dist_xywh = 4
+                num_angle_describer = 2
             elif self.angle_rep == 3:
-                pre_bbox_head_out_dim = 4  # (cx,cy,w,h)
-                num_query_pos_in = 4
-                num_reg_dist_xywh = 4  # (α,β,γ,δ)
-                num_angle_describer = 1  # (deta_θ)
+                pre_bbox_head_out_dim = 4
+                num_query_pos_in = 5 if self.use_angle_first else 4
+                num_reg_dist_xywh = 4
+                num_angle_describer = 1
 
             ## bbox head
             self.pre_bbox_head = MLP(
@@ -896,20 +965,30 @@ class DEIMTransformer(nn.Module):
                         [w, h], dtype=dtype
                     )
                     wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
-                    # TODO：调整为更加多元的角度
-                    r = 0.5 * torch.ones(
-                        *grid_xy.shape[:-1],
-                        1,
-                        dtype=grid_xy.dtype,
-                        device=grid_xy.device,
-                    )
-                    # r = grid_x / torch.tensor(
-                    #     w, dtype=grid_xy.dtype, device=grid_xy.device
-                    # )
-                    # r = r.unsqueeze(0).unsqueeze(-1)
-                    lvl_anchors = torch.concat([grid_xy, wh, r], dim=-1).reshape(
-                        -1, h * w, self._num_box_dof
-                    )
+
+                    if self.angle_step > 0:
+                        n_angles = int(1.0 / self.angle_step)
+                        angle_candidates = torch.arange(
+                            n_angles, dtype=dtype, device=device
+                        ) * self.angle_step
+                        grid_xy_exp = grid_xy.unsqueeze(-2).expand(1, h, w, n_angles, 2)
+                        wh_exp = wh.unsqueeze(-2).expand(1, h, w, n_angles, 2)
+                        r_exp = angle_candidates.reshape(1, 1, 1, n_angles, 1).expand(
+                            1, h, w, n_angles, 1
+                        )
+                        lvl_anchors = torch.concat(
+                            [grid_xy_exp, wh_exp, r_exp], dim=-1
+                        ).reshape(1, h * w * n_angles, self._num_box_dof)
+                    else:
+                        r = 0.5 * torch.ones(
+                            *grid_xy.shape[:-1],
+                            1,
+                            dtype=grid_xy.dtype,
+                            device=grid_xy.device,
+                        )
+                        lvl_anchors = torch.concat([grid_xy, wh, r], dim=-1).reshape(
+                            -1, h * w, self._num_box_dof
+                        )
                     anchors.append(lvl_anchors)
 
         anchors = torch.concat(anchors, dim=1).to(device)
@@ -996,9 +1075,9 @@ class DEIMTransformer(nn.Module):
             enc_topk_bboxes = F.sigmoid(enc_topk_bbox_unact)
             if self.box_mode == "obb":
                 if self.angle_rep != 2:
-                    # 角度量纲 [0,1]->[0,pi]，主要为了方便loss计算
+                    # 角度量纲 [0,1]->[-pi/4, 3pi/4)
                     enc_topk_bboxes = torch.cat(
-                        [enc_topk_bboxes[..., :4], enc_topk_bboxes[..., 4:] * torch.pi],
+                        [enc_topk_bboxes[..., :4], (enc_topk_bboxes[..., 4:] - 0.25) * torch.pi],
                         dim=-1,
                     )
                 else:
@@ -1131,17 +1210,17 @@ class DEIMTransformer(nn.Module):
             )
         )
 
-        # 为了方便后续处理，criterion/matcher/postprocessor 中均需要theta量纲为[0，pi]
-        # 这里调整输出theta的量纲，[0,1]→[0,pi]
+        # criterion/matcher/postprocessor 中 theta 量纲为 [-pi/4, 3pi/4)
+        # decoder 内部 [0,1] → 外部 [-pi/4, 3pi/4): θ = (x - 0.25) * π
         if self.box_mode == "obb":
             out_bboxes = torch.cat(
-                [out_bboxes[..., :4], out_bboxes[..., 4:] * torch.pi], dim=-1
+                [out_bboxes[..., :4], (out_bboxes[..., 4:] - 0.25) * torch.pi], dim=-1
             )
             out_refs = torch.cat(
-                [out_refs[..., :4], out_refs[..., 4:] * torch.pi], dim=-1
+                [out_refs[..., :4], (out_refs[..., 4:] - 0.25) * torch.pi], dim=-1
             )
             pre_bboxes = torch.cat(
-                [pre_bboxes[..., :4], pre_bboxes[..., 4:] * torch.pi], dim=-1
+                [pre_bboxes[..., :4], (pre_bboxes[..., 4:] - 0.25) * torch.pi], dim=-1
             )
         if self.training and dn_meta is not None:
             dn_pre_logits, pre_logits = torch.split(

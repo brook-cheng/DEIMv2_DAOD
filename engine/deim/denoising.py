@@ -107,8 +107,8 @@ def get_contrastive_denoising_training_group(
         if box_mode == "hbb":
             input_query_bbox = noise_spatial
         elif box_mode == "obb":
-            # inverse_sigmoid 中会截断theta值，这里需要调整theta范围，角度量纲转换[0,pi]→[0,1]
-            input_query_bbox[..., 4] = input_query_bbox[..., 4] / torch.pi
+            # [-pi/4, 3pi/4) → [0,1]: θ_int = (θ_ext + π/4) / π
+            input_query_bbox[..., 4] = (input_query_bbox[..., 4] + torch.pi / 4) / torch.pi
             input_query_bbox = torch.cat(
                 [noise_spatial, input_query_bbox[..., 4:]], dim=-1
             )
