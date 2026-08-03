@@ -24,7 +24,7 @@ no_aug_epoch: 30
 #### 设置训练数据
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
-  total_batch_size: 2 # total batch size equals to gpu_nums*batch_size
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
   num_workers: 4
   dataset:
     img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/images/train

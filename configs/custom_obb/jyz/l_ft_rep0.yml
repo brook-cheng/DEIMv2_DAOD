@@ -11,22 +11,25 @@ __include__: [
 output_dir: ./outputs/jyz_l_ft_rep0
 comet_project_name: 'deimv2_obb_sp_jyz'
 eval_spatial_size: [640, 640] #  h w
-checkpoint_freq: 30    # save freq
+checkpoint_freq: 10    # save freq
 num_classes: 7
 
 ## DEIM LR-Scheduler
 # FIXME： 迭代时间过长，3h/epoch，暂时不选用
-epoches: 300 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
-warmup_iter: 30   # 0.1 * epoches
-flat_epoch: 150    # epoch // 2 + warmup_iter
-no_aug_epoch: 30
+epoches: 50 #  Total epochs: 20 for training + EMA  for 4n = 12. n=3 refers to the model size in the matched config.
+warmup_iter: 5   # 0.1 * epoches
+flat_epoch: 25    # epoch // 2 + warmup_iter
+no_aug_epoch: 5
 
 #### 设置训练数据
 ## Dense O2O: Mosaic + Mixup + CopyBlend
 train_dataloader:
   total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
-  num_workers: 4
+  num_workers: 2
   dataset:
+    type: DotaDataset
+    cache_images: disk
+    cache_ram: 1000
     img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/images/train
     ann_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/labels/train
     classes_file: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/classes.txt
@@ -46,7 +49,7 @@ train_dataloader:
         - {type: OBBConvertBoxes, normalize: True, img_size: [640, 640]}
         - {type: Normalize, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}
       policy:
-        epoch: [30, 60, 90] # stop_epoch, 2阶段数据增强：0-无-> A(0.05~0.1)*epoch -强-> B(0.2~0.45)*epoch -弱-> C(0.3 *0.7)*epoch ->无
+        epoch: [5, 10, 15] # stop_epoch, 2阶段数据增强：0-无-> A(0.05~0.1)*epoch -强-> B(0.2~0.45)*epoch -弱-> C(0.3 *0.7)*epoch ->无
         ops: ['Mosaic', 'RandomPhotometricDistort', 'OBBZoomOut', 'OBBIoUCrop']
       mosaic_prob: 0.5
 
@@ -55,11 +58,11 @@ train_dataloader:
     base_size: 640
     # Mixup options
     mixup_prob: 0.5
-    mixup_epochs: [30, 60]
-    stop_epoch: 90    # epoch in [72, ~) stop `multiscales`
+    mixup_epochs: [5, 10]
+    stop_epoch: 15    # epoch in [72, ~) stop `multiscales`
     # CopyBlend options
     copyblend_prob: 0.5
-    copyblend_epochs: [30, 90]
+    copyblend_epochs: [5, 10]
     area_threshold: 100
     num_objects: 3
     with_expand: True
@@ -69,7 +72,7 @@ train_dataloader:
 
 val_dataloader:
   total_batch_size: 2 # total batch size equals to gpu_nums*batch_size
-  num_workers: 2
+  num_workers: 1
   dataset:
     img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/images/val
     ann_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/绝缘子_数据集(2026_5_31_obb)/labels/val
@@ -104,7 +107,7 @@ HybridEncoder:
 DEIMTransformer:
   feat_channels: [512, 512, 512] #hidden_dim
   hidden_dim: 512 #hidden_dim
-  dim_feedforward: 2048 # hidden_dim*8
+  dim_feedforward: 4096 # hidden_dim*8
   num_layers: 3 # 当前测试显示前3层的作用较大，为了能够全参数微调，避免OOM，这里减少层数
   box_mode: obb
   angle_rep: 0

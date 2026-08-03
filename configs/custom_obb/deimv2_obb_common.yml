@@ -183,6 +183,7 @@ DEIMCriterion:
 train_dataloader:
   total_batch_size: 2 # total batch size equals to gpu_nums*batch_size
   dataset:
+    cache_images: disk
     transforms:
       ops:
         - {type: Mosaic, output_size: 320, rotation_range: 10, translation_range: [0.1, 0.1], scaling_range: [0.5, 1.5],
