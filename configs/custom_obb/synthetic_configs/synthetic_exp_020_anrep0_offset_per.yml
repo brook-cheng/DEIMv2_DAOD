@@ -16,6 +16,7 @@ ema:
 
 train_dataloader:
   dataset:
+    cache_images: disk
     transforms:
       ops:
       - type: Mosaic

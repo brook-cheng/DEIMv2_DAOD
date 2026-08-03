@@ -1,0 +1,10 @@
+# 门控融合实验（五提案 - 提案 5：GatedSoftmaxFusion）
+# 对照基线：synthetic_exp_020_anrep2_offset_per.yml（rep2 未启用融合）。
+# 实验目的：在 decoder 的 box 分支与 angle 分支间启用 GatedSoftmaxFusion。
+# 唯一变量：DEIMTransformer.use_gate_fusion = true（基于 angle_rep=2）。
+__include__: [../synthetic_exp_020_anrep2_offset_per.yml]
+
+output_dir: ./outputs/syn_ablation_fused
+
+DEIMTransformer:
+  use_gate_fusion: true   # 启用 box/angle 分支的 GatedSoftmaxFusion

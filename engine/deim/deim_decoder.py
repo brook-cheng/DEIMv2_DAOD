@@ -274,13 +274,20 @@ class TransformerDecoder(nn.Module):
                 dec_angle_output_detach = 0
                 dec_angle_pred_corners_undetach = 0
                 ref_points_detach = F.sigmoid(ref_points_unact[..., :4])
-                query_pos_embed = query_pos_head(ref_points_detach).clamp(
-                    min=-10, max=10
-                )
                 ref_dec_angle_detach = F.sigmoid(ref_points_unact)
                 query_dec_angle_embed = query_angle_head(
                     F.sigmoid(ref_points_unact[..., 4:])
                 )
+                # use_angle_first makes query_pos_head expect (pos + angle);
+                # standard path passes position-only (4-D).
+                if self.use_angle_first:
+                    query_pos_embed = query_pos_head(
+                        ref_dec_angle_detach
+                    ).clamp(min=-10, max=10)
+                else:
+                    query_pos_embed = query_pos_head(
+                        ref_points_detach
+                    ).clamp(min=-10, max=10)
         elif self.box_mode == "hbb":
             ref_points_detach = F.sigmoid(ref_points_unact)
             query_pos_embed = query_pos_head(ref_points_detach).clamp(min=-10, max=10)
@@ -969,7 +976,7 @@ class DEIMTransformer(nn.Module):
                     if self.angle_step > 0:
                         n_angles = int(1.0 / self.angle_step)
                         angle_candidates = torch.arange(
-                            n_angles, dtype=dtype, device=device
+                            n_angles, dtype=dtype
                         ) * self.angle_step
                         grid_xy_exp = grid_xy.unsqueeze(-2).expand(1, h, w, n_angles, 2)
                         wh_exp = wh.unsqueeze(-2).expand(1, h, w, n_angles, 2)
@@ -1056,6 +1063,19 @@ class DEIMTransformer(nn.Module):
             valid_mask = self.valid_mask
         if memory.shape[0] > 1:
             anchors = anchors.repeat(memory.shape[0], 1, 1)
+
+        # Multi-angle anchors (angle_step > 0) expand the candidate pool to
+        # (num_spatial_positions * n_angles). Replicate each spatial memory
+        # token n_angles times so it aligns with the anchor layout
+        # (position-major, angle-minor within each level). This only affects
+        # query selection; the decoder still receives the original memory.
+        if (
+            self.box_mode == "obb"
+            and self.angle_rep != 2
+            and self.angle_step > 0
+        ):
+            n_angles = int(1.0 / self.angle_step)
+            memory = memory.repeat_interleave(n_angles, dim=1)
 
         memory = valid_mask.to(memory.dtype) * memory
 

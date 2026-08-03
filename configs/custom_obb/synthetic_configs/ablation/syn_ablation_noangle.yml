@@ -1,0 +1,25 @@
+# 去角度损失实验（五提案 - 提案 3：去角度损失 / ADR 前身）
+# 对照组：rep2 启用角度损失的配置（Probiou + angle）。
+# 实验目的：在 rep2 的 5D OBB 表示上完全关闭独立角度损失与 matcher 角度代价，
+# 评估角度监督对 rep2 性能的贡献。
+# 变量：切换到 Probiou loss 路径并关闭 angle（use_yolo_angle=false、angle_lambda=0、
+# weight_dict 移除 loss_angle、matcher 移除 cost_angle）。
+__include__: [../synthetic_exp_020_anrep2_offset_per.yml]
+
+output_dir: ./outputs/syn_ablation_noangle
+
+DEIMCriterion:
+  weight_dict:
+    loss_mal: 1
+    loss_bbox: 5
+    loss_probiou: 5
+    loss_kld: 2
+    loss_fgl: 0.15
+    loss_ddf: 1.5
+  use_yolo_probiou: true
+  use_yolo_angle: false   # 关闭独立角度损失（本实验核心变量）
+  keep_kld: true
+  angle_lambda: 0.0       # 角度损失权重置零
+  matcher:
+    weight_dict: {cost_class: 2, cost_bbox: 5, cost_probiou: 5, cost_chamfer: 2, late_cost_bbox: 0.25}  # 去角度：无 cost_angle
+    angle_order_alpha: 1.0

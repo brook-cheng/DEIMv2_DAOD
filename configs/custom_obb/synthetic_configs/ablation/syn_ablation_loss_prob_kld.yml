@@ -1,0 +1,24 @@
+# ProbIoU + KLD 损失实验（对照组：loss_kld 纯 GIoU 路径）
+# 对照基线：synthetic_exp_020_anrep1_offset_per.yml（rep1）。
+# 实验目的：启用 ProbIoU 替代 GIoU 作为 box 回归损失，保留 KLD，关闭独立 angle loss。
+# 变量：use_yolo_probiou=true，loss_giou→loss_probiou，use_yolo_angle=false。
+# 注：此配置迁移自 synthetic_exp_020_loss_prob_kld.yml，纳入统一消融目录。
+__include__: [../synthetic_exp_020_anrep1_offset_per.yml]
+
+output_dir: ./outputs/syn_ablation_loss_prob_kld
+epoches: 80
+
+DEIMCriterion:
+  weight_dict:
+    loss_mal: 1
+    loss_bbox: 5
+    loss_probiou: 5
+    loss_kld: 2
+    loss_fgl: 0.15
+    loss_ddf: 1.5
+  use_yolo_probiou: true
+  use_yolo_angle: false
+  keep_kld: true
+  matcher:
+    weight_dict: {cost_class: 2, cost_bbox: 5, cost_probiou: 5, cost_angle: 3, cost_chamfer: 2, late_cost_bbox: 0.25}
+    angle_order_alpha: 1.0

@@ -1,0 +1,26 @@
+# ADR 分解回归实验（Axis-Decoupled Regression）
+# 对照基线：synthetic_exp_020_anrep0_offset_per.yml（rep0）。
+# 实验目的：将 5D OBB 回归分解为外接矩形(cx,cy,w,h) L1+GIoU 与 offset L1，
+# 保留 KLD 几何约束，避免直接对角度参数回归。
+# 变量：adr_loss=true + 对应 weight_dict（loss_extrect_l1/giou、loss_offset_l1）。
+__include__: [../synthetic_exp_020_anrep0_offset_per.yml]
+
+output_dir: ./outputs/syn_ablation_adr
+
+DEIMCriterion:
+  # ADR 将 5D OBB 回归拆分为轴对齐外接矩形回归和二维 offset 回归，
+  # 避免直接对角度参数计算独立的 angle loss。本实验保留 KLD 作为完整 OBB 几何约束。
+  weight_dict:
+    loss_mal: 1
+    loss_extrect_l1: 5    # 外接矩形 (cx, cy, w, h) 的 L1 回归损失
+    loss_extrect_giou: 2  # 外接矩形的 GIoU 损失
+    loss_offset_l1: 1     # OBB 相对外接矩形的二维 offset L1 损失
+    loss_kld: 2           # 保留原始 5D OBB 的 KLD 几何约束
+    loss_fgl: 0.15
+    loss_ddf: 1.5
+  losses: ['mal', 'boxes', 'local']
+  adr_loss: true           # 启用 ADR 分解回归路径
+  use_yolo_probiou: false  # ADR 路径不计算旧的 Probiou loss
+  use_yolo_angle: false    # ADR 路径不计算独立的 angle loss
+  keep_kld: true           # 保留 KLD 几何约束
+  angle_lambda: 0.0        # 关闭旧 angle loss 权重

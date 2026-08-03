@@ -1,0 +1,11 @@
+# 先角度后位置实验（五提案 - 提案 4：先角度后位置 AFP）
+# 对照基线：synthetic_exp_020_anrep3_offset_per.yml（rep3 默认位置在前）。
+# 实验目的：调整 decoder query 构造顺序为"先预测角度再由角度引导位置"。
+# 变量：use_angle_first=true（必须 rep3；与 rep2 不兼容），叠加 use_gate_fusion=true。
+__include__: [../synthetic_exp_020_anrep3_offset_per.yml]
+
+output_dir: ./outputs/syn_ablation_afp
+
+DEIMTransformer:
+  use_angle_first: true   # 先角度后位置（强制 angle_rep=3）
+  use_gate_fusion: true   # 叠加门控融合
