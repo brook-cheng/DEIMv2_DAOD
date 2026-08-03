@@ -241,9 +241,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # args.config = "./configs/custom_obb/deimv2_obb_sp.yml"  # commented for synthetic experiments
-    args.config = (
-        "configs/custom_obb/synthetic_configs/ablation/syn_ablation_afp.yml"
-    )
+    # args.config = (
+    #     "configs/custom_obb/synthetic_configs/ablation/syn_ablation_afp.yml"
+    # )
     # args.use_amp = False
     # model test part
     # args.test_only = False
