@@ -100,7 +100,7 @@ def probiou(
         / (
             4
             * (
-                (a1 * b1 - c1.pow(2)).clamp(min=0) * (a2 * b2 - c2.pow(2)).clamp(min=0)
+                (a1 * b1 - c1.pow(2)).clamp(min=eps) * (a2 * b2 - c2.pow(2)).clamp(min=eps)
             ).sqrt()
             + eps
         )
@@ -146,7 +146,7 @@ def batch_probiou(
         / (
             4
             * (
-                (a1 * b1 - c1.pow(2)).clamp(min=0) * (a2 * b2 - c2.pow(2)).clamp(min=0)
+                (a1 * b1 - c1.pow(2)).clamp(min=eps) * (a2 * b2 - c2.pow(2)).clamp(min=eps)
             ).sqrt()
             + eps
         )
