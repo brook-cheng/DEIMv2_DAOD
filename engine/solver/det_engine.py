@@ -33,6 +33,19 @@ from .training_diagnostics import (
 # Parameters whose NaN/Inf gradients are zeroed (not crashed) with a log warning.
 _NAN_ZERO_PATTERNS: frozenset[str] = frozenset({"cls_token"})
 
+
+def _has_nonfinite_grads(model: torch.nn.Module) -> bool:
+    """Return True if any parameter has a non-finite (Inf or NaN) gradient.
+
+    Used after ``scaler.unscale_`` to detect AMP backward overflow before
+    ``inspect_gradients`` would raise.  Returns early on the first non-finite
+    gradient found.
+    """
+    for p in model.parameters():
+        if p.grad is not None and not torch.isfinite(p.grad).all():
+            return True
+    return False
+
 # ---------------------------------------------------------------------------
 #  Loss key parser: "loss_mal_aux_3" → ("loss_mal", "aux", 3)
 # ---------------------------------------------------------------------------
@@ -197,6 +210,7 @@ def train_one_epoch(
 
     _optimizer_step_count = 0
     _step_cap_reached = False
+    _amp_skipped_steps = 0
 
     use_tqdm = tqdm is not None
     if use_tqdm:
@@ -257,32 +271,49 @@ def train_one_epoch(
 
             # Always unscale before gradient inspection and clipping
             scaler.unscale_(optimizer)
-            _, zeroed = inspect_gradients(
-                model.named_parameters(),
-                fail_on_zero_grad=fail_on_zero_grad,
-                epoch=epoch,
-                step=i,
-                global_step=global_step,
-                nan_zero_patterns=_NAN_ZERO_PATTERNS,
-                nan_tracker=nan_tracker,
-            )
-            _save_nan_snapshot(nan_tracker, model, optimizer, loss_dict, epoch, i, nan_output_dir)
 
-            if max_norm > 0:
-                grad_norm_before = torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), max_norm
-                )
-                grad_norm_after = min(grad_norm_before, max_norm)
+            # AMP overflow guard: skip step + let scaler reduce scale,
+            # otherwise inspect_gradients raises before scaler.step() can skip.
+            if _has_nonfinite_grads(model):
+                _amp_skipped_steps += 1
+                if dist_utils.is_main_process():
+                    print(
+                        f"[AMP] Skipping optimizer step at epoch={epoch} "
+                        f"step={i} global_step={global_step} "
+                        f"(gradient overflow, scale={scaler.get_scale():.1f}, "
+                        f"total_skipped={_amp_skipped_steps})"
+                    )
+                optimizer.zero_grad()
+                scaler.update()
+                grad_norm_before = torch.tensor(0.0, device=device)
+                grad_norm_after = torch.tensor(0.0, device=device)
             else:
-                grad_norm_before = torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), float("inf")
+                _, zeroed = inspect_gradients(
+                    model.named_parameters(),
+                    fail_on_zero_grad=fail_on_zero_grad,
+                    epoch=epoch,
+                    step=i,
+                    global_step=global_step,
+                    nan_zero_patterns=_NAN_ZERO_PATTERNS,
+                    nan_tracker=nan_tracker,
                 )
-                grad_norm_after = grad_norm_before
+                _save_nan_snapshot(nan_tracker, model, optimizer, loss_dict, epoch, i, nan_output_dir)
 
-            scaler.step(optimizer)
-            scaler.update()
-            optimizer.zero_grad()
-            _optimizer_step_count += 1
+                if max_norm > 0:
+                    grad_norm_before = torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), max_norm
+                    )
+                    grad_norm_after = min(grad_norm_before, max_norm)
+                else:
+                    grad_norm_before = torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), float("inf")
+                    )
+                    grad_norm_after = grad_norm_before
+
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
+                _optimizer_step_count += 1
 
         else:
             outputs = model(samples, targets=targets)
