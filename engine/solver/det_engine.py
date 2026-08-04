@@ -315,6 +315,9 @@ def train_one_epoch(
                 optimizer.zero_grad()
                 _optimizer_step_count += 1
 
+                if ema is not None:
+                    ema.update(model)
+
         else:
             outputs = model(samples, targets=targets)
             loss_dict = criterion(outputs, targets, **metas)
