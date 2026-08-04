@@ -217,7 +217,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--use-amp",
         action="store_true",
-        default=False,
+        default=True,
         help="auto mixed precision training",
     )
     parser.add_argument("--output-dir", type=str, help="output directoy")
