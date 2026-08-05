@@ -71,7 +71,7 @@ class PostProcessor(nn.Module):
             factor = torch.cat(
                 [img_w, img_h, img_w, img_h, torch.ones_like(img_w)], dim=-1
             ).unsqueeze(1)
-            bbox_pred = boxes * factor  # cx×W, cy×H, w×W, h×H, θ 不变(归一化到[0,π])
+            bbox_pred = boxes * factor  # cx×W, cy×H, w×W, h×H, θ 不变(归一化到[0,π))
 
         if self.use_focal_loss:
             scores = F.sigmoid(logits)

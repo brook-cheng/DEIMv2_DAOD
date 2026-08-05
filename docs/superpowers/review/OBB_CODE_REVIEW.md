@@ -6,7 +6,7 @@
 > 参考实现：`/home/cx/win_dir/thired/ai4rs/projects/rotated_rtdetr`（O2-RTDETR）
 > 参考论文：Ding et al. 2026《Real-Time Oriented Object Detection Transformer》、Huang et al. 2025《Real-Time Object Detection Meets DINOv3 (DEIMv2)》
 > 方法：逐行人工审查全部“定向（OBB）相关”代码，并对照论文公式与 ai4rs 参考实现核验数学。
-> 约定：OBB = `(cx, cy, w, h, θ)`，θ∈[0,π) 弧度；坐标训练时按图像尺寸归一化到 [0,1]；θ 在 sigmoid 空间内归一化为 θ/π∈[0,1]。
+> 约定：OBB = `(cx, cy, w, h, θ)`，θ 公开物理弧度 ∈[0,π)（半开区间）；坐标训练时按图像尺寸归一化到 [0,1]；解码器内部私有归一化角 `theta_norm = θ/π` ∈[0,1)（严格等比，无 shifted seam）；loss 内部规范域 `[-π/4, 3π/4)` 仅由 `physical_rad_to_loss_rad` 提供，配合 `periodic_angle_distance` 使用。
 
 ---
 
@@ -300,8 +300,8 @@ return external_rect_to_oriented_box(ext_adjust_xyxy, vertex_offsets_adj)
 
 ## C 组：已核验“正确/无需改”（避免误伤）
 
-- θ 量纲链路一致：解码器内部 [0,1]，输出/criterion/matcher/postprocessor 统一转 [0,π]（`deim_decoder.py:280-283,839-848`；`postprocessor.py:59-64`）。
-- 旋转去噪 OCD：仅实现 box-noise（角度不加噪），与论文“box noise 最优”一致；θ/π 归一化后再 `inverse_sigmoid` 正确（`denoising.py:107-116`）。
+- θ 量纲链路一致：公开物理角统一为 `[0, π)` 半开弧度（GT 规范化、解码器输出、criterion、matcher、postprocessor 均只交换物理角）；解码器内部 `[0,1]` 为严格等比私有归一化编码（`physical_rad_to_norm(θ) = θ/π` / `norm_to_physical_rad(x) = x·π`），无区间内 shifted seam；loss 内部规范域 `[-π/4, 3π/4)` 仅由 `physical_rad_to_loss_rad` 提供；几何模块（`obb_geometry`）从不消费 norm/logit（`deim_decoder.py:1241-1259`；`postprocessor.py:60-74`）。
+- 旋转去噪 OCD：仅实现 box-noise（角度不加噪），与论文“box noise 最优”一致；`physical_rad_to_norm`（等比 `θ/π`）后 `inverse_sigmoid` 正确（`denoising.py:110-115`）。
 - Chamfer 代价与论文 Eq.5 一致（双向 min-mean、平方距离、4 顶点）（`chamfer_cost.py`）。
 - `Integral` 对 `num_reg_dist=6` 正确；残差 logits 跨层累加符合 D-FINE（`dfine_decoder.py:327-331`；`deim_decoder.py:264`）。
 - 解码器采用 RMSNorm + SwiGLUFFN、跨层共享 query 位置编码，符合 DEIMv2“高效解码器”（`deim_decoder.py:62,74,77`）。

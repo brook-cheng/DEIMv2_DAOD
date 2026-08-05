@@ -12,6 +12,7 @@ import math
 import torch
 import pytest
 from engine.deim.obb_geometry import xywhr_to_xyxyxyxy, xyxyxyxy_to_xywhr
+from engine.deim.obb_angle_contract import norm_to_physical_rad, physical_rad_to_norm
 
 TOL = 1e-5
 
@@ -137,7 +138,7 @@ def test_batch_roundtrip():
         assert ang_diff.max().item() < 1e-3, f"angle error {ang_diff.max().item():.2e}"
 
 
-# ── Angle range: output in [-π/4, 3π/4) ──
+# ── Angle range: output in [0, π) ──
 
 
 def test_angle_range():
@@ -151,29 +152,38 @@ def test_angle_range():
     v = xywhr_to_xyxyxyxy(obbs)
     recon = xyxyxyxy_to_xywhr(v)
     thetas = recon[:, 4]
-    assert (thetas >= -math.pi / 4 - 1e-6).all(), f"min theta={thetas.min():.6f} < -π/4"
-    assert (thetas < 3 * math.pi / 4).all(), f"max theta={thetas.max():.6f} >= 3π/4"
+    assert (thetas >= 0).all(), f"min theta={thetas.min():.6f} < 0"
+    assert (thetas < math.pi).all(), f"max theta={thetas.max():.6f} >= π"
 
 
-# ── Decoder output scaling: [0,1] sigmoid → [-π/4, 3π/4) ──
+def test_angle_3pi_over_4_not_folded():
+    # 3π/4 与 -π/4 周期等价（同一方向），但等比契约要求输出 [0,π) 内的 3π/4，
+    # 旧 shifted 实现会折叠到 -π/4
+    obb = torch.tensor([[0.5, 0.5, 0.4, 0.2, 3 * math.pi / 4]])
+    v = xywhr_to_xyxyxyxy(obb)
+    recon = xyxyxyxy_to_xywhr(v)
+    theta = recon[0, 4].item()
+    assert theta >= 0, f"等比契约要求 θ ∈ [0,π)，got {theta:.6f}"
+    assert abs(theta - 3 * math.pi / 4) < 1e-5, f"期望 3π/4={3*math.pi/4:.6f}, got {theta:.6f}"
+
+
+# ── Decoder scaling: 等比 [0,1] ↔ [0, π) ──
 
 
 def test_decoder_output_scaling():
-    """Verify (x - 0.25)*π maps [0,1] to [-π/4, 3π/4)."""
     x = torch.tensor([0.0, 0.25, 0.5, 0.75, 1.0])
-    theta = (x - 0.25) * math.pi
-    assert abs(theta[0].item() - (-math.pi / 4)) < 1e-6
-    assert abs(theta[1].item() - 0.0) < 1e-6
-    assert abs(theta[2].item() - math.pi / 4) < 1e-6
-    assert abs(theta[3].item() - math.pi / 2) < 1e-6
-    assert abs(theta[4].item() - 3 * math.pi / 4) < 1e-6
+    theta = norm_to_physical_rad(x)
+    assert abs(theta[0].item() - 0.0) < 1e-6
+    assert abs(theta[1].item() - math.pi / 4) < 1e-6
+    assert abs(theta[2].item() - math.pi / 2) < 1e-6
+    assert abs(theta[3].item() - 3 * math.pi / 4) < 1e-6
+    assert abs(theta[4].item() - math.pi) < 1e-6
 
 
 def test_decoder_input_scaling():
-    """Verify (θ + π/4)/π maps [-π/4, 3π/4) back to [0,1]."""
-    theta = torch.tensor([-math.pi / 4, 0.0, math.pi / 4, math.pi / 2, 3 * math.pi / 4 - 1e-6])
-    x = (theta + math.pi / 4) / math.pi
-    assert abs(x[0].item()) < 1e-6
+    theta = torch.tensor([0.0, math.pi / 4, math.pi / 2, 3 * math.pi / 4, math.pi - 1e-6])
+    x = physical_rad_to_norm(theta)
+    assert abs(x[0].item() - 0.0) < 1e-6
     assert abs(x[1].item() - 0.25) < 1e-6
     assert abs(x[2].item() - 0.5) < 1e-6
     assert abs(x[3].item() - 0.75) < 1e-6

@@ -34,6 +34,7 @@ from .yolo_obb_loss import (
 )
 from ..misc.dist_utils import get_world_size, is_dist_available_and_initialized
 from ..core import register
+from .obb_angle_contract import physical_rad_to_norm
 
 
 @register()
@@ -122,9 +123,7 @@ class DEIMCriterion(nn.Module):
                     + ", ".join(missing_keys)
                 )
 
-        if self.box_mode == "obb" and (
-            self.use_yolo_probiou or self.use_yolo_angle
-        ):
+        if self.box_mode == "obb" and (self.use_yolo_probiou or self.use_yolo_angle):
             required_keys = ["loss_bbox"]
             if self.use_yolo_probiou:
                 required_keys.append("loss_probiou")
@@ -373,14 +372,17 @@ class DEIMCriterion(nn.Module):
                     )
                     loss_bbox = torch.cat([spatial_l1, angle_term], dim=-1)
                 else:
-                    # [-pi/4, 3pi/4) → [0,1]: (θ + π/4) / π
                     src_boxes_l1 = torch.cat(
-                        [src_boxes[..., :4], (src_boxes[..., 4:] + torch.pi / 4) / torch.pi], dim=-1
+                        [
+                            src_boxes[..., :4],
+                            physical_rad_to_norm(src_boxes[..., 4:]),
+                        ],
+                        dim=-1,
                     )
                     target_boxes_l1 = torch.cat(
                         [
                             target_boxes[..., :4],
-                            (target_boxes[..., 4:] + torch.pi / 4) / torch.pi,
+                            physical_rad_to_norm(target_boxes[..., 4:]),
                         ],
                         dim=-1,
                     )
@@ -610,7 +612,7 @@ class DEIMCriterion(nn.Module):
         self.num_pos, self.num_neg = None, None
 
     def get_loss(self, loss, outputs, targets, indices, num_boxes, **kwargs):
-        #TODO:针对rep0/rep2去除关于角度loss的计算
+        # TODO:针对rep0/rep2去除关于角度loss的计算
         loss_map = {
             "boxes": self.loss_boxes,
             "focal": self.loss_labels_focal,

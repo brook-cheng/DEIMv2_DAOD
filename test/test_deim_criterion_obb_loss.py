@@ -239,3 +239,41 @@ def test_forward_preserves_raw_nonfinite_loss_components():
 
     assert pred.grad is not None
     assert pred.grad[0, 0] > 0 and pred.grad[0, 1] > 0
+
+
+# ---------------------------------------------------------------------------
+# Task 5: 非周期 L1 消融路径 — 等比归一化无越界 + 消融差异记录
+# ---------------------------------------------------------------------------
+
+
+def _loss_angle_term(pred_theta, target_theta, *, periodic_angle_flag):
+    """返回 loss_bbox（空间项置零，即纯角度贡献）。"""
+    pred = [0.5, 0.5, 0.3, 0.2, pred_theta]
+    target = [0.5, 0.5, 0.3, 0.2, target_theta]
+    _, outputs, targets, indices = _pair(pred, target)
+    criterion = _criterion(periodic_angle_flag=periodic_angle_flag)
+    return criterion.loss_boxes(outputs, targets, indices, 1.0)["loss_bbox"]
+
+
+def test_nonperiodic_no_overflow_beyond_1():
+    # pred θ=3π/4: 旧 shifted (θ+π/4)/π = 1.0 (越界), 等比 θ/π = 0.75
+    loss = _loss_angle_term(3 * math.pi / 4, 0.0, periodic_angle_flag=False)
+    assert abs(loss.item() - 0.75) < 1e-5, f"期望 0.75, got {loss.item():.6f}"
+
+
+def test_nonperiodic_vs_periodic_at_seam():
+    # pred≈0, gt≈π: 非周期 naive L1 ≈ 1 (seam 错配), 周期距离 ≈ 0
+    eps = 1e-3
+    loss_np = _loss_angle_term(eps, math.pi - eps, periodic_angle_flag=False)
+    loss_p = _loss_angle_term(eps, math.pi - eps, periodic_angle_flag=True)
+    assert loss_np.item() > 0.9, f"非周期 seam 应 ~1, got {loss_np.item():.4f}"
+    assert loss_p.item() < 0.01, f"周期 seam 应 ~0, got {loss_p.item():.4f}"
+
+
+def test_nonperiodic_equals_periodic_away_from_seam():
+    # pred=0.5π, gt=0.3π: 无 wraparound, 两路径一致
+    loss_np = _loss_angle_term(0.5 * math.pi, 0.3 * math.pi, periodic_angle_flag=False)
+    loss_p = _loss_angle_term(0.5 * math.pi, 0.3 * math.pi, periodic_angle_flag=True)
+    assert abs(loss_np.item() - loss_p.item()) < 1e-5, (
+        f"远离 seam 应一致: np={loss_np.item():.6f}, p={loss_p.item():.6f}"
+    )

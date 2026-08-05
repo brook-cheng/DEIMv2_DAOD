@@ -30,6 +30,7 @@ from .dfine_decoder import MSDeformableAttention, LQE, Integral
 from .dfine_utils import weighting_function, distance2bbox, distance2bbox_obb
 from .deim_utils import RMSNorm, SwiGLUFFN, Gate, MLP
 from .obb_geometry import external_rect_to_oriented_box, oriented_box_to_external_rect
+from .obb_angle_contract import norm_to_physical_rad
 
 __all__ = ["DEIMTransformer"]
 
@@ -281,20 +282,24 @@ class TransformerDecoder(nn.Module):
                 # use_angle_first makes query_pos_head expect (pos + angle);
                 # standard path passes position-only (4-D).
                 if self.use_angle_first:
-                    query_pos_embed = query_pos_head(
-                        ref_dec_angle_detach
-                    ).clamp(min=-10, max=10)
+                    query_pos_embed = query_pos_head(ref_dec_angle_detach).clamp(
+                        min=-10, max=10
+                    )
                 else:
-                    query_pos_embed = query_pos_head(
-                        ref_points_detach
-                    ).clamp(min=-10, max=10)
+                    query_pos_embed = query_pos_head(ref_points_detach).clamp(
+                        min=-10, max=10
+                    )
         elif self.box_mode == "hbb":
             ref_points_detach = F.sigmoid(ref_points_unact)
             query_pos_embed = query_pos_head(ref_points_detach).clamp(min=-10, max=10)
 
         for layer_idx, layer in enumerate(self.layers):
 
-            if self.use_angle_first and self.box_mode == "obb" and self.angle_rep in (2, 3):
+            if (
+                self.use_angle_first
+                and self.box_mode == "obb"
+                and self.angle_rep in (2, 3)
+            ):
                 ref_dec_angle_input = ref_dec_angle_detach.unsqueeze(2)
                 dec_angle_output = self.decouple_angle_layers[layer_idx](
                     dec_angle_output,
@@ -322,7 +327,9 @@ class TransformerDecoder(nn.Module):
                         [output, dec_angle_output], query=dec_angle_output
                     )
                 angle_for_box_ref = (
-                    dec_angle_initial if layer_idx == 0 else ref_dec_angle_detach[..., 4:5]
+                    dec_angle_initial
+                    if layer_idx == 0
+                    else ref_dec_angle_detach[..., 4:5]
                 )
                 ref_with_angle = torch.cat(
                     [ref_points_detach, angle_for_box_ref], dim=-1
@@ -440,11 +447,10 @@ class TransformerDecoder(nn.Module):
             elif self.box_mode == "obb":
                 theta_scale = torch.ones_like(ref_points_initial)
                 # theta:[0,1]→[0,pi]
-                theta_scale[..., 4] *= torch.pi
+                if self.angle_rep != 2:
+                    theta_scale[..., 4] *= torch.pi
                 ref_points_initial_scaled = ref_points_initial * theta_scale
                 distance = integral(pred_corners, project)
-                if self.angle_rep == 1:
-                    distance[..., 4] *= torch.pi
                 inter_ref_bbox = distance2bbox_obb(
                     ref_points_initial_scaled,
                     distance,
@@ -975,9 +981,9 @@ class DEIMTransformer(nn.Module):
 
                     if self.angle_step > 0:
                         n_angles = int(1.0 / self.angle_step)
-                        angle_candidates = torch.arange(
-                            n_angles, dtype=dtype
-                        ) * self.angle_step
+                        angle_candidates = (
+                            torch.arange(n_angles, dtype=dtype) * self.angle_step
+                        )
                         grid_xy_exp = grid_xy.unsqueeze(-2).expand(1, h, w, n_angles, 2)
                         wh_exp = wh.unsqueeze(-2).expand(1, h, w, n_angles, 2)
                         r_exp = angle_candidates.reshape(1, 1, 1, n_angles, 1).expand(
@@ -987,7 +993,7 @@ class DEIMTransformer(nn.Module):
                             [grid_xy_exp, wh_exp, r_exp], dim=-1
                         ).reshape(1, h * w * n_angles, self._num_box_dof)
                     else:
-                        r = 0.5 * torch.ones(
+                        r = 0.25 * torch.ones(
                             *grid_xy.shape[:-1],
                             1,
                             dtype=grid_xy.dtype,
@@ -1069,11 +1075,7 @@ class DEIMTransformer(nn.Module):
         # token n_angles times so it aligns with the anchor layout
         # (position-major, angle-minor within each level). This only affects
         # query selection; the decoder still receives the original memory.
-        if (
-            self.box_mode == "obb"
-            and self.angle_rep != 2
-            and self.angle_step > 0
-        ):
+        if self.box_mode == "obb" and self.angle_rep != 2 and self.angle_step > 0:
             n_angles = int(1.0 / self.angle_step)
             memory = memory.repeat_interleave(n_angles, dim=1)
 
@@ -1095,9 +1097,12 @@ class DEIMTransformer(nn.Module):
             enc_topk_bboxes = F.sigmoid(enc_topk_bbox_unact)
             if self.box_mode == "obb":
                 if self.angle_rep != 2:
-                    # 角度量纲 [0,1]->[-pi/4, 3pi/4)
+                    # 角度量纲 [0,1]->[0, pi)
                     enc_topk_bboxes = torch.cat(
-                        [enc_topk_bboxes[..., :4], (enc_topk_bboxes[..., 4:] - 0.25) * torch.pi],
+                        [
+                            enc_topk_bboxes[..., :4],
+                            norm_to_physical_rad(enc_topk_bboxes[..., 4:]),
+                        ],
                         dim=-1,
                     )
                 else:
@@ -1230,18 +1235,33 @@ class DEIMTransformer(nn.Module):
             )
         )
 
-        # criterion/matcher/postprocessor 中 theta 量纲为 [-pi/4, 3pi/4)
-        # decoder 内部 [0,1] → 外部 [-pi/4, 3pi/4): θ = (x - 0.25) * π
+        # criterion/matcher/postprocessor 中 theta 量纲为 [0, pi)
+        # decoder 内部 [0,1) → 外部 [0, pi)
         if self.box_mode == "obb":
             out_bboxes = torch.cat(
-                [out_bboxes[..., :4], (out_bboxes[..., 4:] - 0.25) * torch.pi], dim=-1
+                [
+                    out_bboxes[..., :4],
+                    norm_to_physical_rad(out_bboxes[..., 4:]),
+                ],
+                dim=-1,
             )
-            out_refs = torch.cat(
-                [out_refs[..., :4], (out_refs[..., 4:] - 0.25) * torch.pi], dim=-1
-            )
-            pre_bboxes = torch.cat(
-                [pre_bboxes[..., :4], (pre_bboxes[..., 4:] - 0.25) * torch.pi], dim=-1
-            )
+            if self.angle_rep != 2:
+                out_refs = torch.cat(
+                    [
+                        out_refs[..., :4],
+                        norm_to_physical_rad(out_refs[..., 4:]),
+                    ],
+                    dim=-1,
+                )
+                # rep2 的 pre_bboxes 已由 external_rect_to_oriented_box 输出
+                # 物理角 [0, pi)，必须直通；rep0/1/3 为归一化 [0,1) 需换算。
+                pre_bboxes = torch.cat(
+                    [
+                        pre_bboxes[..., :4],
+                        norm_to_physical_rad(pre_bboxes[..., 4:]),
+                    ],
+                    dim=-1,
+                )
         if self.training and dn_meta is not None:
             dn_pre_logits, pre_logits = torch.split(
                 pre_logits, dn_meta["dn_num_split"], dim=1

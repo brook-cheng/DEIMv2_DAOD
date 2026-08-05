@@ -28,6 +28,7 @@ if ROOT not in sys.path:
 from engine.deim.dfine_decoder import MSDeformableAttention
 from engine.deim.deim_decoder import DEIMTransformer
 from engine.deim.obb_geometry import external_rect_to_oriented_box
+from engine.deim.denoising import get_contrastive_denoising_training_group
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -238,9 +239,179 @@ def test_decouple_angle_reference_dimensionality_consistent(seed):
         f"(5*(reg_max+1)), got {out_corners.shape[-1]}"
     )
 
-    # --- theta range: out_bboxes theta in [0, pi] (DEIMTransformer rescales) ---
+    # --- theta range: out_bboxes theta in [0, π) (等比契约 norm_to_physical_rad) ---
     theta = out_bboxes[..., 4]
-    assert (theta >= 0).all() and (theta <= math.pi + 1e-5).all(), (
-        f"pred_boxes theta must be in [0, pi], got "
-        f"min={theta.min().item():.4f} max={theta.max().item():.4f}"
+    assert (theta >= 0).all(), (
+        f"pred_boxes theta must be >= 0, got min={theta.min().item():.4f}"
     )
+    assert (theta < math.pi).all(), (
+        f"pred_boxes theta must be < π, got max={theta.max().item():.4f}"
+    )
+    # ref_points theta 同域
+    theta_refs = out_refs[..., 4]
+    assert (theta_refs >= 0).all() and (theta_refs < math.pi).all(), (
+        f"ref_points theta must be in [0, π), got "
+        f"min={theta_refs.min().item():.4f} max={theta_refs.max().item():.4f}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 3: anchor default r=0.25 → 物理 π/4（等比契约保持迁移前初始化方向）
+# ---------------------------------------------------------------------------
+
+
+def test_anchor_default_r_is_pi_over_4():
+    """_generate_anchors 单角度默认 r=0.25, sigmoid 后 *π = π/4。"""
+    torch.manual_seed(0)
+    model = DEIMTransformer(
+        num_classes=5,
+        hidden_dim=32,
+        num_queries=4,
+        feat_channels=[32, 32],
+        feat_strides=[4, 8],
+        num_levels=2,
+        num_points=2,
+        nhead=4,
+        num_layers=3,
+        dim_feedforward=64,
+        dropout=0.0,
+        activation="relu",
+        num_denoising=0,
+        learn_query_content=False,
+        eval_spatial_size=(16, 16),
+        eval_idx=-1,
+        eps=1e-2,
+        aux_loss=False,
+        cross_attn_method="default",
+        query_select_method="default",
+        reg_max=4,
+        reg_scale=4.0,
+        layer_scale=1,
+        mlp_act="relu",
+        use_gateway=True,
+        share_bbox_head=False,
+        share_score_head=False,
+        box_mode="obb",
+        angle_rep=0,
+        offset_scale_source="pre",
+    )
+    # model.anchors 是 init 时缓存的 logit 空间 buffer; sigmoid 还原到 [0,1] norm
+    r = torch.sigmoid(model.anchors[..., -1])
+    # angle_step=0 → 所有候选应为同一默认值 0.25 (物理 π/4)
+    assert torch.allclose(r, torch.full_like(r, 0.25), atol=1e-6), (
+        f"anchor r 应为 0.25 (物理 π/4), got min={r.min():.6f} max={r.max():.6f}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 4: 所有 angle_rep 前向输出 θ ∈ [0, π)（pred_boxes / ref_points / pre_bboxes）
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("angle_rep", "use_angle_first"),
+    [(0, False), (1, False), (2, False), (3, True)],
+)
+def test_angle_rep_forward_theta_in_proportional_domain(
+    angle_rep, use_angle_first
+):
+    torch.manual_seed(0)
+    model = DEIMTransformer(
+        num_classes=5,
+        hidden_dim=32,
+        num_queries=4,
+        feat_channels=[32, 32],
+        feat_strides=[4, 8],
+        num_levels=2,
+        num_points=2,
+        nhead=4,
+        num_layers=3,
+        dim_feedforward=64,
+        dropout=0.0,
+        activation="relu",
+        num_denoising=0,
+        learn_query_content=False,
+        eval_spatial_size=(16, 16),
+        eval_idx=-1,
+        eps=1e-2,
+        aux_loss=True,
+        cross_attn_method="default",
+        query_select_method="default",
+        reg_max=4,
+        reg_scale=4.0,
+        layer_scale=1,
+        mlp_act="relu",
+        use_gateway=True,
+        share_bbox_head=False,
+        share_score_head=False,
+        box_mode="obb",
+        angle_rep=angle_rep,
+        offset_scale_source="pre",
+        use_angle_first=use_angle_first,
+    )
+    model.train()
+    feats = [torch.randn(1, 32, 8, 8), torch.randn(1, 32, 4, 4)]
+    with torch.no_grad():
+        outputs = model(feats)
+    for name, tensor in [
+        ("pred_boxes", outputs["pred_boxes"][..., 4]),
+        ("ref_points", outputs["ref_points"][..., 4]),
+        ("pre_bboxes", outputs["pre_outputs"]["pred_boxes"][..., 4]),
+    ]:
+        assert (tensor >= 0).all() and (tensor < math.pi).all(), (
+            f"angle_rep={angle_rep}: {name} θ 应 ∈ [0, π), "
+            f"got min={tensor.min():.4f} max={tensor.max():.4f}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test 5: denoising 等比化 — GT θ ∈ [0,π) → θ_norm ∈ [0,1)，无 clip
+# ---------------------------------------------------------------------------
+
+
+import torch.nn as nn
+
+
+def _run_denoising(gt_theta_rad, num_classes=5, hidden_dim=8):
+    """调用 denoising 函数，返回 sigmoid 还原后的 θ_norm。"""
+    target = {
+        "labels": torch.tensor([0], dtype=torch.int64),
+        "boxes": torch.tensor([[0.5, 0.5, 0.3, 0.2, gt_theta_rad]], dtype=torch.float32),
+    }
+    class_embed = nn.Embedding(num_classes + 1, hidden_dim)
+    _, dn_bbox_unact, _, _ = get_contrastive_denoising_training_group(
+        targets=[target],
+        num_classes=num_classes,
+        num_queries=4,
+        class_embed=class_embed,
+        num_denoising=10,
+        label_noise_ratio=0.0,
+        box_noise_scale=1.0,
+        box_mode="obb",
+    )
+    # dn_bbox_unact 是 inverse_sigmoid 后的 logit; sigmoid 还原到 θ_norm
+    return torch.sigmoid(dn_bbox_unact[..., 4])
+
+
+@pytest.mark.parametrize("gt_theta, expected_norm", [
+    (3 * math.pi / 4, 0.75),        # 旧 shifted (θ+π/4)/π 会给 1.0 (clip), 等比给 0.75
+    (math.pi / 4, 0.25),
+    (0.0, 0.0),
+])
+def test_denoising_theta_norm_proportional(gt_theta, expected_norm):
+    torch.manual_seed(0)
+    theta_norm = _run_denoising(gt_theta)
+    # 角度不加噪, 所有 dn query 共享同一 GT θ_norm; atol 放宽到 1e-4 以吸收
+    # θ=0 边界处 inverse_sigmoid(0)=-inf → sigmoid≈1e-5 的数值往返误差
+    assert torch.allclose(theta_norm, torch.full_like(theta_norm, expected_norm), atol=1e-4), (
+        f"GT θ={gt_theta:.4f}: 期望 θ_norm={expected_norm}, "
+        f"got min={theta_norm.min():.6f} max={theta_norm.max():.6f}"
+    )
+
+
+def test_denoising_theta_near_pi_no_overflow():
+    """GT θ → π⁻ 时 θ_norm → 1⁻, 不越界 (旧 shifted (θ+π/4)/π 会 >1)。"""
+    torch.manual_seed(0)
+    theta_norm = _run_denoising(math.pi - 1e-4)
+    assert (theta_norm < 1.0).all(), f"θ_norm 应 < 1, got max={theta_norm.max():.6f}"
+    assert (theta_norm > 0.999).all(), f"θ near π 时 θ_norm 应接近 1, got min={theta_norm.min():.6f}"

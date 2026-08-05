@@ -65,6 +65,7 @@ class HungarianMatcher(nn.Module):
         self.alpha = alpha
         self.gamma = gamma
         self.box_mode = box_mode
+        # Planned: use this factor to scale the matcher angle cost.
         self.angle_factor = angle_factor
         self.lambda_angle = lambda_angle
 

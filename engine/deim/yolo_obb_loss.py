@@ -116,7 +116,7 @@ def yolo_angle_loss(
     target_h = target_bboxes[..., 3]
     eps = torch.finfo(pred_bboxes.dtype).eps
     log_ar = torch.log((target_w + eps) / (target_h + eps))
-    scale_weight = torch.exp(-log_ar.square() / (lambda_val ** 2))
+    scale_weight = torch.exp(-log_ar.square() / (lambda_val**2))
 
     total = (penalty * scale_weight).sum()
     return total / normalizer
@@ -156,6 +156,6 @@ def compute_angle_cost_matrix(
     target_h = target_bboxes[None, :, 3]
     eps = torch.finfo(pred_bboxes.dtype).eps
     log_ar = torch.log((target_w + eps) / (target_h + eps))
-    scale_weight = torch.exp(-log_ar.square() / (lambda_val ** 2))
+    scale_weight = torch.exp(-log_ar.square() / (lambda_val**2))
 
     return penalty * scale_weight

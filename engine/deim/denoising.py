@@ -6,6 +6,7 @@ import torch
 
 from .utils import inverse_sigmoid
 from .box_ops import box_cxcywh_to_xyxy, box_xyxy_to_cxcywh
+from .obb_angle_contract import physical_rad_to_norm
 
 
 def get_contrastive_denoising_training_group(
@@ -107,8 +108,8 @@ def get_contrastive_denoising_training_group(
         if box_mode == "hbb":
             input_query_bbox = noise_spatial
         elif box_mode == "obb":
-            # [-pi/4, 3pi/4) → [0,1]: θ_int = (θ_ext + π/4) / π
-            input_query_bbox[..., 4] = (input_query_bbox[..., 4] + torch.pi / 4) / torch.pi
+            # [0,pi) → [0,1]
+            input_query_bbox[..., 4] = physical_rad_to_norm(input_query_bbox[..., 4])
             input_query_bbox = torch.cat(
                 [noise_spatial, input_query_bbox[..., 4:]], dim=-1
             )

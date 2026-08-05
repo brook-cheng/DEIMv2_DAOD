@@ -9,9 +9,15 @@
 
 [2026-06-25-decoder-decoupling-design](design/2026-06-25-decoder-decoupling-design.md) ★ **canonical** — DEIMv2-OBB Decoder 解耦设计：空间-语义-角度三层解耦，解决分类分数与 IoU 质量无关（MAL loss 不收敛）问题。2026-06-26 修订版，已纳入整合评审修正。
 
+## specs/ — 已批准规范
+
+[2026-08-05-engineering-platform-refactor-design](specs/2026-08-05-engineering-platform-refactor-design.md) — HBB/OBB 工程化平台兼容式分层重构设计：统一 CLI、运行契约、训练控制器、推理后端、checkpoint 和测试迁移路线。
+
 ---
 
 ## plans/ — 实施计划（Agent 执行用）
+
+[2026-08-05-engineering-platform-refactor-roadmap](plans/2026-08-05-engineering-platform-refactor-roadmap.md) — HBB/OBB 工程化平台兼容式分层重构实施计划：12 个 TDD 任务、G0-G6 验收门、统一 CLI/推理/训练生命周期迁移顺序。
 
 [2026-06-25-decoder-decoupling-plan](plans/2026-06-25-decoder-decoupling-plan.md) ★ **canonical** — Decoder 解耦实施计划：拆分 XYWH 路径 + R 路径，Gated Softmax Fusion 桥接，2026-06-26 修订版包含 F7-F9/S1-S3/O1-O5 修复。  
 

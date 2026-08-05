@@ -241,15 +241,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # args.config = "./configs/custom_obb/deimv2_obb_sp.yml"  # commented for synthetic experiments
-    # args.config = (
-    #     "configs/custom_obb/synthetic_configs/ablation/syn_ablation_afp.yml"
-    # )
+    # args.config = "configs/custom_obb/synthetic_configs/ablation/syn_ablation_afp.yml"
     # args.use_amp = False
     # model test part
     # args.test_only = False
-    # args.resume = (
-    #     "./outputs/deimv2_dinov3_x_custom/best_stg2_freeze_1109_e186_mAP67.pth"
-    # )
-    # args.device = "cuda:1"
+    # args.resume = "./outputs/syn_ablation_afp/last.pth"
+    # args.device = "cuda:0"
 
     main(args)

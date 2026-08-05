@@ -43,7 +43,7 @@ def xywhr_to_xyxyxyxy(xywhr: Tensor) -> Tensor:
     """Convert OBB (cx, cy, w, h, theta) to four corner vertices.
 
     Args:
-        xywhr: (..., 5)  —  (cx, cy, w, h, theta)  in normalized coords,θ belongs to [0,π].
+        xywhr: (..., 5)  —  (cx, cy, w, h, theta)  in normalized coords,θ belongs to [0,π).
 
     Returns:
         (..., 4, 2)  —  4 corner points in clockwise order.
@@ -65,7 +65,7 @@ def xywhr_to_xyxyxyxy(xywhr: Tensor) -> Tensor:
     pt4 = ctr - vec1 + vec2
     return torch.stack([pt1, pt2, pt3, pt4], -2)
 
-# TODO：调整角度范围为[-π/4, 3π/4)
+
 def xyxyxyxy_to_xywhr(xyxyxyxy: Tensor) -> Tensor:
     """Convert four corner vertices to OBB (cx, cy, w, h, theta).
 
@@ -73,7 +73,7 @@ def xyxyxyxy_to_xywhr(xyxyxyxy: Tensor) -> Tensor:
         xyxyxyxy:  (..., 4, 2)  —  4 corner points in clockwise order.
 
     Returns:
-        (..., 5)  —  (cx, cy, w, h, theta)  in normalized coords,θ belongs to [0,π].
+        (..., 5)  —  (cx, cy, w, h, theta)  in normalized coords,θ belongs to [0,π).
     """
 
     ctr = xyxyxyxy.mean(dim=-2)
@@ -97,7 +97,7 @@ def xyxyxyxy_to_xywhr(xyxyxyxy: Tensor) -> Tensor:
     w_dx = torch.where(w_mask.squeeze(-1), edg1[..., 0], edg2[..., 0])
     w_dy = torch.where(w_mask.squeeze(-1), edg1[..., 1], edg2[..., 1])
     theta = torch.atan2(w_dy, w_dx)
-    theta = torch.remainder(theta + torch.pi / 4, torch.pi) - torch.pi / 4
+    theta = torch.remainder(theta, torch.pi)
     return torch.stack([ctr[..., 0], ctr[..., 1], w, h, theta], dim=-1)
 
 
@@ -105,7 +105,7 @@ def oriented_box_to_external_rect(obbs: Tensor) -> Tuple[Tensor, Tensor]:
     """OBB -> external rectangle + vertex offsets (epsilon, eta).
 
     Args:
-        obbs:  (..., 5)  —  (cx, cy, w, h, theta),θ belongs to [0,pi].
+        obbs:  (..., 5)  —  (cx, cy, w, h, theta),θ belongs to [0,pi).
 
     Returns:
         external_rect:   (..., 4)  —  (x1, y1, x2, y2).
@@ -196,7 +196,7 @@ def external_rect_to_oriented_box(
             eval-safe decode paths.
 
     Returns:
-        (..., 5)  —  (cx, cy, w, h, theta),θ belongs to [0,pi].
+        (..., 5)  —  (cx, cy, w, h, theta),θ belongs to [0,pi).
     """
 
     if clamp_offsets:
@@ -235,8 +235,7 @@ def external_rect_to_oriented_box(
     w_dy = torch.where(w_is_ab, edge_ab[..., 1], edge_bc[..., 1])
 
     theta = torch.atan2(w_dy, w_dx)
-    theta = torch.remainder(theta + torch.pi / 4, torch.pi) - torch.pi / 4
-
+    theta = torch.remainder(theta, torch.pi)
     return torch.stack([cx, cy, w_len, h_len, theta], dim=-1)
 
 
