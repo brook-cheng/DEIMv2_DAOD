@@ -407,11 +407,11 @@ def train_one_epoch(
             if ema is not None:
                 ema.update(model)
 
-            if self_lr_scheduler:
-                optimizer = lr_scheduler.step(cur_iters + i, optimizer)
-            else:
-                if lr_warmup_scheduler is not None:
-                    lr_warmup_scheduler.step()
+        if self_lr_scheduler:
+            optimizer = lr_scheduler.step(cur_iters + i, optimizer)
+        else:
+            if lr_warmup_scheduler is not None:
+                lr_warmup_scheduler.step()
 
         loss_dict_reduced = dist_utils.reduce_dict(loss_dict)
         loss_value = sum(loss_dict_reduced.values())
