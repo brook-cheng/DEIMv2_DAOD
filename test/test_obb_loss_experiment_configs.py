@@ -195,3 +195,73 @@ def test_completed_snapshot_matches_manifested_known_behavior(run_name, expected
     assert snapshot["epoches"] == 80
     assert switches == expected["switches"]
     assert weights == expected["geometry_weights"]
+
+
+# ── AMP BF16 / OBB FP32 experiment configs ──────────────────────────────────
+
+DLZDT_DIR: Final = ROOT / "configs" / "custom_obb" / "dlzdt"
+AMP_BASE: Final = "sp_fz_rep0_nloss_amp.yml"
+PRECISION_EXPERIMENTS: Final = {
+    "sp_fz_rep0_nloss_bf16.yml": {
+        "amp_dtype": "bfloat16",
+        "obb_geometry_fp32": False,
+        "scaler_enabled": False,
+    },
+    "sp_fz_rep0_nloss_fp16_obb_fp32.yml": {
+        "amp_dtype": "float16",
+        "obb_geometry_fp32": True,
+        "scaler_enabled": True,
+    },
+}
+
+
+def _dlzdt_config(name: str) -> dict:
+    return YAMLConfig(str(DLZDT_DIR / name)).yaml_cfg
+
+
+def test_precision_experiments_preserve_base_training_schedule() -> None:
+    # Given: the base FP16 AMP experiment and both precision experiments.
+    base = _dlzdt_config(AMP_BASE)
+
+    # When: schedule and loss settings are resolved for each experiment.
+    # Then: dataset, optimizer LR, schedule, and loss weights match the base.
+    for name in PRECISION_EXPERIMENTS:
+        config = _dlzdt_config(name)
+        assert config["epoches"] == base["epoches"] == 150
+        assert config["flat_epoch"] == base["flat_epoch"] == 75
+        assert config["no_aug_epoch"] == base["no_aug_epoch"] == 15
+        assert config["train_dataloader"]["dataset"]["img_folder"] == base[
+            "train_dataloader"
+        ]["dataset"]["img_folder"]
+        assert config["optimizer"]["lr"] == base["optimizer"]["lr"] == 0.0005
+        assert config["DEIMCriterion"]["weight_dict"] == base["DEIMCriterion"][
+            "weight_dict"
+        ]
+        assert config["DEIMCriterion"]["matcher"] == base["DEIMCriterion"]["matcher"]
+
+
+@pytest.mark.parametrize(("name", "expected"), PRECISION_EXPERIMENTS.items())
+def test_precision_experiment_resolves_intended_flags(name, expected) -> None:
+    # Given: one declared precision experiment.
+    config = _dlzdt_config(name)
+
+    # When: its precision fields and scaler enabled state are inspected.
+    # Then: the resolved config carries exactly the declared policy.
+    assert config["amp_dtype"] == expected["amp_dtype"]
+    assert config["obb_geometry_fp32"] == expected["obb_geometry_fp32"]
+    assert config["scaler"]["enabled"] == expected["scaler_enabled"]
+
+
+def test_precision_experiments_have_distinct_output_dirs() -> None:
+    # Given: the base experiment and both precision experiments.
+    outputs = {
+        _dlzdt_config(AMP_BASE)["output_dir"],
+        *(
+            _dlzdt_config(name)["output_dir"]
+            for name in PRECISION_EXPERIMENTS
+        ),
+    }
+
+    # When: their resolved output directories are collected.
+    # Then: every run writes to a distinct destination.
+    assert len(outputs) == len(PRECISION_EXPERIMENTS) + 1

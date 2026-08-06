@@ -29,6 +29,11 @@ from .training_diagnostics import (
     raise_for_nonfinite_total,
     inspect_gradients,
 )
+from .precision import (
+    cast_obb_geometry_fp32,
+    resolve_amp_dtype,
+    validate_amp_dtype_support,
+)
 
 # Parameters whose NaN/Inf gradients are zeroed (not crashed) with a log warning.
 _NAN_ZERO_PATTERNS: frozenset[str] = frozenset({"cls_token"})
@@ -204,6 +209,12 @@ def train_one_epoch(
     nan_output_dir = kwargs.get("output_dir", None)
     validate_max_optimizer_steps(max_optimizer_steps)
 
+    amp_dtype_name: str | None = kwargs.get("amp_dtype_name", None)
+    obb_geometry_fp32: bool = kwargs.get("obb_geometry_fp32", False)
+    amp_dtype = resolve_amp_dtype(amp_dtype_name)
+    validate_amp_dtype_support(amp_dtype, device)
+    use_obb_geometry_fp32 = obb_geometry_fp32 and box_mode == "obb"
+
     nan_tracker = NanGradientTracker(max_events=int(nan_max_events))
 
     cur_iters = epoch * len(data_loader)
@@ -242,7 +253,9 @@ def train_one_epoch(
             break
 
         if scaler is not None:
-            with torch.autocast(device_type=str(device), cache_enabled=True):
+            with torch.autocast(
+                device_type=str(device), dtype=amp_dtype, cache_enabled=True
+            ):
                 outputs = model(samples, targets=targets)
 
             if (
@@ -261,7 +274,12 @@ def train_one_epoch(
                 dist_utils.save_on_master(new_state, "./NaN.pth")
 
             with torch.autocast(device_type=str(device), enabled=False):
-                loss_dict = criterion(outputs, targets, **metas)
+                criterion_inputs = (
+                    cast_obb_geometry_fp32(outputs)
+                    if use_obb_geometry_fp32
+                    else outputs
+                )
+                loss_dict = criterion(criterion_inputs, targets, **metas)
 
             raise_for_nonfinite_losses(loss_dict, epoch=epoch, step=i, global_step=global_step)
 

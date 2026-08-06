@@ -166,6 +166,10 @@ class DetSolver(BaseSolver):
                 fail_on_zero_grad=_fail_on_zero_grad,
                 output_dir=self.output_dir,
                 nan_max_events=args.yaml_cfg.get("nan_max_events", 10),
+                amp_dtype_name=args.yaml_cfg.get("amp_dtype"),
+                obb_geometry_fp32=bool(
+                    args.yaml_cfg.get("obb_geometry_fp32", False)
+                ),
             )
 
             if train_stats.pop("_step_cap_reached", False):
