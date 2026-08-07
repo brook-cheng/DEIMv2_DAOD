@@ -98,3 +98,32 @@ def physical_rad_to_loss_rad(theta_rad: Tensor) -> Tensor:
         ``theta_loss_rad``：输出物理弧度角，范围``[-pi/4, 3pi/4)``。
     """
     return torch.remainder(theta_rad + torch.pi / 4, torch.pi) - torch.pi / 4
+
+
+def physical_rad_to_shifted_norm(theta_phys_rad: Tensor) -> Tensor:
+    """将物理弧度角编码为 decoder 私有 shifted 归一化角。
+
+    Args:
+        theta_phys_rad: 输入物理角，单位为**弧度**，范围 ``[0, pi)``。
+
+    Returns:
+        ``theta_shift``：输出 shifted 归一化角，**无量纲**，范围 ``[0, 1)``，
+        即 ``remainder(theta_phys_rad / pi + 0.25, 1)``。0→0.25, π/2→0.75,
+        3π/4→0（seam 移至 135°）。
+    """
+    return torch.remainder(theta_phys_rad / torch.pi + 0.25, 1.0)
+
+
+def shifted_norm_to_physical_rad(theta_shift: Tensor) -> Tensor:
+    """将 decoder 私有 shifted 归一化角还原为物理弧度角。
+
+    这是 :func:`physical_rad_to_shifted_norm` 的逆转换。
+
+    Args:
+        theta_shift: 输入 shifted 归一化角，**无量纲**，范围 ``[0, 1)``。
+
+    Returns:
+        ``theta_phys_rad``：输出标准物理角，单位为**弧度**，范围
+        ``[0, pi)``。
+    """
+    return torch.remainder(theta_shift - 0.25, 1.0) * torch.pi

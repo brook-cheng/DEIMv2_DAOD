@@ -29,6 +29,8 @@ from engine.deim.obb_angle_contract import (
     physical_rad_to_logit,
     logit_to_physical_rad,
     physical_rad_to_loss_rad,
+    physical_rad_to_shifted_norm,
+    shifted_norm_to_physical_rad,
 )
 
 PI = math.pi
@@ -255,3 +257,68 @@ def test_seam_sample_not_naive_subtraction():
     d_p2 = _periodic_unsigned(torch.tensor(0.0), torch.tensor(3 * PI / 4)).item()
     assert abs(d_p2 - PI / 4) < 1e-6
     assert abs(0.0 - 3 * PI / 4) > PI / 4   # 直接相减 0.75π ≠ 周期距离 π/4
+
+
+# ---------------------------------------------------------------------------
+# 7. shifted 编解码: physical_rad_to_shifted_norm / shifted_norm_to_physical_rad
+#    (spec 2026-08-05-obb-decoder-shifted-angle-design.md §5, §12.1)
+# ---------------------------------------------------------------------------
+
+
+def test_physical_rad_to_shifted_norm_mapping():
+    """spec §5/§12.1 边界映射: 0→0.25, π/2→0.75, 3π/4→0, π⁻→0.25⁻。"""
+    theta = torch.tensor([0.0, PI / 2, 3 * PI / 4, PI - 1e-4])
+    shift = physical_rad_to_shifted_norm(theta)
+    expected = torch.tensor([0.25, 0.75, 0.0, 0.25 - 1e-4 / PI])
+    assert torch.allclose(shift, expected, atol=1e-6), f"got {shift}"
+    # 域 [0, 1)
+    assert (shift >= 0).all() and (shift < 1).all()
+
+
+def test_shifted_norm_to_physical_rad_mapping():
+    """spec §5 逆映射: 0.25→0, 0.75→π/2, 0→3π/4, 1⁻→(3π/4)⁻。"""
+    shift = torch.tensor([0.0, 0.25, 0.5, 0.75, 1.0 - 1e-4])
+    phys = shifted_norm_to_physical_rad(shift)
+    expected = torch.tensor(
+        [3 * PI / 4, 0.0, PI / 4, PI / 2, 3 * PI / 4 - 1e-4 * PI]
+    )
+    assert torch.allclose(phys, expected, atol=1e-6), f"got {phys}"
+    # 域 [0, π)
+    assert (phys >= 0).all() and (phys < PI).all()
+
+
+def test_shifted_roundtrip_random():
+    """phys→shift→phys 恒等; shift→phys→shift 恒等（remainder 数值稳定）。"""
+    torch.manual_seed(42)
+    theta = torch.rand(2000) * PI                       # [0, π)
+    rt = shifted_norm_to_physical_rad(physical_rad_to_shifted_norm(theta))
+    assert torch.allclose(rt, theta, rtol=1e-6), (
+        f"phys→shift→phys max err {(rt - theta).abs().max():.2e}"
+    )
+
+    shift = torch.rand(2000)                            # [0, 1)
+    rt2 = physical_rad_to_shifted_norm(shifted_norm_to_physical_rad(shift))
+    assert torch.allclose(rt2, shift, atol=1e-6), (
+        f"shift→phys→shift max err {(rt2 - shift).abs().max():.2e}"
+    )
+
+
+def test_shifted_algebraic_relation_with_loss_rad():
+    """spec §5 代数关系: theta_shift = physical_rad_to_loss_rad(θ)/π + 0.25 (mod 1)。"""
+    torch.manual_seed(7)
+    theta = torch.rand(500) * PI
+    loss = physical_rad_to_loss_rad(theta)
+    algebraic = torch.remainder(loss / PI + 0.25, 1.0)
+    shift = physical_rad_to_shifted_norm(theta)
+    assert torch.allclose(shift, algebraic, atol=1e-6), (
+        f"max err {(shift - algebraic).abs().max():.2e}"
+    )
+
+
+def test_shifted_pi_periodicity_preserved():
+    """shifted 编码保持 π 周期性: θ 与 θ+π 映射到同一 theta_shift。"""
+    torch.manual_seed(11)
+    theta = torch.rand(500) * PI
+    a = physical_rad_to_shifted_norm(theta)
+    b = physical_rad_to_shifted_norm(theta + PI)
+    assert torch.allclose(a, b, atol=1e-6), "shifted 必须保持 π 周期等价"
