@@ -1,0 +1,23 @@
+# ============================================================================
+# 消融实验: offset_scale_source = "post"
+# ============================================================================
+# 基线: sp_fz_common.yml (offset_scale_source="pre")
+# 变量: DEIMTransformer.offset_scale_source "pre" → "post"
+#        DEIMCriterion.offset_scale_source "pre" → "post"（必须同步）
+#
+# offset_scale_source 语义（obb_geometry.py distance2bbox_obb / bbox2distance_obb）:
+#   vertex offset (ε,η) 是 OBB 顶点相对于外接矩形中心的偏移量
+#   "pre"  → offset 在归一化 [0,1] 空间按 reg_scale 缩放，再映射到物理像素空间
+#   "post" → offset 先映射到物理像素空间，再按 reg_scale 缩放
+#   两种方式的几何含义不同: pre 在相对空间缩放（尺度不变），post 在绝对空间缩放
+#
+# 注意: decoder 和 criterion 必须使用相同的 offset_scale_source，
+#        否则 FGL loss 的 offset 空间不一致（bbox2distance_obb 的逆运算不匹配）
+# 观察重点: 不同缩放空间对 vertex offset 回归精度的影响
+# ============================================================================
+__include__: ['../sp_fz_common.yml']
+output_dir: ./outputs/deimv2_obb_dlzdt_sp_fz_ablation/abl_offset_post
+DEIMTransformer:
+  offset_scale_source: "post"
+DEIMCriterion:
+  offset_scale_source: "post"

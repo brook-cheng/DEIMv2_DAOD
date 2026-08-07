@@ -1,0 +1,20 @@
+# ============================================================================
+# 消融实验: angle_rep=3 + use_gate_fusion=true
+# ============================================================================
+# 基线: abl_rep3.yml (angle_rep=3, use_gate_fusion=false)
+# 变量: DEIMTransformer.use_gate_fusion false → true
+#
+# 与 abl_rep2_fused 对照: 在 rep3（解耦角度流 + 直接残差回归）上评估门控融合
+# rep3 的 decouple_angle_layers 天然有 box/angle 双流，GatedSoftmaxFusion
+# 在每层将两路特征融合，理论上对 rep3 的增益可能不同于 rep2
+#
+# 派生参数: obbox_rep_dim 6 → 5（rep3）
+# 观察重点: rep3 解耦角度流 + 门控融合 vs rep2 外接矩形 + 门控融合
+# ============================================================================
+__include__: ['../sp_fz_common.yml']
+output_dir: ./outputs/deimv2_obb_dlzdt_sp_fz_ablation/abl_rep3_fused
+DEIMTransformer:
+  angle_rep: 3
+  use_gate_fusion: true
+DEIMCriterion:
+  obbox_rep_dim: 5

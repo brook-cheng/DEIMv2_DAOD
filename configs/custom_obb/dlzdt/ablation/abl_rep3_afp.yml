@@ -1,0 +1,30 @@
+# ============================================================================
+# 消融实验: angle_rep=3 + use_angle_first=true
+# ============================================================================
+# 基线: abl_rep3.yml (angle_rep=3, use_angle_first=false)
+# 变量: DEIMTransformer.use_angle_first false → true
+#
+# use_angle_first 语义（deim_decoder.py TransformerDecoder.forward）:
+#   仅对 rep3 有效（rep2 构造期 ValueError，rep0/1 无解耦角度流）
+#   false → query_pos_head 接收 4D ref_points_detach (cx,cy,w,h)
+#           位置与角度完全解耦，query_pos_embed 不含角度信息
+#   true  → query_pos_head 接收 5D ref_with_angle (cx,cy,w,h,θ)
+#           query 先经 decouple_angle_layers 预测角度，再将角度反馈到位置 query
+#           实现角度引导位置注意力（angle-first 解码顺序）
+#
+# 工作流程（use_angle_first=true, layer_idx=0）:
+#   1. decouple_angle_layers 处理角度流 → dec_angle_initial
+#   2. ref_with_angle = cat(ref_points_detach, dec_angle_initial)
+#   3. query_pos_head(ref_with_angle) → query_pos_embed 含角度信息
+#   4. cross_attn(query + query_pos_embed, ref_with_angle) → 角度引导采样
+#
+# 派生参数: obbox_rep_dim 6 → 5（rep3）
+# 观察重点: 角度引导位置注意力是否提升倾斜目标的定位精度
+# ============================================================================
+__include__: ['../sp_fz_common.yml']
+output_dir: ./outputs/deimv2_obb_dlzdt_sp_fz_ablation/abl_rep3_afp
+DEIMTransformer:
+  angle_rep: 3
+  use_angle_first: true
+DEIMCriterion:
+  obbox_rep_dim: 5

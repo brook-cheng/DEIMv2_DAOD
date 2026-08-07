@@ -1,0 +1,21 @@
+# ============================================================================
+# 消融实验: angle_rep = 2
+# ============================================================================
+# 基线: sp_fz_common.yml (angle_rep=0)
+# 变量: DEIMTransformer.angle_rep 0 → 2
+#
+# angle_rep=2 语义（deim_decoder.py DEIMTransformer.__init__）:
+#   box 表示: (cx,cy,w,h,ε,η)，6D 外接矩形偏移表示
+#   ε,η 是 OBB 顶点相对于外接矩形中心的偏移量（无量纲）
+#   无显式 θ 通道 → decoder_angle_encoding 对 rep2 无效（强制 proportional）
+#   anchor 为 6D (grid_xy, grid_wh, ε,η)，经 oriented_box_to_external_xywh_rect 转换
+#   refinement: 6D (α,β,γ,δ,ε,η)
+#
+# 派生参数: obbox_rep_dim 保持 6（与 rep0 相同）
+# 注意: use_angle_first=true 与 angle_rep=2 不兼容（构造期 ValueError）
+# 观察重点: 外接矩形偏移表示 vs 直接角度表示的几何稳定性
+# ============================================================================
+__include__: ['../sp_fz_common.yml']
+output_dir: ./outputs/deimv2_obb_dlzdt_sp_fz_ablation/abl_rep2
+DEIMTransformer:
+  angle_rep: 2
