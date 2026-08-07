@@ -1,7 +1,7 @@
 # H0-H4 根因实验结果补充
 
 > 补充日期：2026-06-26
-> 补充到：`openspec/review/2026-06-25-decoder-decoupling-review-INTEGRATED_GLM_5.2_max.md`
+> 补充到：`2026-06-25-decoder-decoupling-review-INTEGRATED_GLM_5.2_max.md`
 > 目的：记录整合评审提出的 H0-H4 廉价根因实验的实际执行结果，更新根因判断
 
 ---

@@ -17,15 +17,16 @@
 | 实验结果 | `review/` | `2026-06-26-h0-h4-experiment-results.md`（根因实验结果） |
 | 流程笔记 | `review/` | `2026-06-27-workflow-docs-cleanup-note.md`（清理记录） |
 
-## Does not belong here（不要放在这里）
+## 历史说明：OpenSpec 已合并
 
-以下类型的文档应该放在 `openspec/`：
+本项目曾设 `openspec/` 作为"正式决策系统"，与 `docs/superpowers/`（工作区）双轨并行。现 `openspec/` 已全部合并至 `docs/superpowers/`：
 
-- 正式变更提案 → `openspec/changes/<name>/proposal.md`
-- 正式架构设计 → `openspec/changes/<name>/design.md`
-- 正式任务列表 → `openspec/changes/<name>/tasks.md`
-- 正式规范（spec） → `openspec/changes/<name>/specs/` 或 `openspec/specs/`
-- 深度分析报告 → `openspec/changes/<name>/analysis/`
+- 原 `openspec/changes/<name>/proposal.md`、`design.md`、`specs/` → `docs/superpowers/specs/`（按日期+主题命名）
+- 原 `openspec/changes/<name>/tasks.md` → `docs/superpowers/plans/`
+- 原 `openspec/changes/<name>/analysis/` → `docs/superpowers/review/`
+- 原 `openspec/specs/` 独立规范 → 按实际类型分发至 `specs/` 或 `plans/`
+
+所有新文档统一置于 `docs/superpowers/` 对应子目录。
 
 ## 目录结构
 
@@ -52,9 +53,8 @@ docs/superpowers/
     └── 2026-06-27-workflow-docs-cleanup-note.md
 ```
 
-## 与 OpenSpec 的关系
+## 文档体系（单一）
 
-- **OpenSpec** 是"决策系统" — 记录已接受的正式决策和规范
-- **Superpowers** 是"工作区" — 记录探索过程、脑暴输出、评审意见和实验记录
+`docs/superpowers/` 是本项目唯一的文档目录，承载所有制品类型：设计草稿（`design/`）、实施计划（`plans/`）、设计规范与变更提案（`specs/`）、评审与实验结果（`review/`）。
 
-两条线不互相替代。一个正式决策必须有对应的 `openspec/` 文档，但它的探索过程（评审、计划迭代）可以放在 `docs/superpowers/`。
+历史双轨制（`openspec/` + `docs/superpowers/`）已于 2026-08 合并为单一体系，详见 [docs/MAINTENANCE.md](../MAINTENANCE.md)。

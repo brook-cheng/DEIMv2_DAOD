@@ -1,7 +1,7 @@
 # Superpowers 工作流制品索引
 
 > 维护说明：当新增或删除 `docs/superpowers/**` 下的 Markdown 文件时，请更新本索引。
-> 正式规范与变更文档不在本索引范围内，见 `openspec/INDEX.md`。
+> 本索引覆盖 `docs/superpowers/**/*.md` 所有制品（含原 openspec 合并而来的提案/设计/规范/分析）。
 
 ---
 
@@ -143,5 +143,5 @@
 
 - ★ **canonical** 标记的文档是当前技术路线的主参考文档
 - 所有评审文档为历史记录，保留原文不加修改（仅路径引用可更新）
-- 正式技术决策应升格为 `openspec/` 文档
+- 正式技术决策（提案、设计、规范）置于 `specs/`；任务分解置于 `plans/`；深度分析置于 `review/`
 - 本索引必须覆盖 `docs/superpowers/**/*.md` 所有 Markdown 文件；故意排除的文件需在此注明原因

@@ -42,7 +42,7 @@
 - 诊断脚本 `test/diagnose_hungarian_matching.py`（811 行）及其设计文档；
 - 诊断真实输出 `test/outputs/matching_diag/matching_report.txt`、`test/outputs/infer_diag/*/score_dist.txt`；
 - 训练日志 `synthetic_training.log`（epoch 15–30 的逐项 loss + test 指标）；
-- 历史代码审查 `openspec/review/OBB_CODE_REVIEW.md`（11 项 bug，10 项已修）；
+- 历史代码审查 `OBB_CODE_REVIEW.md`（11 项 bug，10 项已修）；
 - 配置 `configs/custom_obb/synthetic_configs/synthetic_exp_020.yml`、`deimv2_obb_sp.yml`；
 - 源码：`deim_decoder.py` / `dfine_decoder.py` / `deim_criterion.py` / `matcher.py` / `obb_eval.py` / `postprocessor.py`；
 - 同组的竞争性分析 `2026-06-24-deimv2-obb-self-attention-query-diversity.md`；

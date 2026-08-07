@@ -735,7 +735,7 @@ python test/test_infer_diag.py --ckpt outputs/synthetic_exp_decouple_020/last.pt
 
 ## 修订总结 [2026-06-26]
 
-根据整合评审（`openspec/review/2026-06-25-decoder-decoupling-review-INTEGRATED_GLM_5.2_max.md`）修复以下问题：
+根据整合评审（`../review/2026-06-25-decoder-decoupling-review-INTEGRATED_GLM_5.2_max.md`）修复以下问题：
 
 ### 阻断级修复
 
