@@ -2,8 +2,7 @@
 
 日期：2026-08-05
 
-状态：设计已呈现，用户选择「双 scope 文档化、训练时通过配置决定」；本文档同时记录
-scope A（仅 rep1/3）与 scope B（rep0/1/3）两种语义，实现共享同一套转换机制。
+状态：设计已确认；配置面仅保留 `proportional` 与 `shifted` 两种模式。
 
 关联文档：
 
@@ -37,10 +36,9 @@ scope A（仅 rep1/3）与 scope B（rep0/1/3）两种语义，实现共享同�
 
 1. 仅改变 decoder 私有的**绝对角度 reference 编码**；公开物理角契约、criterion、
    matcher、postprocessor、geometry、eval、export 全部不动。
-2. 通过一个配置旋钮 `decoder_angle_encoding` 在三种模式间切换：
+2. 通过一个配置旋钮 `decoder_angle_encoding` 在两种模式间切换：
    - `proportional`（默认，当前行为，数值逐位不变，checkpoint 兼容）；
-   - `shifted`（scope B：rep0/1/3 的显式 θ reference 全部 shifted，rep2 不变）；
-   - `shifted_direct`（scope A：仅 rep1/3 这类直接回归 Δθ 的表示 shifted，rep0 保持等比）。
+   - `shifted`（rep0/1/3 的显式 θ reference 全部 shifted，rep2 不变）。
 3. 新增转换 API 集中于 `obb_angle_contract.py`，转换点清单显式、可枚举、可测试。
 4. 保持四种 `angle_rep` 的组件边界、配置键名与默认值语义不变。
 
@@ -128,12 +126,11 @@ def shifted_norm_to_physical_rad(theta_shift: Tensor) -> Tensor:
   （loss 域 vs decoder 编码域），各自独立实现，避免语义耦合；
 - 代数关系：`theta_shift = physical_rad_to_loss_rad(θ)/π + 0.25`（验证用，不构成 API）。
 
-## 6. 配置面：双 scope，训练时决定
+## 6. 配置面：两种编码模式
 
 ```yaml
 decoder_angle_encoding: proportional    # 默认；当前行为，checkpoint 逐位兼容
-decoder_angle_encoding: shifted         # scope B：rep0/1/3 shifted，rep2 不变
-decoder_angle_encoding: shifted_direct  # scope A：仅 rep1/3；rep0 保持等比
+decoder_angle_encoding: shifted         # rep0/1/3 shifted，rep2 不变
 ```
 
 rep2 硬性规则（所有模式）：**始终 `proportional`** —— 其原生 reference
@@ -150,17 +147,24 @@ rep2 硬性规则（所有模式）：**始终 `proportional`** —— 其原生
 decoder 内解析辅助：
 
 ```python
+_VALID_DECODER_ANGLE_ENCODINGS = ("proportional", "shifted")
+
+# TransformerDecoder.__init__
+if decoder_angle_encoding not in _VALID_DECODER_ANGLE_ENCODINGS:
+    raise ValueError(
+        "decoder_angle_encoding must be 'proportional' or 'shifted', "
+        f"got {decoder_angle_encoding!r}"
+    )
+self.decoder_angle_encoding = decoder_angle_encoding
+
 def _resolved_angle_encoding(self) -> str:
     if self.angle_rep == 2:
         return "proportional"
-    if self.decoder_angle_encoding == "shifted":
-        return "shifted"
-    if self.decoder_angle_encoding == "shifted_direct":
-        return "shifted" if self.angle_rep in (1, 3) else "proportional"
-    return "proportional"
+    return self.decoder_angle_encoding
 ```
 
-scope A 与 scope B 的**唯一差异**是 rep0 是否加入 shifted 集合；其余机制完全共享。
+`shifted` 的作用集合固定为 rep0/1/3；rep2 因私有 reference 不含显式 θ，始终解析为
+`proportional`。非法配置值必须在构造阶段显式拒绝，不允许静默回退。
 
 ## 7. 转换点完整清单
 
@@ -199,13 +203,11 @@ scope A 与 scope B 的**唯一差异**是 rep0 是否加入 shifted 集合；�
 | criterion（周期距离；非周期 L1 消融基于公开物理输出） | 与 decoder 内部编码隔离 |
 | matcher / postprocessor / eval / export / `physical_rad_to_loss_rad` | 公开契约不变 |
 
-## 9. 实验顺序（三阶段，与既有结论一致）
+## 9. 实验顺序（二阶段）
 
-1. **编码实验**：`shifted`（或 `shifted_direct`）vs `proportional` 基线，同 seed。
+1. **编码实验**：`shifted` vs `proportional` 基线，同 seed。
    这是本设计的唯一直接目标：改善 decoder 内部绝对角 reference 的 sigmoid 参数化。
-2. 若 rep0 在训练组合中：`shifted_direct` 对照，隔离「直接 Δθ 路径」与「间接 ε/η
-   几何路径」的收益来源。
-3. **独立轴**（编码实验定稿后再议）：`physical_rad_to_loss_rad` 接入显式非周期 L1
+2. **独立轴**（编码实验定稿后再议）：`physical_rad_to_loss_rad` 接入显式非周期 L1
    消融，比较 seam 位置——与本设计正交。
 
 ## 10. 已知既有问题（记录，不修复）
@@ -218,7 +220,7 @@ reference 经 `external_rect_to_oriented_box` 转为 5D **物理** OBB 后，仍
 ## 11. 兼容性与回滚
 
 - 默认 `proportional` 与现状逐位一致；所有既有 checkpoint 原样加载。
-- `shifted` / `shifted_direct` 仅用于新训练；不支持用 shifted 配置加载 proportional
+- `shifted` 仅用于新训练；不支持用 shifted 配置加载 proportional
   checkpoint（anchor logit 与 query embedding 语义不同）。回滚 = 配置改回 + 重新加载
   checkpoint。
 - rep2 在所有配置下可证明不受影响（强制 `proportional`）。
@@ -229,10 +231,10 @@ reference 经 `external_rect_to_oriented_box` 转为 5D **物理** OBB 后，仍
    - 随机角 roundtrip：`phys → shifted → phys` 恒等；
    - 边界映射：`0→0.25`、`π/2→0.75`、`3π/4→0`；
    - 与 `physical_rad_to_loss_rad` 的代数等价（§5）。
-2. **前向矩阵测试**（`test_deimv2_obb_smoke.py` 扩展）：4 表示 × 3 配置，断言：
+2. **前向矩阵测试**（`test_deimv2_obb_smoke.py` 扩展）：4 表示 × 2 配置，断言：
    - 公开输出 θ ∈ `[0, π)`；
    - shifted 模式 ref θ ∈ `[0,1)` 且无 NaN（`remainder` 数值稳定）；
-   - rep2 在三种配置下输出**逐位一致**（golden 值）。
+   - rep2 在两种配置下输出**逐位一致**（golden 值）。
 3. **注意力旋转 sanity**：`MSDeformableAttention` 5D 分支单测，90° reference 在
    shifted 模式下采样沿旋转轴正确。
 4. **proportional golden 回归**：既有 406 测试套件必须全绿。
