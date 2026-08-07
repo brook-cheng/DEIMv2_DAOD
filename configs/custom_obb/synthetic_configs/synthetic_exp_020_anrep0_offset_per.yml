@@ -256,7 +256,8 @@ DEIMTransformer:
   dim_feedforward: 2048
   box_mode: obb
   angle_rep: 0
-  offset_scale_source: "pre"
+  offset_scale_source: pre
+  decoder_angle_encoding: shifted
 
 
 PostProcessor:
