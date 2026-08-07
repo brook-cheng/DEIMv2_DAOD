@@ -9,6 +9,7 @@ Copyright (c) 2024 D-FINE authors. All Rights Reserved.
 import time
 import json
 import datetime
+import math
 
 import torch
 
@@ -17,6 +18,11 @@ from ..misc import dist_utils, stats
 from ._solver import BaseSolver
 from .det_engine import train_one_epoch, evaluate
 from ..optim.lr_scheduler import FlatCosineLRScheduler
+from .early_stopping import (
+    EarlyStoppingConfig,
+    EarlyStoppingState,
+    RESTORED_METRIC_TOLERANCE,
+)
 
 
 class DetSolver(BaseSolver):
@@ -24,6 +30,7 @@ class DetSolver(BaseSolver):
     def fit(
         self,
     ):
+        self._init_early_stopping()
         self.train()
         args = self.cfg
 
@@ -62,6 +69,7 @@ class DetSolver(BaseSolver):
         print(f"number of non-trainable parameters: {n_parameters}")
 
         top1 = 0
+        stop_early = False
         best_stat = {
             "epoch": -1,
         }
@@ -94,6 +102,18 @@ class DetSolver(BaseSolver):
                 best_stat["mAP50_95"] = v
                 top1 = v
                 print(f"best_stat: {best_stat}")
+                if (
+                    self.early_stopping is not None
+                    and self.early_stopping.best_epoch < 0
+                ):
+                    self.early_stopping.initialize_from_metric(
+                        v, self.last_epoch
+                    )
+                    print(
+                        f"Initialized early-stopping state from pre-resume "
+                        f"EMA validation: best_mAP50_95={v:.4f} "
+                        f"at epoch {self.last_epoch}"
+                    )
 
         best_stat_print = best_stat.copy()
         start_time = time.time()
@@ -143,6 +163,14 @@ class DetSolver(BaseSolver):
                 self.last_epoch = saved_epoch
                 self.ema.decay = self.train_dataloader.collate_fn.ema_restart_decay
                 print(f"Refresh EMA at epoch {epoch} with decay {self.ema.decay}")
+                if self.early_stopping is not None:
+                    self.early_stopping.reset_patience()
+                    print(
+                        f"Early-stopping patience reset at stage transition "
+                        f"(epoch {epoch}); global best preserved "
+                        f"(best_epoch={self.early_stopping.best_epoch}, "
+                        f"best_mAP50_95={self.early_stopping.best_observed_metric:.4f})"
+                    )
 
             train_stats = train_one_epoch(
                 self.self_lr_scheduler,
@@ -174,6 +202,7 @@ class DetSolver(BaseSolver):
 
             if train_stats.pop("_step_cap_reached", False):
                 print(f"[Diagnostic] step cap reached at epoch {epoch}. Stopping.")
+                self._diagnostic_exit = True
                 break
 
             if not self.self_lr_scheduler:  # update by epoch
@@ -184,16 +213,6 @@ class DetSolver(BaseSolver):
                     self.lr_scheduler.step()
 
             self.last_epoch += 1
-
-            if self.output_dir :
-                checkpoint_paths = [self.output_dir / "last.pth"]
-                # extra checkpoint before LR drop and every 100 epochs
-                if (epoch + 1) % args.checkpoint_freq == 0:
-                    checkpoint_paths.append(
-                        self.output_dir / f"checkpoint{epoch:04}.pth"
-                    )
-                for checkpoint_path in checkpoint_paths:
-                    dist_utils.save_on_master(self.state_dict(), checkpoint_path)
 
             module = self.ema.module if self.ema else self.model
             test_stats, coco_evaluator = evaluate(
@@ -258,6 +277,12 @@ class DetSolver(BaseSolver):
                             self.state_dict(), self.output_dir / "best_stg1.pth"
                         )
 
+                # Early-stopping update (OBB): monitors EMA mAP50_95, saves
+                # best.pth on observed improvement, computes the local stop
+                # decision. The DDP broadcast of the decision happens AFTER the
+                # epoch's log entry and checkpoint writes (see Edit 4.7).
+                _, stop_early = self._update_early_stopping(v, epoch)
+
             if box_mode == "hbb":
                 best_stat_print[k] = max(best_stat[k], top1)
                 print(f"best_stat: {best_stat_print}")  # global best
@@ -312,9 +337,163 @@ class DetSolver(BaseSolver):
                                 self.output_dir / "eval" / name,
                             )
 
+            # Checkpoint after validation so last.pth carries the exact
+            # early-stopping state (interruption-resume continuity).
+            if self.output_dir:
+                checkpoint_paths = [self.output_dir / "last.pth"]
+                if (epoch + 1) % args.checkpoint_freq == 0:
+                    checkpoint_paths.append(
+                        self.output_dir / f"checkpoint{epoch:04}.pth"
+                    )
+                for checkpoint_path in checkpoint_paths:
+                    dist_utils.save_on_master(self.state_dict(), checkpoint_path)
+
+            # Design ordering: the loop exits only after the epoch's log entry
+            # and checkpoint writes have completed; rank 0 then broadcasts the
+            # stop decision so every rank breaks together.
+            stop_early = self._sync_early_stopping(stop_early)
+
+            if stop_early:
+                print(
+                    f"[EarlyStopping] stopping at epoch {epoch} after "
+                    f"{self.early_stopping_config.patience} epochs without "
+                    f"significant improvement."
+                )
+                break
+
+        stop_reason = "max_epochs"
+        if getattr(self, "_diagnostic_exit", False):
+            stop_reason = "diagnostic"
+        elif stop_early:
+            stop_reason = "early_stopping"
+        stop_epoch = self.last_epoch
+        print(f"[Training] exit reason: {stop_reason} at epoch {stop_epoch}")
+        self._finalize_training(stop_reason, stop_epoch, box_mode)
+
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
         print("Training time {}".format(total_time_str))
+
+    def _init_early_stopping(self):
+        """Build early-stopping config and state from cfg.yaml_cfg.
+
+        Runs before self.train() so resume loading can restore the persisted
+        early-stopping state. Missing/disabled config leaves
+        self.early_stopping = None (current training behavior preserved).
+        """
+        self.early_stopping_config = EarlyStoppingConfig.from_yaml(self.cfg.yaml_cfg)
+        self.early_stopping = (
+            EarlyStoppingState() if self.early_stopping_config.enabled else None
+        )
+        self._diagnostic_exit = False
+
+    def _sync_early_stopping(self, stop_early):
+        """Broadcast early-stopping state and stop decision to all ranks (DDP).
+
+        Rank 0 already updated the state. Non-main ranks overwrite their local
+        state from the broadcast payload. Returns the agreed stop decision.
+        Safe when early stopping is disabled (returns stop_early unchanged).
+        """
+        if self.early_stopping is None:
+            return stop_early
+        if not dist_utils.is_dist_available_and_initialized():
+            return stop_early
+        if dist_utils.is_main_process():
+            payload = [self.early_stopping.state_dict(), stop_early]
+        else:
+            payload = [None, False]
+        torch.distributed.broadcast_object_list(payload, src=0)
+        if not dist_utils.is_main_process():
+            self.early_stopping.load_state_dict(payload[0])
+            stop_early = bool(payload[1])
+        return stop_early
+
+    def _update_early_stopping(self, metric, epoch):
+        """Update ES state on rank 0, save best.pth on observed improvement.
+
+        Returns (should_save_best, should_stop) with only the local stop
+        decision; the caller broadcasts it via ``_sync_early_stopping`` AFTER
+        the epoch's log entry and checkpoint writes (design ordering).
+        """
+        if self.early_stopping is None:
+            return False, False
+        should_save_best = False
+        should_stop = False
+        if dist_utils.is_main_process():
+            should_save_best = self.early_stopping.update(
+                metric, epoch, self.early_stopping_config.min_delta
+            )
+            if should_save_best and self.output_dir:
+                dist_utils.save_on_master(
+                    self.state_dict(), self.output_dir / "best.pth"
+                )
+            should_stop = self.early_stopping.should_stop(
+                epoch,
+                self.early_stopping_config.min_epochs,
+                self.early_stopping_config.patience,
+            )
+        return should_save_best, should_stop
+
+    def _finalize_training(self, stop_reason, stop_epoch, box_mode):
+        """Restore best.pth for normal exits, re-validate, write metadata.
+
+        Capture stop/best metadata BEFORE loading best.pth so the record is
+        independent of the restored checkpoint's last_epoch. Never restores on
+        the diagnostic path. Never overwrites last.pth.
+        """
+        if self.early_stopping is None:
+            return
+        best_epoch = self.early_stopping.best_epoch
+        best_metric = self.early_stopping.best_observed_metric
+        meta_best = float(best_metric) if math.isfinite(best_metric) else None
+        meta = {
+            "stop_reason": stop_reason,
+            "stop_epoch": stop_epoch,
+            "best_epoch": best_epoch,
+            "best_mAP50_95": meta_best,
+            "restored_mAP50_95": None,
+            "epochs_after_best": max(0, stop_epoch - best_epoch),
+            "restore_skipped": False,
+            "restore_match": None,
+        }
+        can_restore = (
+            self.early_stopping_config.restore_best
+            and stop_reason != "diagnostic"
+            and self.output_dir is not None
+            and (self.output_dir / "best.pth").exists()
+        )
+        if can_restore:
+            if dist_utils.is_dist_available_and_initialized():
+                torch.distributed.barrier()
+            self.load_resume_state(str(self.output_dir / "best.pth"))
+            module = self.ema.module if self.ema else self.model
+            restored_stats, _ = evaluate(
+                module,
+                self.criterion,
+                self.postprocessor,
+                self.val_dataloader,
+                self.evaluator,
+                self.device,
+                box_mode=box_mode,
+            )
+            restored = restored_stats.get("mAP50_95", 0)
+            meta["restored_mAP50_95"] = restored
+            meta["restore_match"] = (
+                abs(restored - best_metric) <= RESTORED_METRIC_TOLERANCE
+            )
+            if not meta["restore_match"]:
+                print(
+                    f"[EarlyStopping] WARNING restored mAP50_95={restored:.4f} "
+                    f"differs from best {best_metric:.4f} by more than "
+                    f"{RESTORED_METRIC_TOLERANCE}"
+                )
+        else:
+            meta["restore_skipped"] = True
+
+        if self.output_dir and dist_utils.is_main_process():
+            with (self.output_dir / "final_run_meta.json").open("w") as f:
+                json.dump(meta, f, indent=2)
+        print(f"[Training] final metadata: {meta}")
 
     def val(self):
         self.eval()
