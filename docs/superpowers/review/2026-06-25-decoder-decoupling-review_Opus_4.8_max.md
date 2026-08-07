@@ -45,7 +45,7 @@
 - 历史代码审查 `openspec/review/OBB_CODE_REVIEW.md`（11 项 bug，10 项已修）；
 - 配置 `configs/custom_obb/synthetic_configs/synthetic_exp_020.yml`、`deimv2_obb_sp.yml`；
 - 源码：`deim_decoder.py` / `dfine_decoder.py` / `deim_criterion.py` / `matcher.py` / `obb_eval.py` / `postprocessor.py`；
-- 同组的竞争性分析 `openspec/changes/deimv2-obb/analysis/self-attention-query-diversity.md`；
+- 同组的竞争性分析 `2026-06-24-deimv2-obb-self-attention-query-diversity.md`；
 - Oracle 高算力模型对"根因 + 方案 + 技术 bug"的独立对抗式复核。
 
 **核心判断标准**：一个架构改造方案要成立，必须满足三个前提——(a) 它针对的"症状"是真实的模型问题而非测量假象；(b) 它针对的"根因"已被证据指向，且竞争性假设已被排除；(c) 它本身在技术上可执行、可消融。当前方案在这三点上**全部不达标**。

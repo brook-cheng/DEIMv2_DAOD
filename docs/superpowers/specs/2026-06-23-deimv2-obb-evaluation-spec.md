@@ -244,7 +244,7 @@ Despite the name `_poly_iou_8coord`, it uses ProbIoU (Gaussian-based), not polyg
 | Contains | `poly_iou(obb1, obb2)` — exact polygon IoU via shapely (Python double loop, ~18s/class) |
 | Replacement | `batch_probiou` (vectorized, ~5000x faster, Gaussian-based approximation) |
 
-See `openspec/changes/deimv2-obb-eval-opt/proposal.md` for the optimization rationale.
+See `2026-07-09-obb-eval-speed-optimization.md` for the optimization rationale.
 
 ---
 

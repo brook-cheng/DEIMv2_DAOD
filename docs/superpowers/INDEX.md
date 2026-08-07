@@ -11,7 +11,17 @@
 
 ## specs/ — 已批准规范
 
+[2026-06-02-deimv2-obb-proposal](specs/2026-06-02-deimv2-obb-proposal.md) — DEIMv2-OBB 变更提案：通过 `box_mode` 闸门为 DEIMv2 增加定向边界框支持，使用 ADR 6-distribution DDF。
+
+[2026-06-02-deimv2-obb-design](specs/2026-06-02-deimv2-obb-design.md) — DEIMv2-OBB 架构设计：HBB/OBB 双路径，组件变更与向后兼容保证。
+
 [2026-06-23-synthetic-ellipse-obb-dataset-design](specs/2026-06-23-synthetic-ellipse-obb-dataset-design.md) — 合成椭圆 OBB 数据集密度对照实验设计（H1 假设验证）。
+
+[2026-06-23-deimv2-obb-detection-spec](specs/2026-06-23-deimv2-obb-detection-spec.md) — OBB 检测能力规范：定向边界框检测的接口与行为规范。
+
+[2026-06-23-deimv2-obb-geometry-spec](specs/2026-06-23-deimv2-obb-geometry-spec.md) — OBB 几何操作能力规范：旋转框几何运算（IoU、转换等）规范。
+
+[2026-06-23-deimv2-obb-evaluation-spec](specs/2026-06-23-deimv2-obb-evaluation-spec.md) — OBB 评估能力规范：定向检测评估指标与流程规范。
 
 [2026-06-24-hungarian-matching-diagnosis-design](specs/2026-06-24-hungarian-matching-diagnosis-design.md) — 匈牙利匹配正确性诊断实验设计（Q1-Q3 验证）。
 
@@ -48,6 +58,8 @@
 ## plans/ — 实施计划（Agent 执行用）
 
 [2026-01-17-model-correctness-tests](plans/2026-01-17-model-correctness-tests.md) — 模型输出正确性测试套件：验证可视化、分布、匹配、refinement、loss 单调性等 7 维度。
+
+[2026-06-02-deimv2-obb-tasks](plans/2026-06-02-deimv2-obb-tasks.md) — DEIMv2-OBB 实施任务分解。
 
 [2026-06-23-synthetic-ellipse-obb-implementation-plan](plans/2026-06-23-synthetic-ellipse-obb-implementation-plan.md) — 合成椭圆 OBB 数据集实施计划（基于密度对照设计）。
 
@@ -98,6 +110,8 @@
 ## review/ — 评审与实验结果
 
 [OBB_CODE_REVIEW](review/OBB_CODE_REVIEW.md) — DEIMv2-OBB 代码审查报告：逐行审查 OBB 相关代码，11 项发现（10 项已修复）。  
+
+[2026-06-24-deimv2-obb-self-attention-query-diversity](review/2026-06-24-deimv2-obb-self-attention-query-diversity.md) — 自注意力 query 多样性分析：检查 300 个 query 进入自注意力前的区分度。
 
 [2026-06-25-decoder-decoupling_review_deepseekv4_pro_max](review/2026-06-25-decoder-decoupling_review_deepseekv4_pro_max.md) — Decoder 解耦方案评审（DeepSeek-V4-Pro），评审设计方案与实施计划。  
 

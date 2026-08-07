@@ -34,4 +34,4 @@ eliminating manual `weight_dict` tuning.
 
 GradNorm (Chen et al., ICML 2018) was evaluated and ruled out — it requires a shared
 parameter bottleneck that DEIM's architecture does not provide (classification and regression
-paths diverge at the decoder). See `design.md` for details.
+paths diverge at the decoder). See `2026-06-02-deimv2-obb-design.md` for details.

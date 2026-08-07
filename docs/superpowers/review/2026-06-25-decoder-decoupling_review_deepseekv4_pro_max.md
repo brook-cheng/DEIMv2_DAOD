@@ -5,14 +5,14 @@
 > **评审对象**:
 > - `docs/superpowers/design/2026-06-25-decoder-decoupling-design.md`（canonical 设计方案）
 > - `docs/superpowers/plans/2026-06-25-decoder-decoupling-plan.md`（canonical 实施计划）
-> - `openspec/specs/2026-06-24-hungarian-matching-diagnosis-design.md`（诊断方案）
+> - `../specs/2026-06-24-hungarian-matching-diagnosis-design.md`（诊断方案）
 > - `test/diagnose_hungarian_matching.py`（诊断脚本）
 > - `test/outputs/matching_diag/matching_report.txt`（诊断报告）
 > - `engine/deim/deim_decoder.py`（完整阅读，953 行）
 > - `engine/deim/deim_criterion.py`（关键段落）
 > - `engine/deim/dfine_decoder.py`（旋转注意力段落）
 > - `OBB_CODE_REVIEW.md`（代码审查报告）
-> - `openspec/changes/deimv2-obb/`（proposal、design、tasks）
+> - deimv2-obb proposal/design/tasks（已 flatten 至 superpowers）：`../specs/2026-06-02-deimv2-obb-proposal.md`、`../specs/2026-06-02-deimv2-obb-design.md`、`../plans/2026-06-02-deimv2-obb-tasks.md`
 > - Git 提交历史（最近 30 条）
 
 ---
