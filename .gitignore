@@ -145,3 +145,6 @@ dmypy.json
 
 test/data
 *.log
+
+# Training logs (log.txt, log_*.txt)
+/log*.txt
