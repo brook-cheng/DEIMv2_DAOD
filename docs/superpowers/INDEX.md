@@ -103,6 +103,8 @@
 
 [2026-08-06-obb-training-matrix](plans/2026-08-06-obb-training-matrix.md) — DEIMv2 OBB Stage 1/2 功能稳定性训练矩阵执行计划：训练矩阵实验的执行计划。
 
+[2026-08-07-ema-early-stopping-best-checkpoint](plans/2026-08-07-ema-early-stopping-best-checkpoint.md) — EMA early-stopping 与 best.pth 恢复实现计划：训练循环加入双 best 值 + patience 状态机，退出时恢复 best.pth 并再验证；与 specs/2026-08-07-early-stopping-best-checkpoint-design 配对。
+
 [2026-08-07-obb-decoder-shifted-angle](plans/2026-08-07-obb-decoder-shifted-angle.md) — DEIMv2 OBB decoder 私有 shifted 角度编码实现计划：6 个 Review Unit 的 TDD 流程，覆盖 contract 函数、MSDeformableAttention、配置传播、anchor/encoder、denoising、geometry decode 站点。
 
 ---
