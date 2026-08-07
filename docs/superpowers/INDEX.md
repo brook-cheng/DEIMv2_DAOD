@@ -11,6 +11,12 @@
 
 ## specs/ — 已批准规范
 
+[2026-06-23-synthetic-ellipse-obb-dataset-design](specs/2026-06-23-synthetic-ellipse-obb-dataset-design.md) — 合成椭圆 OBB 数据集密度对照实验设计（H1 假设验证）。
+
+[2026-06-24-hungarian-matching-diagnosis-design](specs/2026-06-24-hungarian-matching-diagnosis-design.md) — 匈牙利匹配正确性诊断实验设计（Q1-Q3 验证）。
+
+[2026-07-01-training-monitoring-refactor-design](specs/2026-07-01-training-monitoring-refactor-design.md) — 训练监控体系重构设计：det_engine.py 日志/监控结构性问题（硬编码 loss key、Comet 双重上报、TensorBoard 冗余、无梯度监控）的重构设计。
+
 [2026-07-07-deimv2-obb-representation-refinement-design](specs/2026-07-07-deimv2-obb-representation-refinement-design.md) — OBB 表示与精细化设计：保留 Ding 式 ADR（外接矩形 + 顶点偏移 ε,η）为主路径，闭合周期角几何、offset 有效性、query 解耦的已知缺口，使 external-rect+offset 设计几何自洽、可测试、可消融。
 
 [2026-07-09-obb-eval-speed-optimization](specs/2026-07-09-obb-eval-speed-optimization.md) — OBB 评估速度优化记录：评估管线性能优化记录。
@@ -42,6 +48,8 @@
 ## plans/ — 实施计划（Agent 执行用）
 
 [2026-01-17-model-correctness-tests](plans/2026-01-17-model-correctness-tests.md) — 模型输出正确性测试套件：验证可视化、分布、匹配、refinement、loss 单调性等 7 维度。
+
+[2026-06-23-synthetic-ellipse-obb-implementation-plan](plans/2026-06-23-synthetic-ellipse-obb-implementation-plan.md) — 合成椭圆 OBB 数据集实施计划（基于密度对照设计）。
 
 [2026-06-24-cdn-input-viz](plans/2026-06-24-cdn-input-viz.md) — CDN 生成输入可视化：`test_cdn_generation_visualization()` 单元测试，画正/负噪声 query vs GT 椭圆。
 

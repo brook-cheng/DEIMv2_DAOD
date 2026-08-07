@@ -1,7 +1,7 @@
 # 训练监控体系重构设计
 
 > **创建日期**：2026-07-01
-> **前置审查**：[2026-07-01-det-engine-logging-review.md](../../docs/superpowers/review/2026-07-01-det-engine-logging-review.md)
+> **前置审查**：[2026-07-01-det-engine-logging-review.md](../review/2026-07-01-det-engine-logging-review.md)
 > **状态**：设计阶段，待评审
 
 ---

@@ -3,10 +3,10 @@
 > **修订（2026-07-01）**：
 > - **Metric 命名扁平化**：删除 `train/` 前缀，二级目录提升为一级（`main/`, `aux/`, `enc/`, `dn/`, `grad/`, `param/`, `kendall/`, `lr`）。Comet v2 仅支持第一级 `/` 自动建 Panel Group。
 > - **梯度直方图 → 模块组聚合统计**：`_log_gradient_histograms` 替换为 `_log_gradient_stats`。300+ 次/epoch API 调用缩减为 12 次，消除 rate limit 警告。频率从每 epoch → 每 5 epoch。
-> - 详细变更见 [设计规格 §3.1 §6.3](../../openspec/specs/2026-07-01-training-monitoring-refactor-design.md)。
+> - 详细变更见 [设计规格 §3.1 §6.3](../specs/2026-07-01-training-monitoring-refactor-design.md)。
 
 > **For agentic workers:** 本计划中每个 Task 独立可验证，按顺序执行。Steps 使用 checkbox (`- [ ]`) 语法追踪进度。
-> **前置文档**：[代码审查报告](../review/2026-07-01-det-engine-logging-review.md) | [设计规格](../../openspec/specs/2026-07-01-training-monitoring-refactor-design.md)
+> **前置文档**：[代码审查报告](../review/2026-07-01-det-engine-logging-review.md) | [设计规格](../specs/2026-07-01-training-monitoring-refactor-design.md)
 
 **Goal:** 重构 `det_engine.py` 训练日志体系：通用遍历替代硬编码 loss key、Comet 分层树结构、梯度监控、移除 TensorBoard writer。
 
