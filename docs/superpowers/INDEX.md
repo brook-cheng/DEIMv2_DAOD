@@ -43,13 +43,13 @@
 
 [2026-08-05-obb-decoder-shifted-angle-design](specs/2026-08-05-obb-decoder-shifted-angle-design.md) — DEIMv2 OBB decoder 私有 shifted 角度编码设计：将 decoder 内部绝对角 reference 的 sigmoid 参数化从边界饱和区移到中心（seam 移至 135°），保持公开物理角契约 [0,π) 与 proportional 模式逐位不变。
 
-[2026-08-06-amp-bf16-obb-fp32-experiments-design](specs/2026-08-06-amp-bf16-obb-fp32-experiments-design.md) — AMP BF16 与 OBB FP32 实验设计：混合精度（BF16）训练下 OBB 分支 FP32 保持的实验设计。
-
 [2026-08-06-obb-decoder-repair-design](specs/2026-08-06-obb-decoder-repair-design.md) — DEIMv2 OBB decoder 两阶段修复设计：阶段 1 修复角度契约修改引入的阻断回归；阶段 2 统一 rep2 ADR 表示语义（cxcywh+offset canonical）。
 
 [2026-08-06-obb-training-matrix-design](specs/2026-08-06-obb-training-matrix-design.md) — DEIMv2 OBB Stage 1/2 功能稳定性训练矩阵设计：Stage 1/2 功能稳定性训练矩阵实验设计。
 
 [2026-08-07-early-stopping-best-checkpoint-design](specs/2026-08-07-early-stopping-best-checkpoint-design.md) — EMA early-stopping 与 best-checkpoint 设计：监控 EMA mAP50_95，双 best 值（observed/significant）+ patience，best.pth/last.pth 分离契约，三退出路径，首实验 ES-Base 不动现有 schedule。
+
+[2026-08-07-remove-bf16-obb-fp32-training-design](specs/2026-08-07-remove-bf16-obb-fp32-training-design.md) — 移除 BF16 与 FP16-forward/FP32-OBB 训练模式设计：收敛到纯 CUDA FP16 AMP，删除 precision.py、3 个被拒配置与 2026-08-06 实验文档。
 
 ---
 
@@ -93,8 +93,6 @@
 
 [2026-08-05-obb-angle-contract-simplification](plans/2026-08-05-obb-angle-contract-simplification.md) — DEIMv2 OBB 角度契约简化实现计划（修订版）：角度契约简化（修订版）的实施计划。
 
-[2026-08-06-amp-bf16-obb-fp32-experiments](plans/2026-08-06-amp-bf16-obb-fp32-experiments.md) — AMP BF16 与 OBB FP32 实验实现计划：混合精度训练下 OBB FP32 保持实验的实施计划。
-
 [2026-08-06-obb-decoder-stage1-runtime-recovery](plans/2026-08-06-obb-decoder-stage1-runtime-recovery.md) — OBB Decoder Stage 1 运行时恢复实现计划：恢复基线可运行性的阶段 1 实施。
 
 [2026-08-06-obb-decoder-stage2-rep2-contract](plans/2026-08-06-obb-decoder-stage2-rep2-contract.md) — OBB Decoder Stage 2 Rep2 契约实现计划：统一 rep2 ADR 表示语义的阶段 2 实施。
@@ -104,6 +102,8 @@
 [2026-08-07-ema-early-stopping-best-checkpoint](plans/2026-08-07-ema-early-stopping-best-checkpoint.md) — EMA early-stopping 与 best.pth 恢复实现计划：训练循环加入双 best 值 + patience 状态机，退出时恢复 best.pth 并再验证；与 specs/2026-08-07-early-stopping-best-checkpoint-design 配对。
 
 [2026-08-07-obb-decoder-shifted-angle](plans/2026-08-07-obb-decoder-shifted-angle.md) — DEIMv2 OBB decoder 私有 shifted 角度编码实现计划：6 个 Review Unit 的 TDD 流程，覆盖 contract 函数、MSDeformableAttention、配置传播、anchor/encoder、denoising、geometry decode 站点。
+
+[2026-08-07-remove-bf16-obb-fp32-training](plans/2026-08-07-remove-bf16-obb-fp32-training.md) — 移除 BF16/OBB-FP32 训练支持实现计划：5 波 TDD（RED 契约 → 删除 → 保留验证），收敛至 FP16 AMP。
 
 ---
 
