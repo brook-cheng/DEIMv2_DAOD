@@ -1,0 +1,14 @@
+__include__: ['./sp_fz_rep0_nloss_bf16.yml']
+
+#### 项目配置
+output_dir: ./outputs/deimv2_obb_dlzdt_sp_fz_rep0_nloss_bf16_es
+
+#### ES-Base：与 FP16 相同的 early-stopping 参数，各自独立选择最佳 epoch
+early_stopping:
+  enabled: true
+  metric: mAP50_95
+  mode: max
+  min_epochs: 100
+  patience: 12
+  min_delta: 0.001
+  restore_best: true
