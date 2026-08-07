@@ -49,8 +49,6 @@ def _make_solver(tmp_path, *, epoches=3, stop_epoch=999, es=None, ema=False):
         "max_optimizer_steps": None,
         "fail_on_zero_grad": False,
         "nan_max_events": 10,
-        "amp_dtype": None,
-        "obb_geometry_fp32": False,
     }
     if es is not None:
         yaml_cfg["early_stopping"] = es

@@ -16,8 +16,8 @@
 - `epoches: 150` remains the only hard training limit. Do not introduce `max_epochs`/`schedule_epochs`.
 - ES-Base keeps the existing schedule verbatim: `warmup_iter: 15`, `flat_epoch: 75`, `no_aug_epoch: 15`, and the current augmentation policy (`policy.epoch`, `mixup_epochs`, `stop_epoch`).
 - Approved early-stopping config (verbatim): `enabled: true`, `metric: mAP50_95`, `mode: max`, `min_epochs: 100`, `patience: 12`, `min_delta: 0.001`, `restore_best: true`.
-- Do **not** modify: loss formulas, optimizer params, LR boundaries, augmentation policy, stage rollback logic, `best_stg1.pth`/`best_stg2.pth` semantics, precision settings (`amp_dtype`, `obb_geometry_fp32`, scaler).
-- Do **not** add `early_stopping` to the abandoned C-group config (`sp_fz_rep0_nloss_fp16_obb_fp32.yml`) or to the legacy base configs. Only the two new `*_es.yml` configs carry it.
+- Do **not** modify: loss formulas, optimizer params, LR boundaries, augmentation policy, stage rollback logic, `best_stg1.pth`/`best_stg2.pth` semantics.
+- Do **not** add `early_stopping` to the legacy base configs. Only the FP16 `*_es.yml` config carries the `early_stopping` block.
 - `RESTORED_METRIC_TOLERANCE = 1e-3` (absolute) is the module-level verification tolerance. It is a code constant, not a config field.
 - Pure module (`early_stopping.py`) must not import `torch`, do file I/O, or call DDP. All tests are CPU-only; no real multi-GPU required.
 - Follow existing style: `from __future__ import annotations`, dataclasses, `dist_utils.save_on_master` for writes, `sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))` in test files.
@@ -32,9 +32,8 @@
 | `engine/solver/det_solver.py` | Wire ES into `fit()`: init before resume load, pre-resume init hook, stage-transition patience reset, per-epoch update + `best.pth`, moved `last.pth` ordering, DDP broadcast, early break, exit capture, `_finalize_training` restore + `final_run_meta.json`. | Modify |
 | `test/test_early_stopping.py` | Pure tests for `EarlyStoppingConfig`, `EarlyStoppingState`, persistence. | Create |
 | `test/test_det_solver_early_stopping.py` | Integration tests via mocked `fit()`: disabled behavior, best.pth, patience/min-epochs, checkpoint ordering, DDP broadcast, finalize/restore, resume, stage transition, diagnostic exit. | Create |
-| `test/test_early_stopping_configs.py` | Config inheritance: ES blocks present only in the two new configs; schedule/precision preserved; C-group and legacy bases unpolluted. | Create |
+| `test/test_early_stopping_configs.py` | Config inheritance: ES block present only in the new config; schedule preserved; legacy bases unpolluted. | Create |
 | `configs/custom_obb/dlzdt/sp_fz_rep0_nloss_amp_es.yml` | ES-Base FP16: includes `amp` base, own `output_dir`, adds approved `early_stopping` block. | Create |
-| `configs/custom_obb/dlzdt/sp_fz_rep0_nloss_bf16_es.yml` | ES-Base BF16: includes `bf16` base, own `output_dir`, adds approved `early_stopping` block. | Create |
 
 ---
 
@@ -479,8 +478,6 @@ def _make_solver(tmp_path, *, epoches=3, stop_epoch=999, es=None, ema=False):
         "max_optimizer_steps": None,
         "fail_on_zero_grad": False,
         "nan_max_events": 10,
-        "amp_dtype": None,
-        "obb_geometry_fp32": False,
     }
     if es is not None:
         yaml_cfg["early_stopping"] = es
@@ -1296,16 +1293,15 @@ Expected: exit 0, all tests pass.
 
 ---
 
-### Task 6: ES-Base FP16/BF16 configs + config inheritance tests
+### Task 6: ES-Base FP16 configs + config inheritance tests
 
 **Files:**
 - Create: `configs/custom_obb/dlzdt/sp_fz_rep0_nloss_amp_es.yml`
-- Create: `configs/custom_obb/dlzdt/sp_fz_rep0_nloss_bf16_es.yml`
 - Test: `test/test_early_stopping_configs.py`
 
 **Interfaces:**
-- Consumes: existing `sp_fz_rep0_nloss_amp.yml`, `sp_fz_rep0_nloss_bf16.yml` (untouched).
-- Produces: two ES-Base configs resolving the approved `early_stopping` block while preserving base schedule/precision.
+- Consumes: existing `sp_fz_rep0_nloss_amp.yml` (untouched).
+- Produces: the ES-Base config resolving the approved `early_stopping` block while preserving base schedule.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1314,9 +1310,9 @@ Create `test/test_early_stopping_configs.py` (mirrors `test_obb_loss_experiment_
 ```python
 """ES-Base config inheritance tests.
 
-Verifies the approved early_stopping block appears only in the two new *_es.yml
-configs, that schedule/precision are inherited unchanged, and that the legacy
-bases and the abandoned C-group config stay unpolluted.
+Verifies the approved early_stopping block appears only in the new *_es.yml
+config, that schedule is inherited unchanged, and that the legacy base config
+stays unpolluted.
 """
 
 from pathlib import Path
@@ -1331,10 +1327,7 @@ ROOT: Final = Path(__file__).resolve().parents[1]
 DLZDT_DIR: Final = ROOT / "configs" / "custom_obb" / "dlzdt"
 
 AMP_BASE: Final = "sp_fz_rep0_nloss_amp.yml"
-BF16_BASE: Final = "sp_fz_rep0_nloss_bf16.yml"
 ES_AMP: Final = "sp_fz_rep0_nloss_amp_es.yml"
-ES_BF16: Final = "sp_fz_rep0_nloss_bf16_es.yml"
-C_GROUP: Final = "sp_fz_rep0_nloss_fp16_obb_fp32.yml"
 
 EXPECTED_ES: Final = {
     "enabled": True,
@@ -1352,47 +1345,33 @@ def _dlzdt_config(name: str) -> dict:
 
 
 def test_legacy_bases_have_no_early_stopping() -> None:
-    for name in (AMP_BASE, BF16_BASE, C_GROUP):
-        assert "early_stopping" not in _dlzdt_config(name), name
+    assert "early_stopping" not in _dlzdt_config(AMP_BASE), AMP_BASE
 
 
-@pytest.mark.parametrize("name", [ES_AMP, ES_BF16])
-def test_es_config_carries_approved_block(name: str) -> None:
-    assert _dlzdt_config(name)["early_stopping"] == EXPECTED_ES
+def test_es_config_carries_approved_block() -> None:
+    assert _dlzdt_config(ES_AMP)["early_stopping"] == EXPECTED_ES
 
 
-@pytest.mark.parametrize(
-    ("name", "amp_dtype", "scaler_enabled"),
-    [
-        (ES_AMP, None, True),        # inherits FP16 default from amp base
-        (ES_BF16, "bfloat16", False),  # inherits BF16 + disabled scaler
-    ],
-)
-def test_es_config_preserves_precision(name, amp_dtype, scaler_enabled) -> None:
-    config = _dlzdt_config(name)
-    assert config.get("amp_dtype") == amp_dtype
-    # obb_geometry_fp32 is unset (None) in the base chain; ES configs must not
-    # introduce it (only the abandoned C-group sets it True).
-    assert config.get("obb_geometry_fp32") is not True
-    assert config["scaler"]["enabled"] is scaler_enabled
+def test_es_config_preserves_scaler() -> None:
+    config = _dlzdt_config(ES_AMP)
+    assert config["scaler"]["enabled"] is True
 
 
 def test_es_configs_preserve_base_training_schedule() -> None:
     base = _dlzdt_config(AMP_BASE)
-    for name in (ES_AMP, ES_BF16):
-        config = _dlzdt_config(name)
-        assert config["epoches"] == base["epoches"] == 150
-        assert config["warmup_iter"] == base["warmup_iter"] == 15
-        assert config["flat_epoch"] == base["flat_epoch"] == 75
-        assert config["no_aug_epoch"] == base["no_aug_epoch"] == 15
-        assert config["optimizer"]["lr"] == base["optimizer"]["lr"] == 0.0005
-        assert config["DEIMCriterion"]["weight_dict"] == base["DEIMCriterion"]["weight_dict"]
-        assert config["DEIMCriterion"]["matcher"] == base["DEIMCriterion"]["matcher"]
+    config = _dlzdt_config(ES_AMP)
+    assert config["epoches"] == base["epoches"] == 150
+    assert config["warmup_iter"] == base["warmup_iter"] == 15
+    assert config["flat_epoch"] == base["flat_epoch"] == 75
+    assert config["no_aug_epoch"] == base["no_aug_epoch"] == 15
+    assert config["optimizer"]["lr"] == base["optimizer"]["lr"] == 0.0005
+    assert config["DEIMCriterion"]["weight_dict"] == base["DEIMCriterion"]["weight_dict"]
+    assert config["DEIMCriterion"]["matcher"] == base["DEIMCriterion"]["matcher"]
 
 
 def test_es_configs_have_distinct_output_dirs() -> None:
-    outputs = {_dlzdt_config(name)["output_dir"] for name in (AMP_BASE, ES_AMP, ES_BF16)}
-    assert len(outputs) == 3
+    outputs = {_dlzdt_config(name)["output_dir"] for name in (AMP_BASE, ES_AMP)}
+    assert len(outputs) == 2
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1421,29 +1400,10 @@ early_stopping:
   restore_best: true
 ```
 
-Create `configs/custom_obb/dlzdt/sp_fz_rep0_nloss_bf16_es.yml`:
-
-```yaml
-__include__: ['./sp_fz_rep0_nloss_bf16.yml']
-
-#### 项目配置
-output_dir: ./outputs/deimv2_obb_dlzdt_sp_fz_rep0_nloss_bf16_es
-
-#### ES-Base：与 FP16 相同的 early-stopping 参数，各自独立选择最佳 epoch
-early_stopping:
-  enabled: true
-  metric: mAP50_95
-  mode: max
-  min_epochs: 100
-  patience: 12
-  min_delta: 0.001
-  restore_best: true
-```
-
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest test/test_early_stopping_configs.py -v`
-Expected: PASS (7 tests).
+Expected: PASS (5 tests).
 
 - [ ] **Step 5: No commit (user constraint)** — proceed.
 
@@ -1470,9 +1430,8 @@ Expected: prints `ok`.
 
 - [ ] **Step 4: Report completion**
 
-Summarize: files created/modified, design-test coverage matrix (13/13), and the two runnable experiment commands (from repo root):
+Summarize: files created/modified, design-test coverage matrix (13/13), and the runnable experiment command (from repo root):
 - FP16: `python tools/train.py -c configs/custom_obb/dlzdt/sp_fz_rep0_nloss_amp_es.yml` (verify actual entrypoint with `python -m` if the repo uses a module entry)
-- BF16: `python tools/train.py -c configs/custom_obb/dlzdt/sp_fz_rep0_nloss_bf16_es.yml`
 
 ---
 

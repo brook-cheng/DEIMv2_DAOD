@@ -20,8 +20,8 @@ parameters, learning-rate boundaries, image augmentations, or stage behavior.
   the expected result is equality with the observed peak within floating-point
   tolerance.
 - `epoches: 150` remains the only hard training limit.
-- The FP16 and BF16 experiments use identical early-stopping parameters while
-  independently selecting their own best epoch.
+- The FP16 experiment uses the approved early-stopping parameters and selects
+  its own best epoch.
 - `last.pth` remains a true interruption-resume checkpoint and is not
   overwritten by the restored best state.
 
