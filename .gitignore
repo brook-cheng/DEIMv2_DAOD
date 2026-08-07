@@ -148,3 +148,4 @@ test/data
 
 # Training logs (log.txt, log_*.txt)
 /log*.txt
+.omo
