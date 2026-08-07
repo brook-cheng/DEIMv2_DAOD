@@ -82,7 +82,7 @@ train_dataloader:
   dataset:
     type: DotaDataset
     cache_images: disk
-    cache_ram: 80
+    cache_ram: 0
     img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/train
     ann_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/train
     classes_file: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
