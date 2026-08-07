@@ -5,8 +5,8 @@ Copyright (c) 2024 The D-FINE Authors. All Rights Reserved.
 import torch
 from .box_ops import box_xyxy_to_cxcywh, box_cxcywh_to_xyxy
 from .obb_geometry import (
-    oriented_box_to_external_rect,
-    external_rect_to_oriented_box,
+    oriented_box_to_external_xyxy_rect,
+    external_xyxy_rect_to_oriented_box,
     periodic_angle_distance,
 )
 
@@ -218,7 +218,7 @@ def distance2bbox_obb(
         )
     n_obboxes = None
     if distance.shape[-1] == 6:
-        ext_rect_xyxy, vertex_offsets = oriented_box_to_external_rect(points)
+        ext_rect_xyxy, vertex_offsets = oriented_box_to_external_xyxy_rect(points)
         ext_rect_cxcywh = box_xyxy_to_cxcywh(ext_rect_xyxy)
 
         # (α,β,γ,δ)
@@ -236,7 +236,9 @@ def distance2bbox_obb(
         vertex_offsets_adj = (
             vertex_offsets + distance[..., 4:] * offset_scale_wh / reg_scale
         )
-        n_obboxes = external_rect_to_oriented_box(ext_adjust_xyxy, vertex_offsets_adj)
+        n_obboxes = external_xyxy_rect_to_oriented_box(
+            ext_adjust_xyxy, vertex_offsets_adj
+        )
     elif distance.shape[-1] == 5:
         # (α,β,γ,δ)
         n_obbox_cxcywh = distance2bbox(points[..., :4], distance[..., :4], reg_scale)
@@ -288,8 +290,8 @@ def bbox2distance_obb(
     half_reg_scale = 0.5 * reg_scale
 
     if obbox_rep_dim == 6:
-        rect_xyxy_pred, vertex_offsets_pred = oriented_box_to_external_rect(points)
-        rect_xyxy_gt, vertex_offsets_gt = oriented_box_to_external_rect(bbox)
+        rect_xyxy_pred, vertex_offsets_pred = oriented_box_to_external_xyxy_rect(points)
+        rect_xyxy_gt, vertex_offsets_gt = oriented_box_to_external_xyxy_rect(bbox)
         rect_cxcywh_pred = box_xyxy_to_cxcywh(rect_xyxy_pred)
         rect_cxcywh_gt = box_xyxy_to_cxcywh(rect_xyxy_gt)
         # (ε,η): inverse of distance2bbox_obb's offset scaling.

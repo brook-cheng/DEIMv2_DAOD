@@ -27,8 +27,16 @@ if ROOT not in sys.path:
 
 from engine.deim.dfine_decoder import MSDeformableAttention
 from engine.deim.deim_decoder import DEIMTransformer
-from engine.deim.obb_geometry import external_rect_to_oriented_box
+from engine.deim.obb_angle_contract import (
+    norm_to_physical_rad,
+    physical_rad_to_norm,
+)
+from engine.deim.obb_geometry import (
+    external_xywh_rect_to_oriented_box,
+    oriented_box_to_external_xywh_rect,
+)
 from engine.deim.denoising import get_contrastive_denoising_training_group
+from engine.deim.utils import inverse_sigmoid
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -105,15 +113,33 @@ def test_msdeform_attn_decouple_angle_reference_consumes_theta(seed):
     assert torch.isfinite(out_5d).all(), "5-dim ref produced non-finite output"
     assert out_5d.shape == (bs, n_queries, embed_dim)
 
-    # --- 6-dim reference: (cx, cy, w, h, eps, eta) ADR ---
-    ref_6d = torch.rand(bs, n_queries, n_ref_levels, 6)
+    # --- 6-dim reference: external-rectangle (ext_cx, ext_cy, w_ext, h_ext, eps, eta) ---
+    # Build valid physical OBBs and encode them to the external-rectangle
+    # representation the 6D reference actually carries (Stage 2 Task 2):
+    # theta_phys in [0, pi), centers in roughly [0.3, 0.7],
+    # widths/heights in [0.1, 0.3].
+    theta_phys = torch.rand(bs, n_queries, n_ref_levels, 1) * math.pi
+    centers = 0.3 + 0.4 * torch.rand(bs, n_queries, n_ref_levels, 2)
+    wh = 0.1 + 0.2 * torch.rand(bs, n_queries, n_ref_levels, 2)
+    obb_phys = torch.cat([centers, wh, theta_phys], dim=-1)  # (..., 5) physical OBB
+    ext_xywh, offsets = oriented_box_to_external_xywh_rect(obb_phys)
+    ref_6d = torch.cat([ext_xywh, offsets], dim=-1)
     out_6d = attn(query, ref_6d, value, spatial_shapes)
     assert torch.isfinite(out_6d).all(), "6-dim ref produced non-finite output"
     assert out_6d.shape == (bs, n_queries, embed_dim)
 
     # --- 5-dim and 6-dim converge when 6-dim converts to the same OBB ---
-    ref_6d_as_obb = external_rect_to_oriented_box(ref_6d[..., :4], ref_6d[..., 4:])
-    out_6d_as_5d = attn(query, ref_6d_as_obb, value, spatial_shapes)
+    ref_6d_as_obb_phys = external_xywh_rect_to_oriented_box(
+        ref_6d[..., :4], ref_6d[..., 4:]
+    )
+    ref_6d_as_obb_norm = torch.cat(
+        [
+            ref_6d_as_obb_phys[..., :4],
+            physical_rad_to_norm(ref_6d_as_obb_phys[..., 4:]),
+        ],
+        dim=-1,
+    )
+    out_6d_as_5d = attn(query, ref_6d_as_obb_norm, value, spatial_shapes)
     assert torch.allclose(
         out_6d, out_6d_as_5d, atol=1e-6
     ), "6-dim ADR path and equivalent 5-dim OBB path must converge"
@@ -241,12 +267,12 @@ def test_decouple_angle_reference_dimensionality_consistent(seed):
 
     # --- theta range: out_bboxes theta in [0, π) (等比契约 norm_to_physical_rad) ---
     theta = out_bboxes[..., 4]
-    assert (theta >= 0).all(), (
-        f"pred_boxes theta must be >= 0, got min={theta.min().item():.4f}"
-    )
-    assert (theta < math.pi).all(), (
-        f"pred_boxes theta must be < π, got max={theta.max().item():.4f}"
-    )
+    assert (
+        theta >= 0
+    ).all(), f"pred_boxes theta must be >= 0, got min={theta.min().item():.4f}"
+    assert (
+        theta < math.pi
+    ).all(), f"pred_boxes theta must be < π, got max={theta.max().item():.4f}"
     # ref_points theta 同域
     theta_refs = out_refs[..., 4]
     assert (theta_refs >= 0).all() and (theta_refs < math.pi).all(), (
@@ -298,9 +324,9 @@ def test_anchor_default_r_is_pi_over_4():
     # model.anchors 是 init 时缓存的 logit 空间 buffer; sigmoid 还原到 [0,1] norm
     r = torch.sigmoid(model.anchors[..., -1])
     # angle_step=0 → 所有候选应为同一默认值 0.25 (物理 π/4)
-    assert torch.allclose(r, torch.full_like(r, 0.25), atol=1e-6), (
-        f"anchor r 应为 0.25 (物理 π/4), got min={r.min():.6f} max={r.max():.6f}"
-    )
+    assert torch.allclose(
+        r, torch.full_like(r, 0.25), atol=1e-6
+    ), f"anchor r 应为 0.25 (物理 π/4), got min={r.min():.6f} max={r.max():.6f}"
 
 
 # ---------------------------------------------------------------------------
@@ -312,9 +338,7 @@ def test_anchor_default_r_is_pi_over_4():
     ("angle_rep", "use_angle_first"),
     [(0, False), (1, False), (2, False), (3, True)],
 )
-def test_angle_rep_forward_theta_in_proportional_domain(
-    angle_rep, use_angle_first
-):
+def test_angle_rep_forward_theta_in_proportional_domain(angle_rep, use_angle_first):
     torch.manual_seed(0)
     model = DEIMTransformer(
         num_classes=5,
@@ -363,6 +387,17 @@ def test_angle_rep_forward_theta_in_proportional_domain(
             f"got min={tensor.min():.4f} max={tensor.max():.4f}"
         )
 
+    # rep2 encoder auxiliary must emit finite 5D OBBs (Stage 2 Task 2 Step 6):
+    # enc_topk_bboxes_list is decoded through external_xyxy_rect_to_oriented_box.
+    if angle_rep == 2:
+        enc_aux = outputs["enc_aux_outputs"][0]["pred_boxes"]
+        assert enc_aux.shape[-1] == 5, (
+            f"rep2 enc_aux_outputs pred_boxes must be 5D, got {enc_aux.shape[-1]}"
+        )
+        assert torch.isfinite(enc_aux).all(), (
+            f"rep2 enc_aux_outputs pred_boxes must be finite, got non-finite values"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Test 5: denoising 等比化 — GT θ ∈ [0,π) → θ_norm ∈ [0,1)，无 clip
@@ -376,7 +411,9 @@ def _run_denoising(gt_theta_rad, num_classes=5, hidden_dim=8):
     """调用 denoising 函数，返回 sigmoid 还原后的 θ_norm。"""
     target = {
         "labels": torch.tensor([0], dtype=torch.int64),
-        "boxes": torch.tensor([[0.5, 0.5, 0.3, 0.2, gt_theta_rad]], dtype=torch.float32),
+        "boxes": torch.tensor(
+            [[0.5, 0.5, 0.3, 0.2, gt_theta_rad]], dtype=torch.float32
+        ),
     }
     class_embed = nn.Embedding(num_classes + 1, hidden_dim)
     _, dn_bbox_unact, _, _ = get_contrastive_denoising_training_group(
@@ -393,17 +430,22 @@ def _run_denoising(gt_theta_rad, num_classes=5, hidden_dim=8):
     return torch.sigmoid(dn_bbox_unact[..., 4])
 
 
-@pytest.mark.parametrize("gt_theta, expected_norm", [
-    (3 * math.pi / 4, 0.75),        # 旧 shifted (θ+π/4)/π 会给 1.0 (clip), 等比给 0.75
-    (math.pi / 4, 0.25),
-    (0.0, 0.0),
-])
+@pytest.mark.parametrize(
+    "gt_theta, expected_norm",
+    [
+        (3 * math.pi / 4, 0.75),  # 旧 shifted (θ+π/4)/π 会给 1.0 (clip), 等比给 0.75
+        (math.pi / 4, 0.25),
+        (0.0, 0.0),
+    ],
+)
 def test_denoising_theta_norm_proportional(gt_theta, expected_norm):
     torch.manual_seed(0)
     theta_norm = _run_denoising(gt_theta)
     # 角度不加噪, 所有 dn query 共享同一 GT θ_norm; atol 放宽到 1e-4 以吸收
     # θ=0 边界处 inverse_sigmoid(0)=-inf → sigmoid≈1e-5 的数值往返误差
-    assert torch.allclose(theta_norm, torch.full_like(theta_norm, expected_norm), atol=1e-4), (
+    assert torch.allclose(
+        theta_norm, torch.full_like(theta_norm, expected_norm), atol=1e-4
+    ), (
         f"GT θ={gt_theta:.4f}: 期望 θ_norm={expected_norm}, "
         f"got min={theta_norm.min():.6f} max={theta_norm.max():.6f}"
     )
@@ -414,4 +456,231 @@ def test_denoising_theta_near_pi_no_overflow():
     torch.manual_seed(0)
     theta_norm = _run_denoising(math.pi - 1e-4)
     assert (theta_norm < 1.0).all(), f"θ_norm 应 < 1, got max={theta_norm.max():.6f}"
-    assert (theta_norm > 0.999).all(), f"θ near π 时 θ_norm 应接近 1, got min={theta_norm.min():.6f}"
+    assert (
+        theta_norm > 0.999
+    ).all(), f"θ near π 时 θ_norm 应接近 1, got min={theta_norm.min():.6f}"
+
+
+def test_denoising_box_noise_scale_zero_preserves_original_obb():
+    """box_noise_scale=0 must return the original OBB unchanged (Stage 2 Task 5).
+
+    The denoising module currently only assigns input_query_bbox_unact
+    inside the `box_noise_scale > 0` branch; with box_noise_scale=0 the
+    variable is never bound and the return raises UnboundLocalError.
+    With zero noise the spatial part must equal the input GT box and the
+    angle must be the normalized physical angle.
+    """
+    torch.manual_seed(0)
+    gt_theta = math.pi / 4
+    target = {
+        "labels": torch.tensor([0], dtype=torch.int64),
+        "boxes": torch.tensor(
+            [[0.5, 0.5, 0.3, 0.2, gt_theta]], dtype=torch.float32
+        ),
+    }
+    class_embed = nn.Embedding(6, 8)
+    _, dn_bbox_unact, _, _ = get_contrastive_denoising_training_group(
+        targets=[target],
+        num_classes=5,
+        num_queries=4,
+        class_embed=class_embed,
+        num_denoising=10,
+        label_noise_ratio=0.0,
+        box_noise_scale=0.0,
+        box_mode="obb",
+    )
+    boxes = torch.sigmoid(dn_bbox_unact)
+    expected = torch.tensor([0.5, 0.5, 0.3, 0.2, 0.25])
+    assert torch.allclose(
+        boxes, expected.reshape(1, 1, 5).expand_as(boxes), atol=1e-4
+    ), f"zero-noise must preserve GT OBB, got {boxes[0, 0].tolist()}"
+
+
+def _make_rep2_model_with_denoising(num_denoising=4):
+    torch.manual_seed(0)
+    return DEIMTransformer(
+        num_classes=5,
+        hidden_dim=32,
+        num_queries=4,
+        feat_channels=[32, 32],
+        feat_strides=[4, 8],
+        num_levels=2,
+        num_points=2,
+        nhead=4,
+        num_layers=3,
+        dim_feedforward=64,
+        dropout=0.0,
+        activation="relu",
+        num_denoising=num_denoising,
+        learn_query_content=False,
+        eval_spatial_size=(16, 16),
+        eval_idx=-1,
+        eps=1e-2,
+        aux_loss=True,
+        cross_attn_method="default",
+        query_select_method="default",
+        reg_max=4,
+        reg_scale=4.0,
+        layer_scale=1,
+        mlp_act="relu",
+        use_gateway=True,
+        share_bbox_head=False,
+        share_score_head=False,
+        box_mode="obb",
+        angle_rep=2,
+        offset_scale_source="pre",
+        use_angle_first=False,
+    )
+
+
+def test_rep2_denoising_forward_emits_finite_5d_obb():
+    """rep2 denoising boundary must convert GT OBB to external cxcywh+offset
+    via sigmoid -> OBB -> oriented_box_to_external_xywh_rect -> inverse_sigmoid
+    (Stage 2 Task 3). The dn / dn_pre outputs must be finite 5D OBBs with
+    theta in [0, pi).
+    """
+    model = _make_rep2_model_with_denoising(num_denoising=4)
+    model.train()
+    feats = [torch.randn(1, 32, 8, 8), torch.randn(1, 32, 4, 4)]
+    targets = [
+        {
+            "labels": torch.tensor([1], dtype=torch.int64),
+            "boxes": torch.tensor(
+                [[0.5, 0.5, 0.3, 0.1, math.pi / 4]], dtype=torch.float32
+            ),
+        }
+    ]
+    with torch.no_grad():
+        outputs = model(feats, targets)
+
+    for name, boxes in [
+        ("pred_boxes", outputs["pred_boxes"]),
+        ("dn_pre", outputs["dn_pre_outputs"]["pred_boxes"]),
+        ("dn_last", outputs["dn_outputs"][-1]["pred_boxes"]),
+    ]:
+        assert boxes.shape[-1] == 5, (
+            f"{name}: must be 5D OBB, got {boxes.shape[-1]}"
+        )
+        assert torch.isfinite(boxes).all(), (
+            f"{name}: must be finite — denoising boundary likely calls "
+            f"geometry on logit-space input without sigmoid/inverse_sigmoid"
+        )
+        theta = boxes[..., 4]
+        assert (theta >= 0).all() and (theta < math.pi).all(), (
+            f"{name}: theta must be in [0, pi), "
+            f"got min={theta.min():.4f} max={theta.max():.4f}"
+        )
+
+
+def test_rep2_denoising_decoder_boundary_emits_external_xywh_offset_logits():
+    """rep2 denoising boundary must convert 5D OBB logits into 6D
+    external-rectangle (cxcywh, epsilon, eta) logits (Stage 2 Task 3).
+
+    The decoder boundary ``_get_decoder_input`` must apply the geometry in
+    probability space: sigmoid(denoising_bbox_unact) -> normalized OBB,
+    rescale the angle to physical radians, then
+    ``oriented_box_to_external_xywh_rect`` -> external cxcywh + offsets,
+    which are what the 6D reference fed to the decoder must match after
+    sigmoid. Current production passes the logit-space input straight into
+    ``oriented_box_to_external_xyxy_rect`` (no sigmoid / inverse_sigmoid,
+    XYXY instead of XYWH), so this must FAIL until the boundary is fixed.
+    """
+    model = _make_rep2_model_with_denoising(num_denoising=4)
+    model.train()
+    torch.manual_seed(0)
+
+    # Known normalized OBB (cx, cy, w, h, theta_norm) -> logit-space 5D ref.
+    norm_obb = torch.tensor(
+        [[[0.5, 0.5, 0.3, 0.2, 0.25]]], dtype=torch.float32
+    )
+    denoising_bbox_unact = inverse_sigmoid(norm_obb)  # (1, 1, 5)
+    num_dn = denoising_bbox_unact.shape[1]
+    denoising_logits = torch.randn(1, num_dn, model.hidden_dim)
+
+    spatial_shapes = [[8, 8], [4, 4]]  # 64 + 16 = 80 memory tokens
+    memory = torch.randn(1, 80, model.hidden_dim)
+
+    _, enc_topk_bbox_unact, _, _ = model._get_decoder_input(
+        memory,
+        spatial_shapes,
+        denoising_logits=denoising_logits,
+        denoising_bbox_unact=denoising_bbox_unact,
+    )
+
+    dn_ref = torch.sigmoid(enc_topk_bbox_unact[:, :num_dn])
+    assert dn_ref.shape[-1] == 6, (
+        f"dn decoder ref must be 6D (external cxcywh, eps, eta), "
+        f"got {dn_ref.shape[-1]}"
+    )
+
+    # Expected: sigmoid -> normalized OBB -> physical angle ->
+    # oriented_box_to_external_xywh_rect -> (external cxcywh, offsets).
+    obb_norm = torch.sigmoid(denoising_bbox_unact)
+    obb_phys = torch.cat(
+        [obb_norm[..., :4], norm_to_physical_rad(obb_norm[..., 4:])], dim=-1
+    )
+    ext_xywh, offsets = oriented_box_to_external_xywh_rect(obb_phys)
+    expected = torch.cat([ext_xywh, offsets], dim=-1)
+
+    assert torch.allclose(dn_ref, expected, atol=1e-4), (
+        "dn decoder ref must equal [external_xywh, eps, eta] derived after "
+        "sigmoid with the angle in physical radians; "
+        f"got {dn_ref[0, 0].tolist()}, expected {expected[0, 0].tolist()}"
+    )
+
+
+def test_rep2_generated_anchors_are_valid_external_rect_offsets():
+    """rep2 anchors must be valid external-rectangle offsets: channels 4/5
+    (epsilon/eta) are vertex offsets of an oriented box around the grid cell
+    and can never exceed the external rectangle width/height w_ext/h_ext
+    (channels 2/3).
+    Current `grid_offset_wh` is unrelated to external rectangle width and
+    height, so this must FAIL until Step 3 replaces it (Stage 2 Task 4).
+    """
+    model = DEIMTransformer(
+        num_classes=5,
+        hidden_dim=32,
+        num_queries=4,
+        feat_channels=[32, 32],
+        feat_strides=[4, 8],
+        num_levels=2,
+        num_points=2,
+        nhead=4,
+        num_layers=3,
+        dim_feedforward=64,
+        dropout=0.0,
+        activation="relu",
+        num_denoising=0,
+        learn_query_content=False,
+        eval_spatial_size=(16, 16),
+        eval_idx=-1,
+        eps=1e-2,
+        aux_loss=False,
+        cross_attn_method="default",
+        query_select_method="default",
+        reg_max=4,
+        reg_scale=4.0,
+        layer_scale=1,
+        mlp_act="relu",
+        use_gateway=True,
+        share_bbox_head=False,
+        share_score_head=False,
+        box_mode="obb",
+        angle_rep=2,
+        offset_scale_source="pre",
+        use_angle_first=False,
+    )
+    anchors_unact, valid_mask = model._generate_anchors(
+        [[4, 4], [2, 2]], device="cpu"
+    )
+    anchors = torch.sigmoid(anchors_unact)
+    valid = valid_mask.squeeze(-1)
+    valid_anchors = anchors[valid]
+
+    assert valid_anchors.shape[-1] == 6
+    assert valid_anchors.numel() > 0
+    assert torch.isfinite(valid_anchors).all()
+    assert (valid_anchors > model.eps).all()
+    assert (valid_anchors < 1 - model.eps).all()
+    assert (valid_anchors[..., 4] <= valid_anchors[..., 2]).all()
+    assert (valid_anchors[..., 5] <= valid_anchors[..., 3]).all()

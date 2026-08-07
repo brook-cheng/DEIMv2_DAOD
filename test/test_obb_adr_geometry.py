@@ -31,8 +31,10 @@ if ROOT not in sys.path:
 
 from engine.deim.obb_geometry import (
     clamp_vertex_offsets_to_external_rect,
-    external_rect_to_oriented_box,
-    oriented_box_to_external_rect,
+    external_xywh_rect_to_oriented_box,
+    external_xyxy_rect_to_oriented_box,
+    oriented_box_to_external_xywh_rect,
+    oriented_box_to_external_xyxy_rect,
     periodic_angle_distance,
     xywhr_to_xyxyxyxy,
 )
@@ -40,10 +42,10 @@ from engine.deim.obb_geometry import (
 from engine.deim.box_ops import box_xyxy_to_cxcywh
 from engine.deim.dfine_utils import bbox2distance_obb, distance2bbox_obb
 
-
 # ---------------------------------------------------------------------------
 # Local test helpers (geometry-level, not parameter identity)
 # ---------------------------------------------------------------------------
+
 
 def vertex_roundtrip_error(orig_v, recon_v):
     """Max bidirectional nearest-neighbour distance between vertex sets.
@@ -51,16 +53,8 @@ def vertex_roundtrip_error(orig_v, recon_v):
     Tolerates equivalent re-parameterizations (w<->h swap, theta += pi/2)
     by comparing the actual corner geometry.
     """
-    d1 = (
-        ((orig_v.unsqueeze(-2) - recon_v.unsqueeze(-3)) ** 2)
-        .sum(dim=-1)
-        .amin(dim=-1)
-    )
-    d2 = (
-        ((recon_v.unsqueeze(-2) - orig_v.unsqueeze(-3)) ** 2)
-        .sum(dim=-1)
-        .amin(dim=-1)
-    )
+    d1 = ((orig_v.unsqueeze(-2) - recon_v.unsqueeze(-3)) ** 2).sum(dim=-1).amin(dim=-1)
+    d2 = ((recon_v.unsqueeze(-2) - orig_v.unsqueeze(-3)) ** 2).sum(dim=-1).amin(dim=-1)
     return torch.max(d1.max(dim=-1).values, d2.max(dim=-1).values).max()
 
 
@@ -71,8 +65,8 @@ def obb_vertex_error(a, b):
 
 def roundtrip(obbs):
     """OBB -> external rect + offsets -> OBB. Returns reconstructed OBB."""
-    ext, vo = oriented_box_to_external_rect(obbs)
-    return external_rect_to_oriented_box(ext, vo)
+    ext, vo = oriented_box_to_external_xyxy_rect(obbs)
+    return external_xyxy_rect_to_oriented_box(ext, vo)
 
 
 def ordinary_normalized_theta_l1(pred, target):
@@ -108,7 +102,9 @@ ROUNDTRIP_CASES = [
 ]
 
 
-@pytest.mark.parametrize("name, obb", ROUNDTRIP_CASES, ids=[c[0] for c in ROUNDTRIP_CASES])
+@pytest.mark.parametrize(
+    "name, obb", ROUNDTRIP_CASES, ids=[c[0] for c in ROUNDTRIP_CASES]
+)
 def test_roundtrip_vertex_error(name, obb):
     """OBB -> external rect + offsets -> OBB must preserve geometry.
 
@@ -119,9 +115,9 @@ def test_roundtrip_vertex_error(name, obb):
     obbs = torch.tensor([obb], dtype=torch.float32)
     recon = roundtrip(obbs)
     err = obb_vertex_error(obbs, recon)
-    assert err.item() < ROUNDTRIP_TOL, (
-        f"{name}: vertex error {err.item():.2e} >= {ROUNDTRIP_TOL:.0e}"
-    )
+    assert (
+        err.item() < ROUNDTRIP_TOL
+    ), f"{name}: vertex error {err.item():.2e} >= {ROUNDTRIP_TOL:.0e}"
 
 
 def test_roundtrip_random_2000():
@@ -143,9 +139,42 @@ def test_roundtrip_random_2000():
     )
     recon = roundtrip(obbs)
     err = obb_vertex_error(obbs, recon)
-    assert err.item() < ROUNDTRIP_TOL, (
-        f"random 2000: vertex error {err.item():.2e} >= {ROUNDTRIP_TOL:.0e}"
-    )
+    assert (
+        err.item() < ROUNDTRIP_TOL
+    ), f"random 2000: vertex error {err.item():.2e} >= {ROUNDTRIP_TOL:.0e}"
+
+
+# ---------------------------------------------------------------------------
+# External-rectangle cxcywh composition helpers (Stage 2 Task 1)
+# ---------------------------------------------------------------------------
+#
+# TDD red-before-green: these tests fail to collect until
+# `external_cxcywh_to_oriented_box` and `oriented_box_to_external_cxcywh`
+# exist in engine/deim/obb_geometry.py. They verify (a) a full OBB
+# round-trip through the cxcywh composition and (b) equivalence with the
+# existing xyxy composition primitives.
+
+
+def test_external_cxcywh_helpers_roundtrip_obb_geometry():
+    obb = torch.tensor([[[0.55, 0.45, 0.30, 0.12, math.pi / 4]]], dtype=torch.float32)
+    external_cxcywh, offsets = oriented_box_to_external_xywh_rect(obb)
+    reconstructed = external_xywh_rect_to_oriented_box(external_cxcywh, offsets)
+
+    assert external_cxcywh.shape == (1, 1, 4)
+    assert offsets.shape == (1, 1, 2)
+    assert reconstructed.shape == (1, 1, 5)
+    assert obb_vertex_error(obb, reconstructed) < ROUNDTRIP_TOL
+
+
+def test_external_cxcywh_helper_matches_existing_xyxy_composition():
+    obb = torch.tensor([[[0.42, 0.58, 0.28, 0.10, math.pi / 6]]], dtype=torch.float32)
+    ext_xyxy, offsets = oriented_box_to_external_xyxy_rect(obb)
+    ext_cxcywh = box_xyxy_to_cxcywh(ext_xyxy)
+
+    via_helper = external_xywh_rect_to_oriented_box(ext_cxcywh, offsets)
+    via_primitives = external_xyxy_rect_to_oriented_box(ext_xyxy, offsets)
+
+    assert obb_vertex_error(via_helper, via_primitives) < ROUNDTRIP_TOL
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +231,7 @@ def test_near_square_parameter_theta_may_differ():
 # Periodic seam tests (production periodic_angle_distance utility)
 # ---------------------------------------------------------------------------
 
+
 def test_periodic_seam_near_0_and_pi():
     """Angles near 0 and pi are geometrically close for OBBs (spec 8.2).
 
@@ -236,12 +266,12 @@ def test_periodic_seam_0_and_pi():
     periodic = periodic_angle_distance(pred, target)
     ordinary = ordinary_normalized_theta_l1(pred, target)
 
-    assert periodic.item() < 1e-6, (
-        f"periodic distance at seam should be ~0, got {periodic.item():.2e}"
-    )
-    assert ordinary.item() > 0.99, (
-        f"ordinary normalized L1 at seam should be ~1, got {ordinary.item():.2e}"
-    )
+    assert (
+        periodic.item() < 1e-6
+    ), f"periodic distance at seam should be ~0, got {periodic.item():.2e}"
+    assert (
+        ordinary.item() > 0.99
+    ), f"ordinary normalized L1 at seam should be ~1, got {ordinary.item():.2e}"
 
 
 def test_periodic_midrange_unchanged():
@@ -290,11 +320,13 @@ def test_periodic_gradient_exists_for_non_boundary_points():
 # Stale-state guard: confirm we import the on-disk repo module
 # ---------------------------------------------------------------------------
 
+
 def test_imports_on_disk_repo_module():
     """stale_state guard: the imported module must come from this repo's
     on-disk engine/deim/obb_geometry.py, not a stale installed package.
     """
     import engine.deim.obb_geometry as geom
+
     expected = os.path.join(ROOT, "engine", "deim", "obb_geometry.py")
     actual = os.path.realpath(geom.__file__)
     assert actual == os.path.realpath(expected), (
@@ -312,7 +344,11 @@ OFFSET_SCALE_CASES = [
     ("shifted", [0.5, 0.5, 0.3, 0.2, 0.3], [0.6, 0.4, 0.25, 0.18, 0.5]),
     ("rotated", [0.5, 0.5, 0.35, 0.15, 0.0], [0.5, 0.5, 0.3, 0.3, math.pi / 4]),
     ("theta_near_0", [0.5, 0.5, 0.3, 0.1, 0.0], [0.55, 0.5, 0.25, 0.12, 0.1]),
-    ("theta_near_pi", [0.5, 0.5, 0.3, 0.1, math.pi - 0.01], [0.45, 0.5, 0.28, 0.09, 0.5]),
+    (
+        "theta_near_pi",
+        [0.5, 0.5, 0.3, 0.1, math.pi - 0.01],
+        [0.45, 0.5, 0.28, 0.09, 0.5],
+    ),
 ]
 
 _REG_SCALE_T = torch.tensor([4.0])
@@ -329,8 +365,8 @@ def _raw_encode_distances(ref_obb, gt_obb, reg_scale, offset_scale_source):
     quantization loss. This is the test helper referenced in the Todo 5
     acceptance criteria for the mismatch demonstration.
     """
-    ext_xyxy_pred, vo_pred = oriented_box_to_external_rect(ref_obb)
-    ext_xyxy_gt, vo_gt = oriented_box_to_external_rect(gt_obb)
+    ext_xyxy_pred, vo_pred = oriented_box_to_external_xyxy_rect(ref_obb)
+    ext_xyxy_gt, vo_gt = oriented_box_to_external_xyxy_rect(gt_obb)
     ext_cxcywh_pred = box_xyxy_to_cxcywh(ext_xyxy_pred)
     ext_cxcywh_gt = box_xyxy_to_cxcywh(ext_xyxy_gt)
     rs = abs(reg_scale)
@@ -362,9 +398,9 @@ def test_offset_scale_pre_decode_preserves_current_behavior(name, ref, target):
     dist = _raw_encode_distances(ref_t, target_t, _REG_SCALE_T, "pre")
     out_default = distance2bbox_obb(ref_t, dist, _REG_SCALE_T)
     out_pre = distance2bbox_obb(ref_t, dist, _REG_SCALE_T, offset_scale_source="pre")
-    assert torch.equal(out_default, out_pre), (
-        f"{name}: decode with explicit 'pre' differs from default path"
-    )
+    assert torch.equal(
+        out_default, out_pre
+    ), f"{name}: decode with explicit 'pre' differs from default path"
 
 
 @pytest.mark.parametrize(
@@ -382,9 +418,9 @@ def test_offset_scale_pre_encode_preserves_current_behavior(name, ref, target):
     six_pre, _, _ = bbox2distance_obb(
         ref_t, target_t, _REG_MAX, _REG_SCALE_T, _UP_T, offset_scale_source="pre"
     )
-    assert torch.equal(six_default, six_pre), (
-        f"{name}: encode with explicit 'pre' differs from default path"
-    )
+    assert torch.equal(
+        six_default, six_pre
+    ), f"{name}: encode with explicit 'pre' differs from default path"
 
 
 @pytest.mark.parametrize(
@@ -396,9 +432,9 @@ def test_offset_scale_post_decode_produces_finite_obb(name, ref, target):
     target_t = torch.tensor([target], dtype=torch.float32)
     dist = _raw_encode_distances(ref_t, target_t, _REG_SCALE_T, "pre")
     out_post = distance2bbox_obb(ref_t, dist, _REG_SCALE_T, offset_scale_source="post")
-    assert torch.isfinite(out_post).all(), (
-        f"{name}: post decode produced non-finite OBB: {out_post}"
-    )
+    assert torch.isfinite(
+        out_post
+    ).all(), f"{name}: post decode produced non-finite OBB: {out_post}"
 
 
 @pytest.mark.parametrize(
@@ -413,9 +449,9 @@ def test_offset_scale_post_encode_produces_finite_distances(name, ref, target):
     six_post, wr, wl = bbox2distance_obb(
         ref_t, target_t, _REG_MAX, _REG_SCALE_T, _UP_T, offset_scale_source="post"
     )
-    assert torch.isfinite(six_post).all(), (
-        f"{name}: post encode produced non-finite distances: {six_post}"
-    )
+    assert torch.isfinite(
+        six_post
+    ).all(), f"{name}: post encode produced non-finite distances: {six_post}"
     assert torch.isfinite(wr).all() and torch.isfinite(wl).all()
 
 
@@ -449,9 +485,9 @@ def test_offset_scale_pre_inversion_roundtrip(name, ref, target):
     dist = _raw_encode_distances(ref_t, target_t, _REG_SCALE_T, "pre")
     recon = distance2bbox_obb(ref_t, dist, _REG_SCALE_T, offset_scale_source="pre")
     err = obb_vertex_error(target_t, recon)
-    assert err.item() < INVERSION_TOL, (
-        f"{name}: pre/pre inversion error {err.item():.2e} >= {INVERSION_TOL:.0e}"
-    )
+    assert (
+        err.item() < INVERSION_TOL
+    ), f"{name}: pre/pre inversion error {err.item():.2e} >= {INVERSION_TOL:.0e}"
 
 
 @pytest.mark.parametrize(
@@ -466,9 +502,9 @@ def test_offset_scale_post_inversion_roundtrip(name, ref, target):
     dist = _raw_encode_distances(ref_t, target_t, _REG_SCALE_T, "post")
     recon = distance2bbox_obb(ref_t, dist, _REG_SCALE_T, offset_scale_source="post")
     err = obb_vertex_error(target_t, recon)
-    assert err.item() < INVERSION_TOL, (
-        f"{name}: post/post inversion error {err.item():.2e} >= {INVERSION_TOL:.0e}"
-    )
+    assert (
+        err.item() < INVERSION_TOL
+    ), f"{name}: post/post inversion error {err.item():.2e} >= {INVERSION_TOL:.0e}"
 
 
 @pytest.mark.parametrize(
@@ -508,9 +544,9 @@ def test_offset_scale_mismatch_increases_inversion_error(name, ref, target):
         obb_vertex_error(target_t, recon_mismatch_2).item(),
     )
 
-    assert err_matched < INVERSION_TOL, (
-        f"{name}: matched inversion error {err_matched:.2e} >= {INVERSION_TOL:.0e}"
-    )
+    assert (
+        err_matched < INVERSION_TOL
+    ), f"{name}: matched inversion error {err_matched:.2e} >= {INVERSION_TOL:.0e}"
     assert err_mismatch > err_matched, (
         f"{name}: mismatch error {err_mismatch:.2e} must exceed matched "
         f"{err_matched:.2e} — if not, the case does not exercise the "
@@ -523,7 +559,7 @@ def test_offset_scale_random_mismatch_increases_error():
 
     Theta is clamped away from the exact 0/pi boundary to avoid a
     pre-existing ADR degeneracy: at theta=0 or theta=pi the vertex offsets
-    hit extremes (epsilon=full width, eta=0) and external_rect_to_oriented_box
+    hit extremes (epsilon=full width, eta=0) and external_xyxy_rect_to_oriented_box
     degenerates. This is a geometric property of the ADR representation,
     not a defect of the offset_scale_source change under test.
     """
@@ -554,15 +590,19 @@ def test_offset_scale_random_mismatch_increases_error():
     dist_pre = _raw_encode_distances(ref, target, _REG_SCALE_T, "pre")
     dist_post = _raw_encode_distances(ref, target, _REG_SCALE_T, "post")
 
-    recon_matched = distance2bbox_obb(ref, dist_pre, _REG_SCALE_T, offset_scale_source="pre")
-    recon_mismatch = distance2bbox_obb(ref, dist_pre, _REG_SCALE_T, offset_scale_source="post")
+    recon_matched = distance2bbox_obb(
+        ref, dist_pre, _REG_SCALE_T, offset_scale_source="pre"
+    )
+    recon_mismatch = distance2bbox_obb(
+        ref, dist_pre, _REG_SCALE_T, offset_scale_source="post"
+    )
 
     err_matched = obb_vertex_error(target, recon_matched).item()
     err_mismatch = obb_vertex_error(target, recon_mismatch).item()
 
-    assert err_matched < INVERSION_TOL, (
-        f"random: matched inversion error {err_matched:.2e} >= {INVERSION_TOL:.0e}"
-    )
+    assert (
+        err_matched < INVERSION_TOL
+    ), f"random: matched inversion error {err_matched:.2e} >= {INVERSION_TOL:.0e}"
     assert err_mismatch > err_matched, (
         f"random: mismatch error {err_mismatch:.2e} must exceed matched "
         f"{err_matched:.2e}"
@@ -600,9 +640,7 @@ def _make_matched_pair(pred_box, target_box):
     pred_box / target_box are lists of length 4 (HBB) or 5 (OBB).
     Returns (outputs, targets, indices, num_boxes=1).
     """
-    outputs = {
-        "pred_boxes": torch.tensor([pred_box], dtype=torch.float32).unsqueeze(0)
-    }
+    outputs = {"pred_boxes": torch.tensor([pred_box], dtype=torch.float32).unsqueeze(0)}
     targets = [
         {
             "boxes": torch.tensor([target_box], dtype=torch.float32),
@@ -631,9 +669,7 @@ def test_criterion_obb_seam_angle_contribution_small():
 
     # Document the ordinary-L1 baseline that the fix replaces.
     ordinary_angle_l1 = abs(math.pi - 0.02) / math.pi
-    assert ordinary_angle_l1 > 0.99, (
-        "baseline ordinary L1 should be ~0.994 at the seam"
-    )
+    assert ordinary_angle_l1 > 0.99, "baseline ordinary L1 should be ~0.994 at the seam"
 
     # Spatial dims match -> spatial L1 = 0 -> loss_bbox ≈ angle term only.
     assert losses["loss_bbox"].item() < 0.05, (
@@ -698,9 +734,7 @@ def test_criterion_hbb_uses_ordinary_l1_unaffected():
     losses = criterion.loss_boxes(outputs, targets, indices, num_boxes)
 
     expected_l1 = 0.05 * 4  # 0.2
-    assert torch.isclose(
-        losses["loss_bbox"], torch.tensor(expected_l1), atol=1e-6
-    ), (
+    assert torch.isclose(losses["loss_bbox"], torch.tensor(expected_l1), atol=1e-6), (
         f"HBB loss_bbox should be ordinary L1 ({expected_l1}), "
         f"got {losses['loss_bbox'].item():.6f}"
     )
@@ -804,8 +838,8 @@ def _make_matcher_inputs(pred_obbs, target_obbs, num_classes=1):
 
 
 _SEAM_SPATIAL = [0.5, 0.5, 0.3, 0.2]
-_SEAM_PRED_A = _SEAM_SPATIAL + [math.pi - 0.01]   # seam-side, equiv to theta=0.01
-_SEAM_PRED_B = _SEAM_SPATIAL + [math.pi / 2]      # geometrically far
+_SEAM_PRED_A = _SEAM_SPATIAL + [math.pi - 0.01]  # seam-side, equiv to theta=0.01
+_SEAM_PRED_B = _SEAM_SPATIAL + [math.pi / 2]  # geometrically far
 _SEAM_TARGET = _SEAM_SPATIAL + [0.01]
 
 
@@ -822,28 +856,29 @@ def test_matcher_seam_obeys_periodic_angle():
     GREEN after fix: periodic angle distance gives
     cost_A ~= 0.006 < cost_B ~= 0.497, so it picks A (correct).
     """
-    outputs, targets = _make_matcher_inputs([_SEAM_PRED_A, _SEAM_PRED_B], [_SEAM_TARGET])
+    outputs, targets = _make_matcher_inputs(
+        [_SEAM_PRED_A, _SEAM_PRED_B], [_SEAM_TARGET]
+    )
 
     # Reference: ordinary L1 cost matrix (old behavior the fix replaces)
     preds_t = torch.tensor([_SEAM_PRED_A, _SEAM_PRED_B], dtype=torch.float32)
     target_t = torch.tensor([_SEAM_TARGET], dtype=torch.float32)
     factor = target_t.new_tensor([1, 1, 1, 1, 1.0 / math.pi])
     old_cost = torch.cdist(preds_t * factor, target_t * factor, p=1)
-    assert old_cost[0, 0].item() > old_cost[1, 0].item(), (
-        "ordinary L1 should rank seam-side A as more expensive than B"
-    )
+    assert (
+        old_cost[0, 0].item() > old_cost[1, 0].item()
+    ), "ordinary L1 should rank seam-side A as more expensive than B"
     assert old_cost[0, 0].item() > 0.9, (
-        f"ordinary L1 seam cost should be ~0.994, "
-        f"got {old_cost[0, 0].item():.4f}"
+        f"ordinary L1 seam cost should be ~0.994, " f"got {old_cost[0, 0].item():.4f}"
     )
 
     # Actual: periodic matcher picks A (index 0)
     matcher = _make_matcher(lambda_angle=1.0, cost_bbox=1.0)
     result = matcher(outputs, targets, epoch=0)
     selected = result["indices"][0][0].item()
-    assert selected == 0, (
-        f"periodic matcher should pick seam-side A (index 0), got {selected}"
-    )
+    assert (
+        selected == 0
+    ), f"periodic matcher should pick seam-side A (index 0), got {selected}"
 
 
 def test_matcher_seam_lambda_angle_zero_disables_angle():
@@ -859,8 +894,7 @@ def test_matcher_seam_lambda_angle_zero_disables_angle():
 
     spatial_cost = torch.cdist(preds_t[..., :4], target_t[..., :4], p=1)
     angle_cost = (
-        periodic_angle_distance(preds_t[:, None, 4:], target_t[None, :, 4:])
-        .squeeze(-1)
+        periodic_angle_distance(preds_t[:, None, 4:], target_t[None, :, 4:]).squeeze(-1)
         / math.pi
     )
 
@@ -873,9 +907,9 @@ def test_matcher_seam_lambda_angle_zero_disables_angle():
 
     # lambda_angle=1: cost_bbox differs by angle term (A < B)
     cost_one = spatial_cost + 1.0 * angle_cost
-    assert cost_one[0, 0].item() < cost_one[1, 0].item(), (
-        "lambda_angle=1: seam-side A must have lower cost than B"
-    )
+    assert (
+        cost_one[0, 0].item() < cost_one[1, 0].item()
+    ), "lambda_angle=1: seam-side A must have lower cost than B"
 
     # Actual matcher executes with lambda_angle=0 without error
     outputs, targets = _make_matcher_inputs(
@@ -1064,12 +1098,12 @@ def test_offset_validity_clamp_helper_does_not_mutate_inputs(name, ext, vo, expe
     ext_before = ext_t.clone()
     vo_before = vo_t.clone()
     _ = clamp_vertex_offsets_to_external_rect(ext_t, vo_t)
-    assert torch.equal(ext_t, ext_before), (
-        f"{name}: external_rect was mutated by the helper"
-    )
-    assert torch.equal(vo_t, vo_before), (
-        f"{name}: vertex_offsets was mutated by the helper"
-    )
+    assert torch.equal(
+        ext_t, ext_before
+    ), f"{name}: external_rect was mutated by the helper"
+    assert torch.equal(
+        vo_t, vo_before
+    ), f"{name}: vertex_offsets was mutated by the helper"
 
 
 def test_offset_validity_clamp_helper_preserves_valid_offsets():
@@ -1080,9 +1114,9 @@ def test_offset_validity_clamp_helper_preserves_valid_offsets():
     ext_t = torch.tensor([_VALID_EXT], dtype=torch.float32)
     vo_t = torch.tensor([_VALID_VO], dtype=torch.float32)
     clamped = clamp_vertex_offsets_to_external_rect(ext_t, vo_t)
-    assert torch.allclose(clamped, vo_t, atol=1e-7), (
-        f"valid offsets changed: {clamped[0].tolist()} != {vo_t[0].tolist()}"
-    )
+    assert torch.allclose(
+        clamped, vo_t, atol=1e-7
+    ), f"valid offsets changed: {clamped[0].tolist()} != {vo_t[0].tolist()}"
 
 
 def test_offset_validity_clamp_helper_batch_broadcasts():
@@ -1110,15 +1144,15 @@ def test_offset_validity_clamp_helper_batch_broadcasts():
 
 
 def test_offset_validity_decode_default_is_unguarded():
-    """external_rect_to_oriented_box must default to clamp_offsets=False
+    """external_xyxy_rect_to_oriented_box must default to clamp_offsets=False
     (unguarded). Passing no clamp_offsets argument must equal passing
     clamp_offsets=False explicitly. This preserves the current training
     decode behavior for gradient-bearing outputs.
     """
     ext_t = torch.tensor([_VALID_EXT], dtype=torch.float32)
     vo_t = torch.tensor([_VALID_VO], dtype=torch.float32)
-    out_default = external_rect_to_oriented_box(ext_t, vo_t)
-    out_false = external_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=False)
+    out_default = external_xyxy_rect_to_oriented_box(ext_t, vo_t)
+    out_false = external_xyxy_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=False)
     assert torch.equal(out_default, out_false), (
         "default decode must equal clamp_offsets=False; the default must "
         "preserve the unguarded training decode path."
@@ -1136,11 +1170,11 @@ def test_offset_validity_decode_guarded_produces_finite_obb(name, ext, vo, expec
     """
     ext_t = torch.tensor([ext], dtype=torch.float32)
     vo_t = torch.tensor([vo], dtype=torch.float32)
-    out = external_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=True)
+    out = external_xyxy_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=True)
     assert out.shape[-1] == 5
-    assert torch.isfinite(out).all(), (
-        f"{name}: guarded decode produced non-finite OBB: {out}"
-    )
+    assert torch.isfinite(
+        out
+    ).all(), f"{name}: guarded decode produced non-finite OBB: {out}"
 
 
 def test_offset_validity_decode_guarded_equals_manual_clamp():
@@ -1151,10 +1185,10 @@ def test_offset_validity_decode_guarded_equals_manual_clamp():
     ext_t = torch.tensor([_VALID_EXT], dtype=torch.float32)
     # Use offsets that are partly invalid so the clamp changes them.
     vo_t = torch.tensor([[-0.2, 0.9]], dtype=torch.float32)  # ep<0, eta>ext_h
-    manual = external_rect_to_oriented_box(
+    manual = external_xyxy_rect_to_oriented_box(
         ext_t, clamp_vertex_offsets_to_external_rect(ext_t, vo_t)
     )
-    guarded = external_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=True)
+    guarded = external_xyxy_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=True)
     assert torch.allclose(manual, guarded, atol=1e-7), (
         f"guarded decode {guarded[0].tolist()} != manual-clamp "
         f"{manual[0].tolist()}; the guard must be a pure pre-clamp."
@@ -1171,8 +1205,8 @@ def test_offset_validity_decode_unguarded_does_not_clamp():
     ext_t = torch.tensor([_VALID_EXT], dtype=torch.float32)
     # Strongly invalid offsets: negative epsilon, eta far beyond ext_h.
     vo_t = torch.tensor([[-0.5, 5.0]], dtype=torch.float32)
-    out_unguarded = external_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=False)
-    out_guarded = external_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=True)
+    out_unguarded = external_xyxy_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=False)
+    out_guarded = external_xyxy_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=True)
     assert not torch.allclose(out_unguarded, out_guarded, atol=1e-6), (
         "unguarded and guarded decode must differ for invalid offsets; "
         f"unguarded={out_unguarded[0].tolist()}, "
@@ -1189,16 +1223,14 @@ def test_offset_validity_decode_unguarded_remains_available_for_gradient():
     'do not clamp the loss-bearing tensor' constraint from the plan.
     """
     ext_t = torch.tensor([_VALID_EXT], dtype=torch.float32)
-    vo_t = torch.tensor(
-        [[-0.1, 0.7]], dtype=torch.float32, requires_grad=True
-    )
-    out = external_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=False)
+    vo_t = torch.tensor([[-0.1, 0.7]], dtype=torch.float32, requires_grad=True)
+    out = external_xyxy_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=False)
     loss = out.sum()
     loss.backward()
     assert vo_t.grad is not None, "unguarded decode must be differentiable"
-    assert torch.isfinite(vo_t.grad).all(), (
-        f"unguarded decode gradient must be finite, got {vo_t.grad}"
-    )
+    assert torch.isfinite(
+        vo_t.grad
+    ).all(), f"unguarded decode gradient must be finite, got {vo_t.grad}"
 
 
 def test_offset_validity_decode_guarded_on_zero_size_rect_finite():
@@ -1208,10 +1240,10 @@ def test_offset_validity_decode_guarded_on_zero_size_rect_finite():
     """
     ext_t = torch.tensor([[0.3, 0.5, 0.3, 0.5]], dtype=torch.float32)
     vo_t = torch.tensor([[-1.0, 5.0]], dtype=torch.float32)
-    out = external_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=True)
-    assert torch.isfinite(out).all(), (
-        f"zero-size ext rect guarded decode must be finite, got {out}"
-    )
+    out = external_xyxy_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=True)
+    assert torch.isfinite(
+        out
+    ).all(), f"zero-size ext rect guarded decode must be finite, got {out}"
 
 
 def test_offset_validity_imports_on_disk_repo_module():

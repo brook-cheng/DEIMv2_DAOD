@@ -14,10 +14,9 @@ import pytest
 import torch
 
 from engine.deim.deim_criterion import DEIMCriterion
-from engine.deim.obb_geometry import oriented_box_to_external_rect
+from engine.deim.obb_geometry import oriented_box_to_external_xyxy_rect
 from engine.deim.obb_ops import kld_loss
 from engine.deim.box_ops import generalized_box_iou, box_xyxy_to_cxcywh
-
 
 ADR_WEIGHTS = {
     "loss_extrect_l1": 5.0,
@@ -46,9 +45,7 @@ def _adr_criterion(*, keep_kld=True, weights=None, **kwargs):
 
 def _pair(pred, target, *, requires_grad=False):
     """Build matched outputs/targets/indices for a single-box case."""
-    pred_boxes = torch.tensor(
-        [pred], dtype=torch.float32, requires_grad=requires_grad
-    )
+    pred_boxes = torch.tensor([pred], dtype=torch.float32, requires_grad=requires_grad)
     outputs = {"pred_boxes": pred_boxes.unsqueeze(0)}
     targets = [{"boxes": torch.tensor([target]), "labels": torch.tensor([0])}]
     indices = [(torch.tensor([0]), torch.tensor([0]))]
@@ -58,6 +55,7 @@ def _pair(pred, target, *, requires_grad=False):
 # ---------------------------------------------------------------------------
 # Task 1: adr_loss flag and weight_dict validation
 # ---------------------------------------------------------------------------
+
 
 def test_adr_init_accepts_flag():
     """adr_loss=True with full ADR weights must construct without error."""
@@ -140,7 +138,10 @@ def test_adr_keys_and_no_angle_loss():
     losses = _adr_criterion().loss_boxes(outputs, targets, indices, 1.0)
 
     assert set(losses) == {
-        "loss_extrect_l1", "loss_extrect_giou", "loss_offset_l1", "loss_kld"
+        "loss_extrect_l1",
+        "loss_extrect_giou",
+        "loss_offset_l1",
+        "loss_kld",
     }
     assert "loss_angle" not in losses
     assert "loss_probiou" not in losses
@@ -153,9 +154,9 @@ def test_adr_extrect_l1_axis_aligned_manual():
     losses = _adr_criterion().loss_boxes(outputs, targets, indices, 1.0)
 
     expected = torch.tensor(0.30)
-    assert torch.allclose(losses["loss_extrect_l1"], expected, atol=1e-6), (
-        f"loss_extrect_l1={losses['loss_extrect_l1'].item():.6f} != 0.30"
-    )
+    assert torch.allclose(
+        losses["loss_extrect_l1"], expected, atol=1e-6
+    ), f"loss_extrect_l1={losses['loss_extrect_l1'].item():.6f} != 0.30"
 
 
 def test_adr_extrect_giou_axis_aligned_manual():
@@ -170,9 +171,9 @@ def test_adr_extrect_giou_axis_aligned_manual():
     losses = _adr_criterion().loss_boxes(outputs, targets, indices, 1.0)
 
     expected = torch.tensor(0.5)
-    assert torch.allclose(losses["loss_extrect_giou"], expected, atol=1e-6), (
-        f"loss_extrect_giou={losses['loss_extrect_giou'].item():.6f} != 0.5"
-    )
+    assert torch.allclose(
+        losses["loss_extrect_giou"], expected, atol=1e-6
+    ), f"loss_extrect_giou={losses['loss_extrect_giou'].item():.6f} != 0.5"
 
 
 def test_adr_rotated_components_match_production_decomposition():
@@ -184,8 +185,8 @@ def test_adr_rotated_components_match_production_decomposition():
 
     pred_t = torch.tensor([pred], dtype=torch.float32)
     target_t = torch.tensor([target], dtype=torch.float32)
-    ext_p, off_p = oriented_box_to_external_rect(pred_t)
-    ext_t, off_t = oriented_box_to_external_rect(target_t)
+    ext_p, off_p = oriented_box_to_external_xyxy_rect(pred_t)
+    ext_t, off_t = oriented_box_to_external_xyxy_rect(target_t)
 
     exp_l1 = F_l1_on(ext_p, ext_t)
     exp_off = (off_p - off_t).abs().sum(-1).sum()
@@ -230,6 +231,7 @@ def test_adr_empty_matches_return_finite_zeros():
 # ---------------------------------------------------------------------------
 # Task 3: boundary conditions and gradient quality
 # ---------------------------------------------------------------------------
+
 
 def test_adr_nokld_omits_kld_key():
     """keep_kld=False must omit loss_kld and keep the three ADR keys."""
@@ -277,7 +279,7 @@ def test_adr_gradient_flows_finite_and_center_directed():
     NOTE: vertex offsets are computed via argmin/argmax gather, which
     does not backpropagate through the selected vertex — the offset
     terms contribute gradient only via x_max/y_max. This is a known
-    geometric property of oriented_box_to_external_rect; the assertion
+    geometric property of oriented_box_to_external_xyxy_rect; the assertion
     therefore locks finiteness everywhere and non-zero cx/cy only.
     """
     pred, outputs, targets, indices = _pair(

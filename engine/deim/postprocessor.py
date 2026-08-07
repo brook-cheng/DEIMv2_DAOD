@@ -59,13 +59,6 @@ class PostProcessor(nn.Module):
             bbox_pred *= orig_target_sizes.repeat(1, 2).unsqueeze(1)
         elif self.box_mode == "obb":
             # OBB: 保留 cxcywhθ，逐维缩放到像素
-            # PostProcessor only sees 5D OBBs (cx, cy, w, h, theta); the
-            # (epsilon, eta) vertex offsets are consumed inside the decoder
-            # / dfine_utils decode boundary (external_rect_to_oriented_box)
-            # and are not available here. Offset-validity guarding is
-            # therefore applied at the geometry decode boundary via
-            # external_rect_to_oriented_box(clamp_offsets=True), not in the
-            # postprocessor (plan Todo 6, MUST DO #5).
             img_w = orig_target_sizes[:, 0:1]
             img_h = orig_target_sizes[:, 1:2]
             factor = torch.cat(
@@ -84,14 +77,18 @@ class PostProcessor(nn.Module):
             )
 
         else:
-            scores = F.softmax(logits)[:, :, :-1]
+            scores = F.softmax(logits, dim=-1)[:, :, :-1]
             scores, labels = scores.max(dim=-1)
             if scores.shape[1] > self.num_top_queries:
                 scores, index = torch.topk(scores, self.num_top_queries, dim=-1)
                 labels = torch.gather(labels, dim=1, index=index)
                 boxes = torch.gather(
-                    boxes, dim=1, index=index.unsqueeze(-1).tile(1, 1, boxes.shape[-1])
+                    bbox_pred,
+                    dim=1,
+                    index=index.unsqueeze(-1).tile(1, 1, boxes.shape[-1]),
                 )
+            else:
+                boxes = bbox_pred
 
         if self.deploy_mode:
             return labels, boxes, scores

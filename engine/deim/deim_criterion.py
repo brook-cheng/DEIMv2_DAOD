@@ -15,7 +15,7 @@ import torchvision
 import copy
 
 from .dfine_utils import bbox2distance, bbox2distance_obb
-from .obb_geometry import periodic_angle_distance, oriented_box_to_external_rect
+from .obb_geometry import periodic_angle_distance, oriented_box_to_external_xyxy_rect
 from .box_ops import (
     box_cxcywh_to_xyxy,
     box_xyxy_to_cxcywh,
@@ -317,8 +317,12 @@ class DEIMCriterion(nn.Module):
                         losses["loss_kld"] = zero
                     return losses
 
-                ext_rect_src, offsets_src = oriented_box_to_external_rect(src_boxes)
-                ext_rect_tgt, offsets_tgt = oriented_box_to_external_rect(target_boxes)
+                ext_rect_src, offsets_src = oriented_box_to_external_xyxy_rect(
+                    src_boxes
+                )
+                ext_rect_tgt, offsets_tgt = oriented_box_to_external_xyxy_rect(
+                    target_boxes
+                )
 
                 ext_src_cxcywh = box_xyxy_to_cxcywh(ext_rect_src)
                 ext_tgt_cxcywh = box_xyxy_to_cxcywh(ext_rect_tgt)

@@ -88,10 +88,10 @@ def get_contrastive_denoising_training_group(
         )
 
     ### add boxes noise: random box bias, simulate mistake label ###
+    spatial_bbox = input_query_bbox[
+        ..., :4
+    ]  # (x,y,w,h),不对角度加噪声，所有可以共用hbb的操作
     if box_noise_scale > 0:
-        spatial_bbox = input_query_bbox[
-            ..., :4
-        ]  # (x,y,w,h),不对角度加噪声，所有可以共用hbb的操作
         known_bbox = box_cxcywh_to_xyxy(spatial_bbox)
         diff = torch.tile(spatial_bbox[..., 2:] * 0.5, [1, 1, 2]) * box_noise_scale
         rand_sign = torch.randint_like(spatial_bbox, 0, 2) * 2.0 - 1.0
@@ -104,17 +104,17 @@ def get_contrastive_denoising_training_group(
         known_bbox = torch.clip(known_bbox, min=0.0, max=1.0)
         noise_spatial = box_xyxy_to_cxcywh(known_bbox)
         noise_spatial[noise_spatial < 0] *= -1
+    else:
+        noise_spatial = spatial_bbox
 
-        if box_mode == "hbb":
-            input_query_bbox = noise_spatial
-        elif box_mode == "obb":
-            # [0,pi) → [0,1]
-            input_query_bbox[..., 4] = physical_rad_to_norm(input_query_bbox[..., 4])
-            input_query_bbox = torch.cat(
-                [noise_spatial, input_query_bbox[..., 4:]], dim=-1
-            )
+    if box_mode == "hbb":
+        input_query_bbox = noise_spatial
+    elif box_mode == "obb":
+        # [0,pi) → [0,1]
+        input_query_bbox[..., 4] = physical_rad_to_norm(input_query_bbox[..., 4])
+        input_query_bbox = torch.cat([noise_spatial, input_query_bbox[..., 4:]], dim=-1)
 
-        input_query_bbox_unact = inverse_sigmoid(input_query_bbox)
+    input_query_bbox_unact = inverse_sigmoid(input_query_bbox)
 
     input_query_logits = class_embed(input_query_class)
 
