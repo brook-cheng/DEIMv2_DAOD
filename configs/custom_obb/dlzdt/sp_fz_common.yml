@@ -54,6 +54,16 @@ warmup_iter: 30     # warmup 迭代数（约 0.1 * epoches）
 flat_epoch: 150     # flat 阶段截止 epoch（约 epoches/2）
 no_aug_epoch: 60    # 最后 N 个 epoch 关闭增强（约 epoches * 0.2）
 
+#### ES-Base：EMA mAP50_95 early stopping + 恢复全局最佳 checkpoint
+early_stopping:
+  enabled: False
+  metric: mAP50_95
+  mode: max
+  min_epochs: 100
+  patience: 30
+  min_delta: 0.0001
+  restore_best: true
+
 # ---- 训练数据 ----
 # 数据集: 电缆终端头 OBB 检测，YOLO-OBB 格式
 # 数据增强策略（3 阶段增强强度）:
