@@ -2,7 +2,7 @@
 
 > 评审日期：2026-06-25
 > 评审对象：
-> - 设计：`docs/superpowers/design/2026-06-25-decoder-decoupling-design.md`（canonical）
+> - 设计：`docs/superpowers/specs/2026-06-25-decoder-decoupling-design.md`（canonical）
 > - 计划：`docs/superpowers/plans/2026-06-25-decoder-decoupling-plan.md`（canonical）
 > 评审维度：合理性（root cause 是否成立）、完备性（计划是否可执行）、可靠性（技术细节是否正确）
 > 评审方法：阅读设计/计划/诊断脚本/历史代码审查/训练日志/配置/criterion 与 decoder 源码 + Oracle 独立对抗式复核

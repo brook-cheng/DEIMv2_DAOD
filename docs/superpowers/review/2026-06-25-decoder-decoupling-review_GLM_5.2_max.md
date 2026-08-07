@@ -3,7 +3,7 @@
 > 评审日期：2026-06-25
 > 评审模型：GLM-5.2-max
 > 评审对象：
-> - 设计：`docs/superpowers/design/2026-06-25-decoder-decoupling-design.md`（canonical）
+> - 设计：`docs/superpowers/specs/2026-06-25-decoder-decoupling-design.md`（canonical）
 > - 计划：`docs/superpowers/plans/2026-06-25-decoder-decoupling-plan.md`（canonical）
 > - 诊断证据：`test/diagnose_hungarian_matching.py` 及其输出 `test/outputs/matching_diag/matching_report.txt`
 > - 代码基线：`engine/deim/{deim_decoder,dfine_decoder,dfine_utils,deim_utils,deim_criterion}.py`

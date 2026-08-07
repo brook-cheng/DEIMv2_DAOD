@@ -3,7 +3,7 @@
 > **评审者**: Sisyphus (deepseek-v4-pro-max)
 > **评审日期**: 2026-06-25
 > **评审对象**:
-> - `docs/superpowers/design/2026-06-25-decoder-decoupling-design.md`（canonical 设计方案）
+> - `docs/superpowers/specs/2026-06-25-decoder-decoupling-design.md`（canonical 设计方案）
 > - `docs/superpowers/plans/2026-06-25-decoder-decoupling-plan.md`（canonical 实施计划）
 > - `../specs/2026-06-24-hungarian-matching-diagnosis-design.md`（诊断方案）
 > - `test/diagnose_hungarian_matching.py`（诊断脚本）

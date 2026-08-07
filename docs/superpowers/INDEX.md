@@ -5,10 +5,6 @@
 
 ---
 
-## design/ — 脑暴与设计草稿
-
-[2026-06-25-decoder-decoupling-design](design/2026-06-25-decoder-decoupling-design.md) ★ **canonical** — DEIMv2-OBB Decoder 解耦设计：空间-语义-角度三层解耦，解决分类分数与 IoU 质量无关（MAL loss 不收敛）问题。2026-06-26 修订版，已纳入整合评审修正。
-
 ## specs/ — 已批准规范
 
 [2026-06-02-deimv2-obb-proposal](specs/2026-06-02-deimv2-obb-proposal.md) — DEIMv2-OBB 变更提案：通过 `box_mode` 闸门为 DEIMv2 增加定向边界框支持，使用 ADR 6-distribution DDF。
@@ -24,6 +20,8 @@
 [2026-06-23-deimv2-obb-evaluation-spec](specs/2026-06-23-deimv2-obb-evaluation-spec.md) — OBB 评估能力规范：定向检测评估指标与流程规范。
 
 [2026-06-24-hungarian-matching-diagnosis-design](specs/2026-06-24-hungarian-matching-diagnosis-design.md) — 匈牙利匹配正确性诊断实验设计（Q1-Q3 验证）。
+
+[2026-06-25-decoder-decoupling-design](specs/2026-06-25-decoder-decoupling-design.md) ★ **canonical** — DEIMv2-OBB Decoder 解耦设计：空间-语义-角度三层解耦，解决分类分数与 IoU 质量无关（MAL loss 不收敛）问题。2026-06-26 修订版，已纳入整合评审修正。
 
 [2026-07-01-training-monitoring-refactor-design](specs/2026-07-01-training-monitoring-refactor-design.md) — 训练监控体系重构设计：det_engine.py 日志/监控结构性问题（硬编码 loss key、Comet 双重上报、TensorBoard 冗余、无梯度监控）的重构设计。
 

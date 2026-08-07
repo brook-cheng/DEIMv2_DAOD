@@ -2,7 +2,7 @@
 
 > **评审日期**: 2026-06-29
 > **评审文件**: `engine/deim/deim_decoder.py` (CURRENT state after user edits)
-> **设计文档**: `docs/superpowers/design/2026-06-25-decoder-decoupling-design.md`
+> **设计文档**: `docs/superpowers/specs/2026-06-25-decoder-decoupling-design.md`
 > **前次评审**: `docs/superpowers/review/2026-06-29-decoder-interleaved-review.md`
 > **评审范围**: 用户 5 项改动后的剩余 bug + 设计合规性
 

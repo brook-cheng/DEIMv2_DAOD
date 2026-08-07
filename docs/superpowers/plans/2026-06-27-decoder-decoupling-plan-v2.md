@@ -2,7 +2,7 @@
 
 > **来源**: Hyperplan 对抗分析（5 个分析师 Round 1 独立分析 + Round 2 交叉攻击，蒸馏为结构化 bundle）
 > **修订**: 2026-06-27 第二轮 Hyperplan（4 个分析师针对 3 个用户反馈问题分析，确认修正方案）
-> **设计文档**: `docs/superpowers/design/2026-06-25-decoder-decoupling-design.md`
+> **设计文档**: `docs/superpowers/specs/2026-06-25-decoder-decoupling-design.md`
 > **创建日期**: 2026-06-27
 
 **Goal:** 将 DEIMv2-OBB decoder 拆分为 XYWH 路径（6层）和 R 路径（6层），通过 Gate Fusion（GF1~GF4）桥接，统一 (ε,η) 角度表示，引入多角度锚点和正交旋转注意力。

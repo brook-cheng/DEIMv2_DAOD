@@ -2,7 +2,7 @@
 
 > **评审日期**: 2026-06-29
 > **评审文件**: `engine/deim/deim_decoder.py`
-> **设计文档**: `docs/superpowers/design/2026-06-25-decoder-decoupling-design.md`
+> **设计文档**: `docs/superpowers/specs/2026-06-25-decoder-decoupling-design.md`
 > **评审范围**: 未提交的改动（decouple_angle 交错式 R decoder）
 
 ---

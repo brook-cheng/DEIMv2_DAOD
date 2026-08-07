@@ -1,7 +1,7 @@
 # DEIMv2-OBB Decoder 解耦实施计划 v3 — R Decoder 交错修正
 
 > **来源**: 基于 v2 计划修订，修正 R Decoder 不应作为独立 `forward_r_decoder` 方法，而应嵌入 `TransformerDecoder.forward` 主循环中与 XYWH 逐层交错执行
-> **设计文档**: `docs/superpowers/design/2026-06-25-decoder-decoupling-design.md`
+> **设计文档**: `docs/superpowers/specs/2026-06-25-decoder-decoupling-design.md`
 > **创建日期**: 2026-06-29
 
 **Goal:** 将 R Decoder 嵌入 `TransformerDecoder.forward` 主循环，与 XYWH 路径逐层交错执行，符合设计文档 mermaid 图的 L0→R0→L1→GF1→R1→L2→GF2→R2→...→L5→R5 流程。
