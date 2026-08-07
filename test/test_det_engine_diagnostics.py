@@ -135,9 +135,10 @@ class TestInspectGradients:
         from engine.solver.training_diagnostics import inspect_gradients
         p = nn.Parameter(torch.randn(4))
         p.grad = torch.randn(4)
-        norm = inspect_gradients([("w", p)], **self.METAS)
+        norm, zeroed = inspect_gradients([("w", p)], **self.METAS)
         assert isinstance(norm, float)
         assert norm > 0
+        assert zeroed == []
 
     def test_nan_gradient_raises_with_param_name(self):
         from engine.solver.training_diagnostics import inspect_gradients
@@ -157,8 +158,9 @@ class TestInspectGradients:
         from engine.solver.training_diagnostics import inspect_gradients
         p = nn.Parameter(torch.randn(4))
         p.grad = torch.zeros(4)
-        norm = inspect_gradients([("w", p)], **self.METAS)
+        norm, zeroed = inspect_gradients([("w", p)], **self.METAS)
         assert norm == 0.0
+        assert zeroed == []
 
     def test_exact_zero_with_flag_raises(self):
         from engine.solver.training_diagnostics import inspect_gradients
@@ -172,8 +174,9 @@ class TestInspectGradients:
         p1 = nn.Parameter(torch.randn(4))
         p2 = nn.Parameter(torch.randn(4))
         # Neither has .grad set
-        norm = inspect_gradients([("a", p1), ("b", p2)], **self.METAS)
+        norm, zeroed = inspect_gradients([("a", p1), ("b", p2)], **self.METAS)
         assert norm == 0.0
+        assert zeroed == []
 
     def test_all_none_grads_with_flag_raises(self):
         from engine.solver.training_diagnostics import inspect_gradients
@@ -188,15 +191,17 @@ class TestInspectGradients:
         p1.grad = torch.zeros(4)
         p2 = nn.Parameter(torch.randn(4))
         p2.grad = torch.randn(4)
-        norm = inspect_gradients([("a", p1), ("b", p2)], **self.METAS)
+        norm, zeroed = inspect_gradients([("a", p1), ("b", p2)], **self.METAS)
         assert norm > 0
+        assert zeroed == []
 
     def test_tiny_grad_passes(self):
         from engine.solver.training_diagnostics import inspect_gradients
         p = nn.Parameter(torch.randn(4))
         p.grad = torch.full((4,), 1e-20)
-        norm = inspect_gradients([("w", p)], **self.METAS)
+        norm, zeroed = inspect_gradients([("w", p)], **self.METAS)
         assert norm > 0
+        assert zeroed == []
 
     def test_error_message_names_first_affected_param(self):
         from engine.solver.training_diagnostics import inspect_gradients
