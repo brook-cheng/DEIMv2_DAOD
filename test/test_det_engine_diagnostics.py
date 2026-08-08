@@ -344,12 +344,11 @@ class TestStepCapIntegration:
         from engine.solver.det_engine import train_one_epoch
         model = self._fake_model()
         optimizer = self._fake_optimizer(model)
-        scaler = torch.amp.GradScaler("cpu")
         dl = self._fake_dataloader(3)
         stats = train_one_epoch(
             False, None, model, self._fake_criterion(return_finite=True), dl,
             optimizer, torch.device("cpu"), 0, max_norm=0.5,
-            print_freq=100, scaler=scaler,
+            print_freq=100, use_amp=True,
         )
         assert "loss" in stats
 
@@ -370,15 +369,12 @@ class TestStepCapIntegration:
         from engine.solver.det_engine import train_one_epoch
         model = self._fake_model()
         optimizer = self._fake_optimizer(model)
-        scaler = torch.amp.GradScaler("cpu")
         dl = self._fake_dataloader(3)
-        # Need to return a loss that is finite so loss dict check doesn't catch it,
-        # actually NaN in criterion should be caught by raise_for_nonfinite_losses
         with pytest.raises(FloatingPointError):
             train_one_epoch(
                 False, None, model, self._fake_criterion(return_finite=False), dl,
                 optimizer, torch.device("cpu"), 0, max_norm=0.5,
-                print_freq=100, scaler=scaler,
+                print_freq=100, use_amp=True,
             )
 
     def test_invalid_max_optimizer_steps_raises(self):

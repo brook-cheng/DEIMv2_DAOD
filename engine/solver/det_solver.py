@@ -184,7 +184,7 @@ class DetSolver(BaseSolver):
                 max_norm=args.clip_max_norm,
                 print_freq=args.print_freq,
                 ema=self.ema,
-                scaler=self.scaler,
+                use_amp=args.yaml_cfg.get("use_amp", False),
                 lr_warmup_scheduler=self.lr_warmup_scheduler,
                 comet_exp=comet_exp,
                 comet_step=epoch,

@@ -10,8 +10,7 @@ from typing import Iterable
 from pathlib import Path
 
 import torch
-import torch.amp
-from torch.cuda.amp.grad_scaler import GradScaler
+from torch.utils._pytree import tree_map
 
 try:
     from tqdm import tqdm
@@ -32,18 +31,6 @@ from .training_diagnostics import (
 # Parameters whose NaN/Inf gradients are zeroed (not crashed) with a log warning.
 _NAN_ZERO_PATTERNS: frozenset[str] = frozenset({"cls_token"})
 
-
-def _has_nonfinite_grads(model: torch.nn.Module) -> bool:
-    """Return True if any parameter has a non-finite (Inf or NaN) gradient.
-
-    Used after ``scaler.unscale_`` to detect AMP backward overflow before
-    ``inspect_gradients`` would raise.  Returns early on the first non-finite
-    gradient found.
-    """
-    for p in model.parameters():
-        if p.grad is not None and not torch.isfinite(p.grad).all():
-            return True
-    return False
 
 # ---------------------------------------------------------------------------
 #  Loss key parser: "loss_mal_aux_3" → ("loss_mal", "aux", 3)
@@ -188,7 +175,7 @@ def train_one_epoch(
     print_freq = kwargs.get("print_freq", 10)
 
     ema: ModelEMA = kwargs.get("ema", None)
-    scaler: GradScaler = kwargs.get("scaler", None)
+    use_amp: bool = kwargs.get("use_amp", False)
     lr_warmup_scheduler: Warmup = kwargs.get("lr_warmup_scheduler", None)
     kendall = kwargs.get("kendall", None)
     kendall_optimizer = kwargs.get("kendall_optimizer", None)
@@ -208,7 +195,6 @@ def train_one_epoch(
 
     _optimizer_step_count = 0
     _step_cap_reached = False
-    _amp_skipped_steps = 0
 
     use_tqdm = tqdm is not None
     if use_tqdm:
@@ -239,11 +225,19 @@ def train_one_epoch(
             _step_cap_reached = True
             break
 
-        if scaler is not None:
+        if use_amp:
             with torch.autocast(
-                device_type=str(device), dtype=torch.float16, cache_enabled=True
+                device_type=str(device), dtype=torch.bfloat16, cache_enabled=True
             ):
                 outputs = model(samples, targets=targets)
+
+            # BF16 前向输出递归转为 FP32，确保 criterion 全程以 FP32 计算
+            outputs = tree_map(
+                lambda t: t.float()
+                if isinstance(t, torch.Tensor) and t.is_floating_point()
+                else t,
+                outputs,
+            )
 
             if (
                 torch.isnan(outputs["pred_boxes"]).any()
@@ -267,56 +261,36 @@ def train_one_epoch(
 
             loss = sum(loss_dict.values())
             raise_for_nonfinite_total(loss, epoch=epoch, step=i, global_step=global_step)
-            scaler.scale(loss).backward()
+            loss.backward()
 
-            # Always unscale before gradient inspection and clipping
-            scaler.unscale_(optimizer)
+            _, zeroed = inspect_gradients(
+                model.named_parameters(),
+                fail_on_zero_grad=fail_on_zero_grad,
+                epoch=epoch,
+                step=i,
+                global_step=global_step,
+                nan_zero_patterns=_NAN_ZERO_PATTERNS,
+                nan_tracker=nan_tracker,
+            )
+            _save_nan_snapshot(nan_tracker, model, optimizer, loss_dict, epoch, i, nan_output_dir)
 
-            # AMP overflow guard: skip step + let scaler reduce scale,
-            # otherwise inspect_gradients raises before scaler.step() can skip.
-            if _has_nonfinite_grads(model):
-                _amp_skipped_steps += 1
-                if dist_utils.is_main_process():
-                    print(
-                        f"[AMP] Skipping optimizer step at epoch={epoch} "
-                        f"step={i} global_step={global_step} "
-                        f"(gradient overflow, scale={scaler.get_scale():.1f}, "
-                        f"total_skipped={_amp_skipped_steps})"
-                    )
-                optimizer.zero_grad()
-                scaler.update()
-                grad_norm_before = torch.tensor(0.0, device=device)
-                grad_norm_after = torch.tensor(0.0, device=device)
-            else:
-                _, zeroed = inspect_gradients(
-                    model.named_parameters(),
-                    fail_on_zero_grad=fail_on_zero_grad,
-                    epoch=epoch,
-                    step=i,
-                    global_step=global_step,
-                    nan_zero_patterns=_NAN_ZERO_PATTERNS,
-                    nan_tracker=nan_tracker,
+            if max_norm > 0:
+                grad_norm_before = torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), max_norm
                 )
-                _save_nan_snapshot(nan_tracker, model, optimizer, loss_dict, epoch, i, nan_output_dir)
+                grad_norm_after = min(grad_norm_before, max_norm)
+            else:
+                grad_norm_before = torch.nn.utils.clip_grad_norm_(
+                    model.parameters(), float("inf")
+                )
+                grad_norm_after = grad_norm_before
 
-                if max_norm > 0:
-                    grad_norm_before = torch.nn.utils.clip_grad_norm_(
-                        model.parameters(), max_norm
-                    )
-                    grad_norm_after = min(grad_norm_before, max_norm)
-                else:
-                    grad_norm_before = torch.nn.utils.clip_grad_norm_(
-                        model.parameters(), float("inf")
-                    )
-                    grad_norm_after = grad_norm_before
+            optimizer.step()
+            optimizer.zero_grad()
+            _optimizer_step_count += 1
 
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()
-                _optimizer_step_count += 1
-
-                if ema is not None:
-                    ema.update(model)
+            if ema is not None:
+                ema.update(model)
 
         else:
             outputs = model(samples, targets=targets)
