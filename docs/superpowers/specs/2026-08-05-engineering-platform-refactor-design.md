@@ -162,10 +162,11 @@ setup -> optional resume -> optional baseline eval
 
 ```text
 zero gradients
-forward
+forward through PrecisionController
+FP32 output-boundary conversion
 loss computation
 finite-loss check
-backward through PrecisionController
+direct backward
 gradient inspection policy
 gradient clipping
 optimizer decision
@@ -173,15 +174,15 @@ OptimizationController commit
 emit structured event
 ```
 
-它返回结构化 `StepResult`，字段固定包含 loss 明细、total loss、`data_step`、`optimizer_step`、optimizer 是否成功 step、AMP scale、是否溢出、gradient norm、样本数和耗时。
+它返回结构化 `StepResult`，字段固定包含 loss 明细、total loss、`data_step`、`optimizer_step`、optimizer 是否成功 step、precision mode、gradient norm、样本数和耗时。
 
 ### 7.3 PrecisionController
 
 统一 AMP 与非 AMP 行为：
 
-- 管理 autocast 和 GradScaler。
-- unscale 后判断非有限梯度。
-- 溢出时跳过 optimizer step 并更新 scale。
+- `use_amp=True` 时管理 BF16 model autocast，并在 criterion 边界将嵌套浮点输出转换为 FP32。
+- `use_amp=False` 时保持 FP32 forward/loss 路径。
+- 负责有限 loss 检查和直接 backward，不使用 GradScaler 或 overflow-skip 状态机。
 - 明确返回 `optimizer_step_succeeded`。
 - 不直接更新 EMA 或 scheduler。
 
@@ -190,10 +191,10 @@ emit structured event
 唯一负责 optimizer 之后的状态推进：
 
 - optimizer 成功 step 后才更新 EMA。
-- 为保持现有训练曲线兼容，iteration scheduler 按每个已消费的 dataloader iteration 推进；AMP 溢出导致 optimizer 跳步时仍推进 scheduler。
+- 为保持现有训练曲线兼容，iteration scheduler 按每个已消费的 dataloader iteration 推进。
 - epoch scheduler 在 epoch 完成后推进。
 - warmup 与主 scheduler 的切换集中管理。
-- checkpoint 恢复后验证 optimizer、scheduler、scaler 与 epoch 的连续性。
+- checkpoint 恢复后验证 optimizer、scheduler 与 epoch 的连续性；旧 checkpoint 中的 scaler key 仅作为兼容状态保留。
 
 当前 FlatCosine scheduler 保留无状态实现，但由控制器使用 `data_step` 计算学习率，避免调用位置再次分叉。`data_step` 表示已消费的训练 batch 数；`optimizer_step` 仅在参数成功更新时递增。对外日志中的 `global_step` 等同于 `data_step`，checkpoint 同时保存两者。
 
@@ -202,7 +203,7 @@ emit structured event
 提供 `off`、`standard`、`debug` 三档：
 
 - `off`：仅有限性检查和必要异常。
-- `standard`：记录溢出、gradient norm 和有限数量快照。
+- `standard`：记录非有限 loss/gradient、gradient norm 和有限数量快照。
 - `debug`：启用逐参数零梯度/非有限梯度诊断和详细快照。
 
 生产默认 `standard`。诊断逻辑不得改变优化语义。
@@ -329,14 +330,14 @@ CLI 对已知错误输出简短原因、相关路径和修复建议并返回非�
 
 - 配置解析和启动前验证。
 - checkpoint 新旧 schema 与兼容错误。
-- AMP 成功、溢出跳步和 scale 更新。
+- FP32 与 BF16-forward/FP32-loss 两条 precision 路径。
 - optimizer、EMA、iteration/epoch scheduler 推进矩阵。
 - HBB/OBB prediction contract。
 - OBB 角度与编解码已有数学契约。
 
 ### 12.3 组件测试
 
-固定 synthetic batch 覆盖：非 AMP、AMP 成功和 AMP overflow。测试必须断言参数是否变化、EMA 是否变化、lr 是否变化和 scaler 是否变化。
+固定 synthetic batch 覆盖：FP32 与 BF16-forward/FP32-loss。测试必须断言参数、EMA、lr、criterion 输入 dtype 和嵌套输出结构是否符合契约。
 
 ### 12.4 集成测试
 

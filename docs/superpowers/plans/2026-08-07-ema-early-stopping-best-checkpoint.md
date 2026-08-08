@@ -17,7 +17,7 @@
 - ES-Base keeps the existing schedule verbatim: `warmup_iter: 15`, `flat_epoch: 75`, `no_aug_epoch: 15`, and the current augmentation policy (`policy.epoch`, `mixup_epochs`, `stop_epoch`).
 - Approved early-stopping config (verbatim): `enabled: true`, `metric: mAP50_95`, `mode: max`, `min_epochs: 100`, `patience: 12`, `min_delta: 0.001`, `restore_best: true`.
 - Do **not** modify: loss formulas, optimizer params, LR boundaries, augmentation policy, stage rollback logic, `best_stg1.pth`/`best_stg2.pth` semantics.
-- Do **not** add `early_stopping` to the legacy base configs. Only the FP16 `*_es.yml` config carries the `early_stopping` block.
+- Do **not** add `early_stopping` to the legacy base configs. Only the AMP `*_es.yml` config carries the `early_stopping` block. Its active precision path is BF16 model forward with FP32 criterion inputs.
 - `RESTORED_METRIC_TOLERANCE = 1e-3` (absolute) is the module-level verification tolerance. It is a code constant, not a config field.
 - Pure module (`early_stopping.py`) must not import `torch`, do file I/O, or call DDP. All tests are CPU-only; no real multi-GPU required.
 - Follow existing style: `from __future__ import annotations`, dataclasses, `dist_utils.save_on_master` for writes, `sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))` in test files.
@@ -33,7 +33,7 @@
 | `test/test_early_stopping.py` | Pure tests for `EarlyStoppingConfig`, `EarlyStoppingState`, persistence. | Create |
 | `test/test_det_solver_early_stopping.py` | Integration tests via mocked `fit()`: disabled behavior, best.pth, patience/min-epochs, checkpoint ordering, DDP broadcast, finalize/restore, resume, stage transition, diagnostic exit. | Create |
 | `test/test_early_stopping_configs.py` | Config inheritance: ES block present only in the new config; schedule preserved; legacy bases unpolluted. | Create |
-| `configs/custom_obb/dlzdt/sp_fz_rep0_nloss_amp_es.yml` | ES-Base FP16: includes `amp` base, own `output_dir`, adds approved `early_stopping` block. | Create |
+| `configs/custom_obb/dlzdt/sp_fz_rep0_nloss_amp_es.yml` | ES-Base AMP: includes the AMP base, uses BF16 forward with FP32 criterion inputs, owns its `output_dir`, and adds the approved `early_stopping` block. | Create |
 
 ---
 
@@ -1293,7 +1293,7 @@ Expected: exit 0, all tests pass.
 
 ---
 
-### Task 6: ES-Base FP16 configs + config inheritance tests
+### Task 6: ES-Base AMP configs + config inheritance tests
 
 **Files:**
 - Create: `configs/custom_obb/dlzdt/sp_fz_rep0_nloss_amp_es.yml`
@@ -1431,7 +1431,7 @@ Expected: prints `ok`.
 - [ ] **Step 4: Report completion**
 
 Summarize: files created/modified, design-test coverage matrix (13/13), and the runnable experiment command (from repo root):
-- FP16: `python tools/train.py -c configs/custom_obb/dlzdt/sp_fz_rep0_nloss_amp_es.yml` (verify actual entrypoint with `python -m` if the repo uses a module entry)
+- AMP (BF16 forward + FP32 loss): `python train.py -c configs/custom_obb/dlzdt/sp_fz_rep0_nloss_amp_es.yml`
 
 ---
 

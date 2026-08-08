@@ -561,38 +561,28 @@ git commit -m "feat: 接入 TensorRT 与 OpenVINO 推理后端"
 
 **Interfaces:**
 - Produces: `StepResult`, `PrecisionController`, `OptimizationController`.
-- Consumes: existing optimizer, scaler, EMA, FlatCosine scheduler, epoch scheduler, and warmup objects.
+- Consumes: existing optimizer, EMA, FlatCosine scheduler, epoch scheduler, and warmup objects. Existing scaler checkpoint state remains a compatibility concern outside the active training controller.
 
 - [ ] **Step 1: Write the full state-transition matrix first**
 
 ```python
-@pytest.mark.parametrize(
-    "mode,overflow,params_change,ema_change,lr_change,scale_change",
-    [
-        ("fp32", False, True, True, True, False),
-        ("amp", False, True, True, True, True),
-        ("amp", True, False, False, True, True),
-    ],
-)
+@pytest.mark.parametrize("mode", ["fp32", "amp_bf16"])
 def test_training_state_transition_matrix(
     mode,
-    overflow,
-    params_change,
-    ema_change,
-    lr_change,
-    scale_change,
     training_state_factory,
 ):
-    state = training_state_factory(mode=mode, force_overflow=overflow)
+    state = training_state_factory(mode=mode)
     before = state.snapshot()
     result = state.run_one_batch()
     after = state.snapshot()
 
-    assert after.parameters_changed_from(before) is params_change
-    assert after.ema_changed_from(before) is ema_change
-    assert after.lr_changed_from(before) is lr_change
-    assert after.amp_scale_changed_from(before) is scale_change
-    assert result.optimizer_step_succeeded is (not overflow)
+    assert after.parameters_changed_from(before)
+    assert after.ema_changed_from(before)
+    assert after.lr_changed_from(before)
+    assert result.optimizer_step_succeeded
+    if mode == "amp_bf16":
+        assert result.model_autocast_dtype is torch.bfloat16
+        assert result.criterion_input_dtype is torch.float32
 ```
 
 - [ ] **Step 2: Run tests and confirm RED**
@@ -601,11 +591,11 @@ Run: `pytest tests/unit/test_precision.py tests/unit/test_optimization.py tests/
 
 - [ ] **Step 3: Implement `PrecisionController`**
 
-It owns autocast, scale/backward, unscale, nonfinite-gradient detection, scaler step/update, and returns `optimizer_step_succeeded`. It never updates EMA or scheduler.
+It owns BF16 autocast selection, nested floating-output conversion to FP32, finite-loss checks, direct backward, and returns `optimizer_step_succeeded`. It does not use GradScaler and never updates EMA or scheduler.
 
 - [ ] **Step 4: Implement `OptimizationController`**
 
-`on_data_step()` advances iteration scheduler even on AMP overflow. `on_optimizer_success()` increments optimizer step and updates EMA. `on_epoch_end()` advances epoch scheduler after warmup completion.
+`on_data_step()` advances the iteration scheduler. `on_optimizer_success()` increments optimizer step and updates EMA. `on_epoch_end()` advances the epoch scheduler after warmup completion.
 
 - [ ] **Step 5: Run state matrix and regression baselines**
 
@@ -633,9 +623,9 @@ git commit -m "feat: 抽取 AMP 与优化状态控制器"
 - Produces: `DiagnosticsPolicy(level)` and `TrainStepExecutor.run_step(samples, targets, *, epoch: int, data_step: int, optimizer_step: int) -> StepResult`.
 - Consumes: Task 8 controllers and existing criterion/model interfaces.
 
-- [ ] **Step 1: Write failing executor tests for non-AMP, AMP success, and AMP overflow**
+- [ ] **Step 1: Write failing executor tests for FP32 and BF16-forward/FP32-loss modes**
 
-Assert total loss, parameter changes, EMA, lr, scaler, gradient norm, `data_step`, and `optimizer_step` for every branch.
+Assert total loss, parameter changes, EMA, lr, model autocast dtype, criterion input dtype, gradient norm, `data_step`, and `optimizer_step` for every branch.
 
 - [ ] **Step 2: Run tests and confirm RED**
 
@@ -643,7 +633,7 @@ Run: `pytest tests/component/test_train_step.py -v`
 
 - [ ] **Step 3: Implement the executor using existing diagnostics functions**
 
-The order is zero-grad, forward, loss, finite checks, backward, unscale, diagnostics, clip, optimizer decision, optimization commit, event result. `standard` is default; monitoring/diagnostics cannot alter optimization semantics.
+The order is zero-grad, precision-controlled forward, FP32 output conversion when AMP is enabled, loss, finite checks, direct backward, diagnostics, clip, optimizer decision, optimization commit, event result. `standard` is default; monitoring/diagnostics cannot alter optimization semantics.
 
 - [ ] **Step 4: Replace duplicated body in `train_one_epoch()` with executor calls**
 
@@ -655,7 +645,7 @@ Run: `pytest tests/component/test_train_step.py tests/integration/test_legacy_en
 
 Run: `pytest test/ -q`
 
-Expected: predictions, loss traces, AMP scale, EMA updates, and lr traces match Task 1 baselines.
+Expected: predictions, loss traces, model/criterion dtype traces, EMA updates, and lr traces match Task 1 baselines.
 
 - [ ] **Step 6: Commit**
 
@@ -664,7 +654,7 @@ git add deim_app/training engine/solver/det_engine.py tests
 git commit -m "refactor: 拆分单步训练计算与优化控制流"
 ```
 
-**Gate G4:** The historical AMP overflow, EMA, and scheduler regressions are covered automatically; `train_one_epoch()` no longer duplicates precision/optimization branches.
+**Gate G4:** BF16-forward/FP32-loss, EMA, and scheduler regressions are covered automatically; `train_one_epoch()` no longer duplicates precision/optimization branches.
 
 ---
 
@@ -828,7 +818,7 @@ def test_core_package_does_not_import_optional_backends(project_root):
 
 - [ ] **Step 3: Document the new and legacy workflows**
 
-Include exact train/resume/eval/export/infer commands, run layout, checkpoint fields, legacy behavior, AMP overflow semantics, and recovery procedures for corrupt/incompatible checkpoints.
+Include exact train/resume/eval/export/infer commands, run layout, checkpoint fields, legacy behavior, BF16-forward/FP32-loss semantics, and recovery procedures for corrupt/incompatible checkpoints.
 
 - [ ] **Step 4: Run the complete verification matrix**
 
@@ -875,7 +865,7 @@ Do not begin a task group until the preceding gate passes. Tasks 6 and 7 may be 
 - [ ] Existing `train.py` and inference/deployment commands remain usable.
 - [ ] Existing checkpoints load for inference, tuning, and resume.
 - [ ] HBB and OBB baseline predictions and metrics remain within approved tolerance.
-- [ ] AMP overflow, EMA, scheduler, and resume continuity have automated tests.
+- [ ] BF16-forward/FP32-loss, EMA, scheduler, and resume continuity have automated tests.
 - [ ] New CLI supports train, resume, eval, export, infer, and inspect-checkpoint.
 - [ ] PyTorch and ONNX fixed-sample consistency passes for HBB and OBB.
 - [ ] TensorRT/OpenVINO pass or explicitly skip based on installed runtime.

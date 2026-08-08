@@ -49,7 +49,7 @@
 
 [2026-08-07-early-stopping-best-checkpoint-design](specs/2026-08-07-early-stopping-best-checkpoint-design.md) — EMA early-stopping 与 best-checkpoint 设计：监控 EMA mAP50_95，双 best 值（observed/significant）+ patience，best.pth/last.pth 分离契约，三退出路径，首实验 ES-Base 不动现有 schedule。
 
-[2026-08-07-remove-bf16-obb-fp32-training-design](specs/2026-08-07-remove-bf16-obb-fp32-training-design.md) — 移除 BF16 与 FP16-forward/FP32-OBB 训练模式设计：收敛到纯 CUDA FP16 AMP，删除 precision.py、3 个被拒配置与 2026-08-06 实验文档。
+[2026-08-07-bf16-forward-fp32-loss-design](specs/2026-08-07-bf16-forward-fp32-loss-design.md) — BF16 forward + FP32 loss 当前设计：`use_amp` 选择 BF16 autocast，嵌套浮点输出通过 `tree_map` 转 FP32，训练循环不使用 GradScaler；保留 2026-08-07 精度接口清理结果。
 
 ---
 
@@ -103,7 +103,7 @@
 
 [2026-08-07-obb-decoder-shifted-angle](plans/2026-08-07-obb-decoder-shifted-angle.md) — DEIMv2 OBB decoder 私有 shifted 角度编码实现计划：6 个 Review Unit 的 TDD 流程，覆盖 contract 函数、MSDeformableAttention、配置传播、anchor/encoder、denoising、geometry decode 站点。
 
-[2026-08-07-remove-bf16-obb-fp32-training](plans/2026-08-07-remove-bf16-obb-fp32-training.md) — 移除 BF16/OBB-FP32 训练支持实现计划：5 波 TDD（RED 契约 → 删除 → 保留验证），收敛至 FP16 AMP。
+[2026-08-07-bf16-forward-fp32-loss](plans/2026-08-07-bf16-forward-fp32-loss.md) — 精度路径最终实施记录：说明 FP16-only 历史决策被 NaN/Inf 结果推翻，并记录 BF16 forward + FP32 loss、无 GradScaler 的实现与验证证据。
 
 ---
 
