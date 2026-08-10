@@ -712,6 +712,29 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
+def build_flatcosine(optimizer, cfg, iter_per_epoch: int):
+    """构造 FlatCosineLRScheduler，并补齐 torch LRScheduler 的 initial_lr 副作用。
+
+    真实训练流程（_solver.train()）会先触发 cfg.lr_scheduler 构造 torch MultiStepLR，
+    其 LRScheduler.__init__ 为每个 param_group 写入 initial_lr（= 初始 lr）；
+    FlatCosineLRScheduler.__init__ (lr_scheduler.py:53) 依赖该键。本 helper 用 setdefault
+    复刻该副作用：已恢复的 initial_lr（checkpoint 原值）保留，缺失时回填当前 lr。
+    """
+    from engine.optim.lr_scheduler import FlatCosineLRScheduler
+
+    for group in optimizer.param_groups:
+        group.setdefault("initial_lr", group["lr"])
+    return FlatCosineLRScheduler(
+        optimizer,
+        cfg.lr_gamma,
+        iter_per_epoch=iter_per_epoch,
+        total_epochs=cfg.epoches,
+        warmup_iter=cfg.warmup_iter,
+        flat_epochs=cfg.flat_epoch,
+        no_aug_epochs=cfg.no_aug_epoch,
+    )
+
+
 def build_pipeline(
     cfg_path: str,
     checkpoint_path: str,
@@ -724,7 +747,6 @@ def build_pipeline(
     不调用 solver.fit()；不构建 ema/evaluator/scaler/writer。
     """
     from engine.core import YAMLConfig
-    from engine.optim.lr_scheduler import FlatCosineLRScheduler
 
     cfg = YAMLConfig(cfg_path)
 
@@ -745,24 +767,18 @@ def build_pipeline(
     if getattr(train_ds, "cache_images", "none") == "disk":
         train_ds.precache_images(num_workers=8)
 
-    lr_scheduler = None
-    if getattr(cfg, "lrsheduler", None) is not None:
-        lr_scheduler = FlatCosineLRScheduler(
-            optimizer,
-            cfg.lr_gamma,
-            iter_per_epoch=len(loader),
-            total_epochs=cfg.epoches,
-            warmup_iter=cfg.warmup_iter,
-            flat_epochs=cfg.flat_epoch,
-            no_aug_epochs=cfg.no_aug_epoch,
-        )
-
+    # 先恢复 checkpoint（镜像 _solver.train()），再构造 lr_scheduler（镜像
+    # det_solver.fit()）——scheduler 的 base_lrs 必须反映恢复后的 initial_lr。
     recovery = {"fidelity": "weights_only", "start_epoch": start_epoch if start_epoch is not None else 0, "notes": []}
     if checkpoint_path:
         state = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
         recovery = restore_checkpoint(
             model, optimizer, state, start_epoch_override=start_epoch
         )
+
+    lr_scheduler = None
+    if getattr(cfg, "lrsheduler", None) is not None:
+        lr_scheduler = build_flatcosine(optimizer, cfg, iter_per_epoch=len(loader))
 
     pipeline = Pipeline(
         model=model,

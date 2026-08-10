@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import pytest  # noqa: E402 - 模块级导入（Task 7 skipif 装饰器依赖）
 import torch  # noqa: E402
 import torch.nn as nn  # noqa: E402
+import argparse  # noqa: E402
 
 
 def _make_param(name, shape=(4,), *, grad=None):
@@ -734,6 +735,54 @@ class TestParseArgs:
         assert args.seed == 42
         assert args.save_every_steps == 10
         assert args.overwrite is True
+
+
+class TestBuildFlatcosine:
+
+    def test_stamps_initial_lr_on_bare_optimizer(self):
+        # FlatCosineLRScheduler (lr_scheduler.py:53) 依赖 param_groups["initial_lr"]，
+        # 该键由 torch LRScheduler 构造时写入；裸 optimizer 缺失 → KeyError。
+        from tool_diagnose_rep2_nan import build_flatcosine
+
+        model = ToyModel()
+        opt = torch.optim.AdamW(model.parameters(), lr=1e-4)
+        assert "initial_lr" not in opt.param_groups[0]
+        cfg = argparse.Namespace(
+            lr_gamma=0.01, epoches=100, warmup_iter=10,
+            flat_epoch=50, no_aug_epoch=10,
+        )
+        sched = build_flatcosine(opt, cfg, iter_per_epoch=10)
+        assert opt.param_groups[0]["initial_lr"] == 1e-4
+        assert sched.base_lrs == [1e-4]
+
+    def test_preserves_restored_initial_lr(self):
+        # checkpoint 恢复后的 param_groups 已含原训练 initial_lr，不得覆盖
+        # （镜像 det_solver.fit() 读取恢复后的值）。
+        from tool_diagnose_rep2_nan import build_flatcosine
+
+        model = ToyModel()
+        opt = torch.optim.AdamW(model.parameters(), lr=1e-4)
+        opt.param_groups[0]["initial_lr"] = 2e-4
+        cfg = argparse.Namespace(
+            lr_gamma=0.01, epoches=100, warmup_iter=10,
+            flat_epoch=50, no_aug_epoch=10,
+        )
+        sched = build_flatcosine(opt, cfg, iter_per_epoch=10)
+        assert sched.base_lrs == [2e-4]
+
+    def test_pipeline_scheduler_built_after_restore(self):
+        # 镜像 _solver.train() → det_solver.fit() 顺序: scheduler 必须在
+        # restore_checkpoint 之后构造，否则读不到 checkpoint 的 initial_lr。
+        import inspect
+
+        from tool_diagnose_rep2_nan import build_pipeline
+        src = inspect.getsource(build_pipeline)
+        restore_idx = src.find("restore_checkpoint(")
+        sched_idx = src.find("build_flatcosine(")
+        assert restore_idx != -1 and sched_idx != -1
+        assert restore_idx < sched_idx, (
+            "build_pipeline 必须在 restore_checkpoint 之后构造 lr_scheduler"
+        )
 
 
 class TestBuildPipeline:
