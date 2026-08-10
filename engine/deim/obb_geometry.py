@@ -15,6 +15,7 @@ import torch
 from torch import Tensor
 
 from .box_ops import box_cxcywh_to_xyxy, box_xyxy_to_cxcywh
+from .obb_stable_atan2 import stable_atan2 as _stable_atan2
 
 
 def periodic_angle_distance(pred: Tensor, target: Tensor, with_signal=False) -> Tensor:
@@ -236,7 +237,7 @@ def external_xyxy_rect_to_oriented_box(
     w_dx = torch.where(w_is_ab, edge_ab[..., 0], edge_bc[..., 0])
     w_dy = torch.where(w_is_ab, edge_ab[..., 1], edge_bc[..., 1])
 
-    theta = torch.atan2(w_dy, w_dx)
+    theta = _stable_atan2(w_dy, w_dx, eps)
     theta = torch.remainder(theta, torch.pi)
     return torch.stack([cx, cy, w_len, h_len, theta], dim=-1)
 
