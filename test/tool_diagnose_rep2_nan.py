@@ -372,3 +372,77 @@ def save_failure(
     _safe("optimizer_state", artifacts["optimizer_state"], optimizer_state)
 
     return {k: str(v) for k, v in artifacts.items()}
+
+
+def restore_checkpoint(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer | None,
+    state: dict,
+    start_epoch_override: int | None = None,
+) -> dict:
+    """把 checkpoint state 恢复到 model/optimizer，返回恢复报告。
+
+    fidelity: full（model+optimizer 全加载）/ partial（某状态失败）/
+              weights_only（checkpoint 无 optimizer）。
+    """
+    last_epoch = state.get("last_epoch", -1)
+    start_epoch = (
+        start_epoch_override
+        if start_epoch_override is not None
+        else (last_epoch + 1 if isinstance(last_epoch, int) else 0)
+    )
+    loaded: dict[str, str] = {}
+    missing: list[str] = []
+    unexpected: list[str] = []
+    notes: list[str] = []
+    fidelity = "full"
+
+    model_sd = None
+    if isinstance(state.get("model"), dict):
+        model_sd = state["model"]
+    elif isinstance(state.get("ema"), dict) and isinstance(state["ema"].get("module"), dict):
+        model_sd = state["ema"]["module"]
+        notes.append("checkpoint 无 model 键，已从 ema.module 恢复训练权重")
+    else:
+        raise ValueError("checkpoint 缺少可恢复的 model/ema.module 权重")
+
+    try:
+        res = model.load_state_dict(model_sd, strict=False)
+        missing = list(res.missing_keys)
+        unexpected = list(res.unexpected_keys)
+        loaded["model"] = "ok"
+    except Exception as e:  # noqa: BLE001
+        loaded["model"] = f"error: {type(e).__name__}: {e}"
+        notes.append(f"model 加载失败: {loaded['model']}")
+        fidelity = "partial"
+
+    if "optimizer" in state and isinstance(state["optimizer"], dict):
+        if optimizer is None:
+            notes.append("checkpoint 含 optimizer 但运行器未构建 optimizer")
+            fidelity = "partial"
+        else:
+            try:
+                optimizer.load_state_dict(state["optimizer"])
+                loaded["optimizer"] = "ok"
+            except Exception as e:  # noqa: BLE001
+                loaded["optimizer"] = f"error: {type(e).__name__}: {e}"
+                notes.append(f"optimizer 加载失败: {loaded['optimizer']}")
+                fidelity = "partial"
+    else:
+        loaded["optimizer"] = "skipped (not in checkpoint)"
+        if fidelity == "full":
+            fidelity = "weights_only"
+
+    if missing:
+        notes.append(f"model missing_keys={missing}")
+    if unexpected:
+        notes.append(f"model unexpected_keys={unexpected}")
+
+    return {
+        "start_epoch": start_epoch,
+        "fidelity": fidelity,
+        "loaded": loaded,
+        "missing": missing,
+        "unexpected": unexpected,
+        "notes": notes,
+    }

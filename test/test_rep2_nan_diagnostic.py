@@ -385,3 +385,99 @@ class TestArtifactWriters:
         fs = json.loads((out / "failure" / "failure_summary.json").read_text())
         assert "secondary_errors" in fs
         assert (out / "failure" / "traceback.txt").read_text() == "t"
+
+
+class TestRestoreCheckpoint:
+
+    def _model(self):
+        return torch.nn.Linear(2, 2)
+
+    def test_full_restore(self):
+        from tool_diagnose_rep2_nan import restore_checkpoint
+
+        model = self._model()
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+        state = {
+            "last_epoch": 87,
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+        }
+        r = restore_checkpoint(model, optimizer, state)
+        assert r["start_epoch"] == 88
+        assert r["fidelity"] == "full"
+        assert r["loaded"]["model"] == "ok"
+        assert r["loaded"]["optimizer"] == "ok"
+        assert r["missing"] == []
+        assert r["unexpected"] == []
+
+    def test_start_epoch_override(self):
+        from tool_diagnose_rep2_nan import restore_checkpoint
+
+        model = self._model()
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+        state = {
+            "last_epoch": 87,
+            "model": model.state_dict(),
+            "optimizer": optimizer.state_dict(),
+        }
+        r = restore_checkpoint(model, optimizer, state, start_epoch_override=10)
+        assert r["start_epoch"] == 10
+
+    def test_weights_only(self):
+        from tool_diagnose_rep2_nan import restore_checkpoint
+
+        model = self._model()
+        state = {"model": model.state_dict()}
+        r = restore_checkpoint(model, None, state)
+        assert r["fidelity"] == "weights_only"
+        assert r["start_epoch"] == 0  # last_epoch 缺失 → -1 + 1
+
+    def test_weights_only_ema_module(self):
+        from tool_diagnose_rep2_nan import restore_checkpoint
+
+        model = self._model()
+        state = {"ema": {"module": model.state_dict(), "updates": 5}}
+        r = restore_checkpoint(model, None, state)
+        assert r["fidelity"] == "weights_only"
+        assert any("ema.module" in n for n in r["notes"])
+
+    def test_partial_on_optimizer_failure(self):
+        from tool_diagnose_rep2_nan import restore_checkpoint
+
+        model = self._model()
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+        bad_opt = {
+            "state": {"999999": {}},
+            "param_groups": [
+                {
+                    "lr": 1e-4,
+                    "betas": [0.9, 0.999],
+                    "eps": 1e-8,
+                    "weight_decay": 0.0,
+                    "amsgrad": False,
+                    "params": [999999],
+                }
+            ],
+        }
+        state = {"last_epoch": 3, "model": model.state_dict(), "optimizer": bad_opt}
+        r = restore_checkpoint(model, optimizer, state)
+        assert r["fidelity"] == "partial"
+        assert r["loaded"]["optimizer"] != "ok"
+
+    def test_missing_unexpected_recorded(self):
+        from tool_diagnose_rep2_nan import restore_checkpoint
+
+        model = self._model()
+        sd = dict(model.state_dict())
+        sd["extra.key"] = torch.zeros(1)  # unexpected
+        r = restore_checkpoint(model, None, {"model": sd})
+        assert "extra.key" in r["unexpected"]
+        assert r["loaded"]["model"] == "ok"
+
+    def test_invalid_raises(self):
+        import pytest
+        from tool_diagnose_rep2_nan import restore_checkpoint
+
+        model = self._model()
+        with pytest.raises(ValueError):
+            restore_checkpoint(model, None, {"optimizer": {}})
