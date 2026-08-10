@@ -923,7 +923,6 @@ def save_failure(
             return None
 
     _safe("traceback", artifacts["traceback"], traceback_text, text=True)
-    _safe("failure_summary", artifacts["failure_summary"], failure_summary, text=True)
     _safe("trigger_batch", artifacts["trigger_batch"], trigger_batch)
     _safe("outputs", artifacts["outputs"], outputs)
     _safe("losses", artifacts["losses"], losses)
@@ -931,6 +930,8 @@ def save_failure(
     _safe("gradients_summary", artifacts["gradients_summary"], gradients_summary, text=True)
     _safe("model_state", artifacts["model_state"], model_state)
     _safe("optimizer_state", artifacts["optimizer_state"], optimizer_state)
+    # failure_summary 最后写，确保早先产物保存失败也记入 secondary_errors
+    _safe("failure_summary", artifacts["failure_summary"], failure_summary, text=True)
 
     return {k: str(v) for k, v in artifacts.items()}
 ```
@@ -1187,9 +1188,12 @@ class ToyModel(torch.nn.Module):
 
     def forward(self, samples, targets=None):
         b = samples.shape[0]
+        # pred_boxes 经 self.fc 计算，保证 loss 依赖模型参数（loss 无 grad_fn
+        # 时 backward 会抛 RuntimeError，有限路径将无法 exit 0）
+        feats = self.fc(samples)
         out = {
             "pred_logits": torch.randn(b, 3, 2),
-            "pred_boxes": torch.randn(b, 3, 5),
+            "pred_boxes": feats.unsqueeze(1).expand(b, 3, 5),
             "pred_corners": torch.randn(b, 3, 6),
             "ref_points": torch.randn(b, 3, 5),
         }
@@ -1302,7 +1306,6 @@ class TestRunDiagnostic:
         from tool_diagnose_rep2_nan import run_diagnostic
 
         pipe = _pipeline()
-        before = {n: p.clone() for n, p in pipe.model.named_parameters()}
 
         class NanBackwardModel(ToyModel):
             def forward(self, samples, targets=None):
@@ -1314,7 +1317,9 @@ class TestRunDiagnostic:
                 out["pred_boxes"] = out["pred_boxes"] + z
                 return out
 
+        # 必须先替换模型再拍快照（否则 before/after 比较的是不同实例，恒 False）
         pipe.model = NanBackwardModel()
+        before = {n: p.clone() for n, p in pipe.model.named_parameters()}
         run_diagnostic(pipe, _args(tmp_path))
         after = {n: p.clone() for n, p in pipe.model.named_parameters()}
         assert all(torch.equal(before[n], after[n]) for n in before)
@@ -1326,6 +1331,36 @@ class TestRunDiagnostic:
         assert code == 0
         lines = (tmp_path / "events.jsonl").read_text().strip().splitlines()
         assert len(lines) == 2
+
+    def test_cli_namespace_runs_finite_pipeline(self, tmp_path):
+        """装配级回归：parse_args + main 注入后的 Namespace 必须可被 run_diagnostic 消费。
+
+        最终 review 发现 C1：run_diagnostic 读取 args.clip_max_norm，但 parse_args
+        不提供、main 曾漏注入 → 首个有限 step 抛 AttributeError → 伪 exit 4。
+        本测试用与 main 相同的注入序列构造 Namespace，验证有限路径能 exit 0。
+        """
+        from tool_diagnose_rep2_nan import parse_args, run_diagnostic
+
+        args = parse_args(
+            [
+                "--config", "cfg.yml",
+                "--checkpoint", "ckpt.pth",
+                "--output-dir", str(tmp_path),
+                "--max-epochs", "1",
+            ]
+        )
+        meta = {
+            "use_amp": False,
+            "effective_seed": 0,
+            "clip_max_norm": 0.0,
+            "recovery": {"start_epoch": 0},
+        }
+        args.use_amp = meta["use_amp"]
+        args.effective_seed = meta["effective_seed"]
+        args.clip_max_norm = meta["clip_max_norm"]
+        args.start_epoch = meta["recovery"]["start_epoch"]
+        code = run_diagnostic(_pipeline(), args)
+        assert code == 0
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
@@ -1822,6 +1857,7 @@ def build_pipeline(
         "seed": seed,
         "effective_seed": effective_seed,
         "use_amp": bool(getattr(cfg, "use_amp", False)),
+        "clip_max_norm": float(getattr(cfg, "clip_max_norm", 0.0)),
         "recovery": recovery,
         "git": git_meta,
         "amp_dtype": "bfloat16",
@@ -1892,13 +1928,20 @@ def main(argv: list[str] | None = None) -> int:
     meta["env"] = _collect_env()
     meta["probe_atan2_zero"] = atan2_zero_probe(str(args.device).split(":")[0])
     meta["cli"] = vars(args)
+    # 必须在 write_run_manifest 之前覆盖：build_pipeline 硬编码 True，
+    # --no-detect-anomaly 时不得把实际关闭误记为 True（re-review 发现放置顺序问题）
+    meta["detect_anomaly"] = args.detect_anomaly
     write_run_manifest(output_dir / "run_manifest.json", meta)
     (output_dir / "command.txt").write_text("python " + " ".join(sys.argv) + "\n")
 
-    # run_diagnostic 需要的运行参数：use_amp 从配置合并值注入（parse_args 无此参数）；
-    # seed 已在 build_pipeline 内解析（--seed → 配置 seed → 0，spec §3）
+    # run_diagnostic 需要的运行参数：use_amp/clip_max_norm/start_epoch 从配置/恢复结果注入
+    #（parse_args 无这些参数或默认 None）。clip_max_norm/start_epoch 缺失会导致
+    # run_diagnostic 首个有限 step 抛 AttributeError/TypeError → 伪 exit 4
+    #（最终 review 发现并修正：配置含 clip_max_norm=0.1；start_epoch 由恢复结果解析）。
     args.use_amp = meta["use_amp"]
     args.effective_seed = meta["effective_seed"]
+    args.clip_max_norm = meta["clip_max_norm"]
+    args.start_epoch = meta["recovery"]["start_epoch"]
 
     pipeline.probe = probe
     code = run_diagnostic(pipeline, args)
