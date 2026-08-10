@@ -9,7 +9,7 @@
 
 [2026-08-10-rep2-nan-diagnostic-runner-design](specs/2026-08-10-rep2-nan-diagnostic-runner-design.md) — DEIMv2-OBB rep2 NaN 远程诊断 runner：单 GPU 短程恢复训练、autograd anomaly 定位、rep2 几何探针与完整失败现场回传设计。
 
-[2026-08-10-rep2-stable-atan2-design](specs/2026-08-10-rep2-stable-atan2-design.md) — DEIMv2-OBB rep2 稳定 atan2 反向传播设计：forward 不变、仅稳定 backward 分母（x²+y² 在 geometry eps 处 floor），消除 Atan2Backward0 NaN。
+[2026-08-10-rep2-stable-atan2-design](specs/2026-08-10-rep2-stable-atan2-design.md) — DEIMv2-OBB rep2 atan2 数值稳定性修复设计：保持 forward 几何语义不变，仅稳定 backward 分母奇点（`_StableAtan2` 自定义 autograd，`(x²+y²).clamp_min(eps)`，FP16/BF16 临时 FP32），并定义失败现场回放工具的验收契约。
 
 [2026-06-02-deimv2-obb-proposal](specs/2026-06-02-deimv2-obb-proposal.md) — DEIMv2-OBB 变更提案：通过 `box_mode` 闸门为 DEIMv2 增加定向边界框支持，使用 ADR 6-distribution DDF。
 
@@ -111,7 +111,7 @@
 
 [2026-08-10-rep2-nan-diagnostic-runner](plans/2026-08-10-rep2-nan-diagnostic-runner.md) — rep2 NaN 远程诊断 runner 实施计划：7 个 TDD 任务实现 `test/tool_diagnose_rep2_nan.py` 与纯 CPU 测试，覆盖 checkpoint 分类/恢复、BF16+FP32 诊断循环、atan2 几何探针、失败现场持久化；与 specs/2026-08-10-rep2-nan-diagnostic-runner-design 配对。
 
-[2026-08-10-rep2-stable-atan2](plans/2026-08-10-rep2-stable-atan2.md) — rep2 stable atan2 实现计划：新增私有 autograd.Function（forward 直接 atan2，backward 分母 eps-floor），rep2 external-rectangle decoder 接入，含失败重放工具与分阶段 GPU 验收（saved batch / 100 steps / 1 epoch）。
+[2026-08-10-rep2-stable-atan2](plans/2026-08-10-rep2-stable-atan2.md) — rep2 atan2 数值稳定性修复实施计划：TDD 稳定 atan2 算子与退化几何测试、`_StableAtan2` 实现与 rep2 解码调用替换、失败现场回放工具契约与实现、本地回归与 seed 控制敏感性验收；与 specs/2026-08-10-rep2-stable-atan2-design 配对。
 
 ---
 
