@@ -9,6 +9,8 @@
 
 [2026-08-10-rep2-nan-diagnostic-runner-design](specs/2026-08-10-rep2-nan-diagnostic-runner-design.md) — DEIMv2-OBB rep2 NaN 远程诊断 runner：单 GPU 短程恢复训练、autograd anomaly 定位、rep2 几何探针与完整失败现场回传设计。
 
+[2026-08-10-rep2-stable-atan2-design](specs/2026-08-10-rep2-stable-atan2-design.md) — DEIMv2-OBB rep2 稳定 atan2 反向传播设计：forward 不变、仅稳定 backward 分母（x²+y² 在 geometry eps 处 floor），消除 Atan2Backward0 NaN。
+
 [2026-06-02-deimv2-obb-proposal](specs/2026-06-02-deimv2-obb-proposal.md) — DEIMv2-OBB 变更提案：通过 `box_mode` 闸门为 DEIMv2 增加定向边界框支持，使用 ADR 6-distribution DDF。
 
 [2026-06-02-deimv2-obb-design](specs/2026-06-02-deimv2-obb-design.md) — DEIMv2-OBB 架构设计：HBB/OBB 双路径，组件变更与向后兼容保证。
@@ -108,6 +110,8 @@
 [2026-08-07-bf16-forward-fp32-loss](plans/2026-08-07-bf16-forward-fp32-loss.md) — 精度路径最终实施记录：说明 FP16-only 历史决策被 NaN/Inf 结果推翻，并记录 BF16 forward + FP32 loss、无 GradScaler 的实现与验证证据。
 
 [2026-08-10-rep2-nan-diagnostic-runner](plans/2026-08-10-rep2-nan-diagnostic-runner.md) — rep2 NaN 远程诊断 runner 实施计划：7 个 TDD 任务实现 `test/tool_diagnose_rep2_nan.py` 与纯 CPU 测试，覆盖 checkpoint 分类/恢复、BF16+FP32 诊断循环、atan2 几何探针、失败现场持久化；与 specs/2026-08-10-rep2-nan-diagnostic-runner-design 配对。
+
+[2026-08-10-rep2-stable-atan2](plans/2026-08-10-rep2-stable-atan2.md) — rep2 stable atan2 实现计划：新增私有 autograd.Function（forward 直接 atan2，backward 分母 eps-floor），rep2 external-rectangle decoder 接入，含失败重放工具与分阶段 GPU 验收（saved batch / 100 steps / 1 epoch）。
 
 ---
 
