@@ -4,9 +4,15 @@
 设计依据: docs/superpowers/specs/2026-08-10-rep2-nan-diagnostic-runner-design.md
 """
 
+import argparse
+import datetime
+import hashlib
 import json
 import os
+import platform
 import shutil
+import socket
+import subprocess
 import sys
 import time
 import traceback as _tb
@@ -19,14 +25,6 @@ from torch.utils._pytree import tree_map
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
-
-
-def main(argv=None) -> int:
-    raise NotImplementedError("main 在 Task 7 实现")
-
-
-if __name__ == "__main__":
-    sys.exit(main())
 
 
 def tensor_stats(t: torch.Tensor) -> dict[str, int | float | None]:
@@ -684,3 +682,204 @@ def run_diagnostic(pipeline: Pipeline, args) -> int:
         {"done": True, "end_epoch": args.start_epoch + args.max_epochs},
     )
     return 0
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="DEIMv2-OBB rep2 NaN 远程诊断 runner"
+    )
+    parser.add_argument("--config", type=str, required=True, help="训练 YAML 配置")
+    parser.add_argument("--checkpoint", type=str, required=True, help="完整或 weights-only checkpoint")
+    parser.add_argument("--output-dir", type=str, required=True, help="诊断输出目录（非空默认拒绝覆盖）")
+    parser.add_argument("--device", type=str, default="cuda:0")
+    parser.add_argument("--max-epochs", type=int, default=10)
+    parser.add_argument("--max-steps-per-epoch", type=int, default=None)
+    parser.add_argument("--start-epoch", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--detect-anomaly", dest="detect_anomaly", action="store_true", default=True)
+    parser.add_argument("--no-detect-anomaly", dest="detect_anomaly", action="store_false")
+    parser.add_argument("--save-every-steps", type=int, default=50)
+    parser.add_argument("--overwrite", action="store_true", default=False)
+    return parser.parse_args(argv)
+
+
+def _sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def build_pipeline(
+    cfg_path: str,
+    checkpoint_path: str,
+    device: str,
+    start_epoch: int | None,
+    seed: int | None,
+) -> tuple[Pipeline, dict]:
+    """用 YAMLConfig 构建诊断 pipeline，恢复 checkpoint，返回 (pipeline, manifest_meta)。
+
+    不调用 solver.fit()；不构建 ema/evaluator/scaler/writer。
+    """
+    from engine.core import YAMLConfig
+    from engine.optim.lr_scheduler import FlatCosineLRScheduler
+
+    cfg = YAMLConfig(cfg_path)
+
+    # seed 未指定时沿用配置 seed（spec §3）；配置也无 seed 时回退 0（与 train.py 默认对齐）。
+    # 在构建 model/optimizer/dataloader 之前应用，保证随机初始化与 shuffle 可复现。
+    effective_seed = seed if seed is not None else getattr(cfg, "seed", None)
+    effective_seed = effective_seed if effective_seed is not None else 0
+    torch.manual_seed(effective_seed)
+    torch.cuda.manual_seed_all(effective_seed)
+
+    dev = torch.device(device)
+    model = cfg.model.to(dev)
+    criterion = cfg.criterion.to(dev)
+    optimizer = cfg.optimizer
+
+    loader = cfg.train_dataloader
+    train_ds = loader.dataset
+    if getattr(train_ds, "cache_images", "none") == "disk":
+        train_ds.precache_images(num_workers=8)
+
+    lr_scheduler = None
+    if getattr(cfg, "lrsheduler", None) is not None:
+        lr_scheduler = FlatCosineLRScheduler(
+            optimizer,
+            cfg.lr_gamma,
+            iter_per_epoch=len(loader),
+            total_epochs=cfg.epoches,
+            warmup_iter=cfg.warmup_iter,
+            flat_epochs=cfg.flat_epoch,
+            no_aug_epochs=cfg.no_aug_epoch,
+        )
+
+    recovery = {"fidelity": "weights_only", "start_epoch": start_epoch if start_epoch is not None else 0, "notes": []}
+    if checkpoint_path:
+        state = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        recovery = restore_checkpoint(
+            model, optimizer, state, start_epoch_override=start_epoch
+        )
+
+    pipeline = Pipeline(
+        model=model,
+        criterion=criterion,
+        optimizer=optimizer,
+        lr_scheduler=lr_scheduler,
+        train_dataloader=loader,
+        device=dev,
+        probe=None,  # main() 中安装 GeometryProbe
+    )
+
+    git_meta = {}
+    try:
+        import subprocess
+
+        git_meta["commit"] = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5
+        ).stdout.strip()
+        git_meta["dirty"] = bool(
+            subprocess.run(
+                ["git", "status", "--porcelain"], capture_output=True, text=True, timeout=5
+            ).stdout.strip()
+        )
+    except Exception:
+        pass
+
+    meta = {
+        "config_path": cfg_path,
+        "config_sha256": _sha256(cfg_path),
+        "checkpoint_path": checkpoint_path or None,
+        "checkpoint_sha256": _sha256(checkpoint_path) if checkpoint_path else None,
+        "device": device,
+        "seed": seed,
+        "effective_seed": effective_seed,
+        "use_amp": bool(getattr(cfg, "use_amp", False)),
+        "recovery": recovery,
+        "git": git_meta,
+        "amp_dtype": "bfloat16",
+        "detect_anomaly": True,
+        "dataset": str(getattr(train_ds, "img_folder", "")),
+        "dataloader_len": len(loader),
+    }
+    return pipeline, meta
+
+
+def _collect_env() -> dict:
+    import datetime
+
+    return {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "hostname": socket.gethostname(),
+        "platform": platform.platform(),
+        "python": platform.python_version(),
+        "torch": torch.__version__,
+        "cuda_available": torch.cuda.is_available(),
+        "cuda_version": torch.version.cuda,
+        "cudnn": torch.backends.cudnn.version() if torch.backends.cudnn.is_available() else None,
+        "gpu": (
+            [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]
+            if torch.cuda.is_available()
+            else []
+        ),
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI 装配：构建 → manifest → probe → 运行。返回退出码 0/2/3/4。"""
+    args = parse_args(argv)
+
+    try:
+        output_dir = ensure_output_dir(args.output_dir, args.overwrite)
+    except FileExistsError as e:
+        print(f"[ERROR] {e}")
+        return 3
+
+    probe = GeometryProbe()
+    probe.install()
+    try:
+        pipeline, meta = build_pipeline(
+            args.config,
+            args.checkpoint,
+            args.device,
+            args.start_epoch,
+            args.seed,
+        )
+    except Exception as e:  # noqa: BLE001
+        print(f"[ERROR] pipeline 构建失败: {type(e).__name__}: {e}")
+        try:
+            write_run_manifest(
+                output_dir / "run_manifest.json",
+                {
+                    **_collect_env(),
+                    "config_path": args.config,
+                    "checkpoint_path": args.checkpoint,
+                    "error": f"{type(e).__name__}: {e}",
+                    "exit_code": 3,
+                },
+            )
+        except Exception:
+            pass
+        return 3
+
+    meta["env"] = _collect_env()
+    meta["probe_atan2_zero"] = atan2_zero_probe(str(args.device).split(":")[0])
+    meta["cli"] = vars(args)
+    write_run_manifest(output_dir / "run_manifest.json", meta)
+    (output_dir / "command.txt").write_text("python " + " ".join(sys.argv) + "\n")
+
+    # run_diagnostic 需要的运行参数：use_amp 从配置合并值注入（parse_args 无此参数）；
+    # seed 已在 build_pipeline 内解析（--seed → 配置 seed → 0，spec §3）
+    args.use_amp = meta["use_amp"]
+    args.effective_seed = meta["effective_seed"]
+
+    pipeline.probe = probe
+    code = run_diagnostic(pipeline, args)
+    probe.uninstall()
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

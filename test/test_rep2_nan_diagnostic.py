@@ -634,3 +634,96 @@ class TestRunDiagnostic:
         assert code == 0
         lines = (tmp_path / "events.jsonl").read_text().strip().splitlines()
         assert len(lines) == 2
+
+
+class TestParseArgs:
+
+    def test_required_args_and_defaults(self):
+        from tool_diagnose_rep2_nan import parse_args
+
+        args = parse_args(
+            [
+                "--config", "cfg.yml",
+                "--checkpoint", "ckpt.pth",
+                "--output-dir", "out",
+            ]
+        )
+        assert args.config == "cfg.yml"
+        assert args.checkpoint == "ckpt.pth"
+        assert args.output_dir == "out"
+        assert args.device == "cuda:0"
+        assert args.max_epochs == 10
+        assert args.max_steps_per_epoch is None
+        assert args.start_epoch is None
+        assert args.seed is None
+        assert args.detect_anomaly is True
+        assert args.save_every_steps == 50
+        assert args.overwrite is False
+
+    def test_missing_required_raises(self):
+        import pytest
+        from tool_diagnose_rep2_nan import parse_args
+
+        with pytest.raises(SystemExit):
+            parse_args(["--config", "cfg.yml"])
+
+    def test_no_detect_anomaly_flag(self):
+        from tool_diagnose_rep2_nan import parse_args
+
+        args = parse_args(
+            [
+                "--config", "cfg.yml",
+                "--checkpoint", "ckpt.pth",
+                "--output-dir", "out",
+                "--no-detect-anomaly",
+            ]
+        )
+        assert args.detect_anomaly is False
+
+    def test_optional_override(self):
+        from tool_diagnose_rep2_nan import parse_args
+
+        args = parse_args(
+            [
+                "--config", "cfg.yml",
+                "--checkpoint", "ckpt.pth",
+                "--output-dir", "out",
+                "--device", "cpu",
+                "--max-epochs", "3",
+                "--max-steps-per-epoch", "100",
+                "--start-epoch", "5",
+                "--seed", "42",
+                "--save-every-steps", "10",
+                "--overwrite",
+            ]
+        )
+        assert args.device == "cpu"
+        assert args.max_epochs == 3
+        assert args.max_steps_per_epoch == 100
+        assert args.start_epoch == 5
+        assert args.seed == 42
+        assert args.save_every_steps == 10
+        assert args.overwrite is True
+
+
+class TestBuildPipeline:
+
+    @pytest.mark.skipif(
+        not os.path.exists("/data/lyj_dir"),
+        reason="remote data path unavailable",
+    )
+    def test_builds_pipeline_and_manifest_meta(self):
+        from tool_diagnose_rep2_nan import build_pipeline
+
+        pipeline, meta = build_pipeline(
+            cfg_path="configs/custom_obb/dlzdt/ablation/abl_rep2.yml",
+            checkpoint_path="",
+            device="cpu",
+            start_epoch=None,
+            seed=None,
+        )
+        assert pipeline is not None
+        assert "recovery" in meta
+        assert meta["config_path"].endswith("abl_rep2.yml")
+        # checkpoint_path 为空 → 视为 weights_only 空状态（不抛错）
+        assert meta["recovery"]["fidelity"] in ("full", "partial", "weights_only")
