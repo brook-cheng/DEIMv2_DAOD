@@ -35,14 +35,22 @@ output_dir      : str   — directory for per-image .txt outputs
 classes_txt     : str   — path to classes.txt (one class name per line)
 imgsz           : tuple — (H, W) inference size, default (640, 640)
 max_det         : int   — maximum number of detections per image (num_queries)
-score_threshold : float — confidence threshold for filtering (default 0.2)
+score_threshold : float — confidence threshold for the visualization only; the
+                         DOTA export retains all detections (default 0.0)
 device          : str   — "cuda:0" or "cpu"
+vis_dir         : str   — optional directory for visualized images (default None,
+                         skips visualization when None)
 
 Output Structure
 ----------------
 output_dir/
 ├── img_001.txt    # OBB detections in DOTA format
 ├── img_002.txt
+└── ...
+
+vis_dir/ (only when vis_dir is provided)
+├── img_001.png    # source image with OBB polygons overlaid
+├── img_002.png
 └── ...
 
 Each line::
@@ -72,7 +80,10 @@ from engine.backbone import DINOv3STAsResAtten
 from engine.deim import HybridEncoder, DEIMTransformer
 from engine.deim.postprocessor import PostProcessor
 from engine.data.transforms import ConvertPILImage
-from tools.model_compare.obb_utils import deimv2_obb_outputs_to_dota
+from tools.model_compare.obb_utils import (
+    deimv2_obb_outputs_to_dota,
+    visualize_dota_predictions,
+)
 
 
 class DEIMv2OBB(nn.Module):
@@ -122,6 +133,7 @@ def infer_obb_and_export(
     max_det: int = 300,
     score_threshold: float = 0.0,
     device: str = "cuda:0",
+    vis_dir: str = None,
 ):
     """Run OBB inference on all images and export to DOTA per-image format.
 
@@ -208,20 +220,14 @@ def infer_obb_and_export(
                 boxes[:, 3] *= scale_y  # h
                 # boxes[:, 4] (θ) unchanged
 
-                filtered_labels = []
-                filtered_boxes = []
-                filtered_scores = []
-                for lbl, box, sc in zip(labels, boxes, scores):
-                    if sc >= score_threshold:
-                        filtered_labels.append(int(lbl))
-                        filtered_boxes.append(box.tolist())
-                        filtered_scores.append(float(sc))
-
-                if filtered_labels:
+                # keep all detections with their scores; score_threshold now
+                # filters only the visualization, so the DOTA export retains the
+                # full prediction set for downstream comparison.
+                if len(labels) > 0:
                     outputs_dict[img_name] = {
-                        "labels": filtered_labels,
-                        "boxes": filtered_boxes,
-                        "scores": filtered_scores,
+                        "labels": labels.tolist(),
+                        "boxes": boxes.tolist(),
+                        "scores": scores.tolist(),
                     }
 
         except Exception as e:
@@ -230,56 +236,76 @@ def infer_obb_and_export(
 
     print(f"\nInference completed: {len(outputs_dict)} images with detections")
 
-    # ── export to DOTA format ──
+    # ── export to DOTA format (retain all detections) ──
     print(f"\nExporting to DOTA format → {output_dir}")
-    deimv2_obb_outputs_to_dota(outputs_dict, output_dir, labels_map, score_threshold)
+    deimv2_obb_outputs_to_dota(outputs_dict, output_dir, labels_map)
+
+    if vis_dir is not None:
+        print(f"\nVisualizing → {vis_dir}")
+        visualize_dota_predictions(
+            img_dir=img_dir,
+            dota_dir=output_dir,
+            vis_dir=vis_dir,
+            score_threshold=score_threshold,
+        )
 
     print(f"\nDone. Predictions saved to {output_dir}/")
 
 
 if __name__ == "__main__":
-    img_dir = (
-        "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/val"
-    )
+    # img_dir = (
+    #     "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/val"
+    # )
+    # classes_txt = (
+    #     "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/classes.txt"
+    # )
+    img_dir = "/mnt/d/project_data/model_test/error_det/10kV镇楼线#005杆现场勘察2026-08-07 16_40_07_crop"
     classes_txt = (
         "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/classes.txt"
     )
     imgsz = (640, 640)
     max_det = 300
-    score_threshold = 0.01
+    score_threshold = 0.5
     device = "cuda:0"
 
     infoes = [
         {
-                "config": "configs/custom_obb/dlzdt/sp_fz_rep0_nloss.yml",
-                "ckpt": "outputs/sp_fz_rep0_nloss_0725.pth",
-                "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep0_nloss_0725_val",
-                "infer_flag": True,
-            },
-            {
-                "config": "configs/custom_obb/dlzdt/sp_fz_rep1_nloss.yml",
-                "ckpt": "outputs/sp_fz_rep1_nloss_0725.pth",
-                "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep1_nloss_0725_val",
-                "infer_flag": True,
-            },
-            {
-                "config": "configs/custom_obb/dlzdt/sp_fz_rep2_nloss.yml",
-                "ckpt": "outputs/sp_fz_rep2_nloss_0725.pth",
-                "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep2_nloss_0725_val",
-                "infer_flag": True,
-            },
-            {
-                "config": "configs/custom_obb/dlzdt/sp_fz_rep3_nloss.yml",
-                "ckpt": "outputs/sp_fz_rep3_nloss_0725.pth",
-                "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_0725_val",
-                "infer_flag": True,
-            },
-            {
-                "config": "configs/custom_obb/dlzdt/sp_fz_rep3_nloss_a0.yml",
-                "ckpt": "outputs/sp_fz_rep3_nloss_a0_0725.pth",
-                "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_a0_0725_val",
-                "infer_flag": True,
-            },
+            "config": "configs/custom_obb/dlzdt/ablation/abl_rep3.yml",
+            "ckpt": "outputs/sp_ft_rep3_0723_last.pth",
+            "output_dir": "/mnt/d/project_data/model_test/error_det/deimv2-obb-ouputs/10kV镇楼线#005杆现场勘察2026-08-07 16_40_07/dota",
+            "vis_dir": "/mnt/d/project_data/model_test/error_det/deimv2-obb-ouputs/10kV镇楼线#005杆现场勘察2026-08-07 16_40_07/vis",
+            "infer_flag": True,
+        }
+        # {
+        #     "config": "configs/custom_obb/dlzdt/sp_fz_rep0_nloss.yml",
+        #     "ckpt": "outputs/sp_fz_rep0_nloss_0725.pth",
+        #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep0_nloss_0725_val",
+        #     "infer_flag": True,
+        # },
+        # {
+        #     "config": "configs/custom_obb/dlzdt/sp_fz_rep1_nloss.yml",
+        #     "ckpt": "outputs/sp_fz_rep1_nloss_0725.pth",
+        #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep1_nloss_0725_val",
+        #     "infer_flag": True,
+        # },
+        # {
+        #     "config": "configs/custom_obb/dlzdt/sp_fz_rep2_nloss.yml",
+        #     "ckpt": "outputs/sp_fz_rep2_nloss_0725.pth",
+        #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep2_nloss_0725_val",
+        #     "infer_flag": True,
+        # },
+        # {
+        #     "config": "configs/custom_obb/dlzdt/sp_fz_rep3_nloss.yml",
+        #     "ckpt": "outputs/sp_fz_rep3_nloss_0725.pth",
+        #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_0725_val",
+        #     "infer_flag": True,
+        # },
+        # {
+        #     "config": "configs/custom_obb/dlzdt/sp_fz_rep3_nloss_a0.yml",
+        #     "ckpt": "outputs/sp_fz_rep3_nloss_a0_0725.pth",
+        #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_a0_0725_val",
+        #     "infer_flag": True,
+        # },
     ]
 
     for info in infoes:
@@ -293,4 +319,5 @@ if __name__ == "__main__":
             max_det=max_det,
             score_threshold=score_threshold,
             device=device,
+            vis_dir=info.get("vis_dir"),
         )

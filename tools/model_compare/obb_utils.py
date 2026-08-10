@@ -229,3 +229,103 @@ def parse_dota_line(line: str) -> Optional[dict]:
         }
     except (ValueError, IndexError):
         return None
+
+
+def _load_vis_font(size: int = 24):
+    """Load a readable TrueType font for labels, falling back to the PIL default.
+
+    Cross-platform: probes common Linux / macOS / Windows font locations and
+    returns the first that loads; otherwise returns ``ImageFont.load_default()``.
+    """
+    from PIL import ImageFont
+
+    candidates = (
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/mnt/c/Windows/Fonts/arial.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+    )
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+    return ImageFont.load_default()
+
+
+def visualize_dota_predictions(
+    img_dir: str,
+    dota_dir: str,
+    vis_dir: str,
+    score_threshold: float = 0.0,
+    color: tuple = (255, 0, 0),
+    line_width: int = 2,
+    alpha: float = 0.1,
+    font=None,
+) -> int:
+    """Draw per-image DOTA predictions back onto their source images.
+
+    Pairs each source image with the DOTA ``.txt`` produced by
+    ``deimv2_obb_outputs_to_dota`` (or any compatible exporter), parses each
+    detection via ``parse_dota_line``, filters by ``score_threshold``, and draws
+    the OBB polygons with ``draw_obb_polygons``. Each polygon is labelled with
+    its class name and confidence (e.g. ``cable 0.90``).
+
+    Images without a matching ``.txt`` or with no detection surviving the
+    threshold are skipped.
+
+    Args:
+        img_dir:         directory of source images.
+        dota_dir:        directory of per-image DOTA prediction ``.txt`` files.
+        vis_dir:         directory to write visualized images.
+        score_threshold: minimum confidence to draw (``0.0`` draws all).
+        color:           ``(R, G, B)`` outline/fill color for every polygon.
+        line_width:      polygon outline thickness.
+        alpha:           polygon fill alpha (``0`` disables fill).
+        font:            optional PIL ``ImageFont`` for labels; when ``None`` a
+                         readable TrueType font is loaded automatically so the
+                         class and confidence are legible at full image scale.
+
+    Returns:
+        number of images written.
+    """
+    if font is None:
+        font = _load_vis_font()
+    os.makedirs(vis_dir, exist_ok=True)
+    img_exts = (".jpg", ".jpeg", ".png", ".bmp")
+    written = 0
+
+    for img_name in os.listdir(img_dir):
+        if not img_name.lower().endswith(img_exts):
+            continue
+
+        stem = os.path.splitext(img_name)[0]
+        dota_path = os.path.join(dota_dir, f"{stem}.txt")
+        if not os.path.exists(dota_path):
+            continue
+
+        annotations = []
+        with open(dota_path, "r", encoding="utf-8") as f:
+            for line in f:
+                ann = parse_dota_line(line)
+                if ann is None or ann["score"] < score_threshold:
+                    continue
+                annotations.append(ann)
+
+        if not annotations:
+            continue
+
+        image = Image.open(os.path.join(img_dir, img_name)).convert("RGB")
+        image = draw_obb_polygons(
+            image,
+            annotations,
+            color=color,
+            line_width=line_width,
+            alpha=alpha,
+            font=font,
+        )
+        image.save(os.path.join(vis_dir, img_name))
+        written += 1
+
+    print(f"Visualized {written} images to {vis_dir}")
+    return written

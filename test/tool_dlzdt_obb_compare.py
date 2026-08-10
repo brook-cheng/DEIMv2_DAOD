@@ -97,7 +97,7 @@ DET_DIRS = [
     "./test/data/outputs/dlzdt_res/sp_fz_rep1_nloss_0725_val",
     "./test/data/outputs/dlzdt_res/sp_fz_rep2_nloss_0725_val",
     "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_0725_val",
-    "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_a0_0725_val"
+    "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_a0_0725_val",
 ]
 MODEL_NAMES = [
     "YOLO-OBB",
