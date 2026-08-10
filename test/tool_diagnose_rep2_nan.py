@@ -5,7 +5,9 @@
 """
 
 import os
+import shutil
 import sys
+from pathlib import Path
 
 import torch
 
@@ -85,3 +87,49 @@ def scan_gradients(
             aggregate_sq += values.float().pow(2).sum().item()
 
     return float(aggregate_sq**0.5), anomalies
+
+
+def checkpoint_inspect(state: dict) -> dict:
+    """分类 checkpoint 顶层结构，返回 full / weights_only / invalid。"""
+    top_keys = sorted(state.keys())
+    has_model = isinstance(state.get("model"), dict)
+    has_ema = isinstance(state.get("ema"), dict)
+    has_optimizer = isinstance(state.get("optimizer"), dict)
+    last_epoch = state.get("last_epoch")
+
+    bare_params = bool(
+        not has_model
+        and not has_ema
+        and top_keys
+        and all(isinstance(v, torch.Tensor) for v in state.values())
+    )
+
+    if isinstance(last_epoch, int) and (has_model or has_ema) and has_optimizer:
+        kind = "full"
+    elif (has_model or has_ema or bare_params) and not has_optimizer:
+        kind = "weights_only"
+    else:
+        kind = "invalid"
+
+    return {
+        "kind": kind,
+        "top_keys": top_keys,
+        "last_epoch": last_epoch,
+        "has_model": has_model,
+        "has_ema": has_ema,
+        "has_optimizer": has_optimizer,
+        "notes": [],
+    }
+
+
+def ensure_output_dir(output_dir: Path | str, overwrite: bool) -> Path:
+    """校验/创建输出目录。非空目录默认拒绝；overwrite=True 清空重建。"""
+    d = Path(output_dir)
+    if d.exists() and any(d.iterdir()):
+        if not overwrite:
+            raise FileExistsError(
+                f"output-dir 已存在且非空: {d}（使用 --overwrite 显式允许覆盖）"
+            )
+        shutil.rmtree(d)
+    d.mkdir(parents=True, exist_ok=True)
+    return d

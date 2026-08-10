@@ -117,3 +117,96 @@ class TestScanGradients:
         norm, anomalies = scan_gradients(model)
         assert anomalies == []
         assert norm > 0.0
+
+
+class TestCheckpointInspect:
+
+    def test_full_checkpoint(self):
+        from tool_diagnose_rep2_nan import checkpoint_inspect
+
+        state = {
+            "date": "2026-08-10T00:00:00",
+            "last_epoch": 87,
+            "model": {"backbone.sta.stem.0.weight": torch.zeros(2, 2)},
+            "ema": {"module": {}, "updates": 100},
+            "optimizer": {"state": {}, "param_groups": []},
+        }
+        r = checkpoint_inspect(state)
+        assert r["kind"] == "full"
+        assert r["last_epoch"] == 87
+        assert r["has_model"] is True
+        assert r["has_ema"] is True
+        assert r["has_optimizer"] is True
+
+    def test_weights_only_with_model_key(self):
+        from tool_diagnose_rep2_nan import checkpoint_inspect
+
+        state = {"model": {"a": torch.zeros(1)}}
+        r = checkpoint_inspect(state)
+        assert r["kind"] == "weights_only"
+        assert r["has_optimizer"] is False
+        assert r["last_epoch"] is None
+
+    def test_weights_only_ema_module(self):
+        from tool_diagnose_rep2_nan import checkpoint_inspect
+
+        state = {"ema": {"module": {"a": torch.zeros(1)}, "updates": 5}}
+        r = checkpoint_inspect(state)
+        assert r["kind"] == "weights_only"
+        assert r["has_model"] is False
+        assert r["has_ema"] is True
+
+    def test_weights_only_bare_state_dict(self):
+        from tool_diagnose_rep2_nan import checkpoint_inspect
+
+        state = {"backbone.sta.stem.0.weight": torch.zeros(2, 2)}
+        r = checkpoint_inspect(state)
+        assert r["kind"] == "weights_only"
+
+    def test_invalid_empty_dict(self):
+        from tool_diagnose_rep2_nan import checkpoint_inspect
+
+        r = checkpoint_inspect({})
+        assert r["kind"] == "invalid"
+
+    def test_invalid_non_dict_value(self):
+        from tool_diagnose_rep2_nan import checkpoint_inspect
+
+        r = checkpoint_inspect({"model": "not-a-dict"})
+        assert r["kind"] == "invalid"
+
+
+class TestEnsureOutputDir:
+
+    def test_new_dir_created(self, tmp_path):
+        from tool_diagnose_rep2_nan import ensure_output_dir
+
+        d = tmp_path / "out"
+        out = ensure_output_dir(d, overwrite=False)
+        assert out == d and d.is_dir()
+
+    def test_empty_existing_dir_allowed(self, tmp_path):
+        from tool_diagnose_rep2_nan import ensure_output_dir
+
+        d = tmp_path / "out"
+        d.mkdir()
+        ensure_output_dir(d, overwrite=False)  # 不抛异常
+
+    def test_nonempty_refused_without_overwrite(self, tmp_path):
+        import pytest
+        from tool_diagnose_rep2_nan import ensure_output_dir
+
+        d = tmp_path / "out"
+        d.mkdir()
+        (d / "events.jsonl").write_text("{}")
+        with pytest.raises(FileExistsError):
+            ensure_output_dir(d, overwrite=False)
+
+    def test_overwrite_clears_dir(self, tmp_path):
+        from tool_diagnose_rep2_nan import ensure_output_dir
+
+        d = tmp_path / "out"
+        d.mkdir()
+        (d / "events.jsonl").write_text("{}")
+        ensure_output_dir(d, overwrite=True)
+        assert list(d.iterdir()) == []
