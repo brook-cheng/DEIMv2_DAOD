@@ -4,6 +4,7 @@
 设计依据: docs/superpowers/specs/2026-08-10-rep2-nan-diagnostic-runner-design.md
 """
 
+import json
 import os
 import shutil
 import sys
@@ -283,3 +284,91 @@ class GeometryProbe:
         for k in ("eps_max", "eta_max"):
             agg[k] = max(s[k] for s in self._snapshots)
         return agg
+
+
+def write_run_manifest(path: Path | str, meta: dict) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+
+
+def append_event(path: Path | str, record: dict) -> None:
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def write_progress(path: Path | str, state: dict) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2, ensure_ascii=False)
+
+
+def _to_cpu(d):
+    """递归把 dict/list 中的 tensor detach 并移到 CPU；其余原样。"""
+    if isinstance(d, torch.Tensor):
+        return d.detach().cpu()
+    if isinstance(d, dict):
+        return {k: _to_cpu(v) for k, v in d.items()}
+    if isinstance(d, (list, tuple)):
+        return [_to_cpu(v) for v in d]
+    return d
+
+
+def save_failure(
+    output_dir: Path | str,
+    *,
+    traceback_text: str,
+    failure_summary: dict,
+    trigger_batch: dict,
+    outputs: dict,
+    losses: dict,
+    geometry_snapshot: dict,
+    gradients_summary: dict,
+    model_state: dict,
+    optimizer_state: dict,
+) -> dict:
+    """持久化失败现场到 output-dir/failure/。tensor 一律 detach+CPU。
+
+    任一产物保存失败：追加到 failure_summary["secondary_errors"]，不覆盖 traceback。
+    返回 {键: 绝对路径}。
+    """
+    fail_dir = Path(output_dir) / "failure"
+    fail_dir.mkdir(parents=True, exist_ok=True)
+    secondary_errors = failure_summary.setdefault("secondary_errors", [])
+
+    artifacts = {
+        "traceback": fail_dir / "traceback.txt",
+        "failure_summary": fail_dir / "failure_summary.json",
+        "trigger_batch": fail_dir / "trigger_batch.pt",
+        "outputs": fail_dir / "outputs.pt",
+        "losses": fail_dir / "losses.pt",
+        "geometry_snapshot": fail_dir / "geometry_snapshot.pt",
+        "gradients_summary": fail_dir / "gradients_summary.json",
+        "model_state": fail_dir / "model_state.pt",
+        "optimizer_state": fail_dir / "optimizer_state.pt",
+    }
+
+    def _safe(kind: str, path: Path, payload, *, text: bool = False):
+        try:
+            if text:
+                if isinstance(payload, dict):
+                    with open(path, "w", encoding="utf-8") as f:
+                        json.dump(payload, f, indent=2, ensure_ascii=False)
+                else:
+                    path.write_text(payload)
+            else:
+                torch.save(_to_cpu(payload), path)
+            return str(path)
+        except Exception as e:  # noqa: BLE001 - 次级保存错误需记录不抛出
+            secondary_errors.append({"artifact": kind, "error": f"{type(e).__name__}: {e}"})
+            return None
+
+    _safe("traceback", artifacts["traceback"], traceback_text, text=True)
+    _safe("failure_summary", artifacts["failure_summary"], failure_summary, text=True)
+    _safe("trigger_batch", artifacts["trigger_batch"], trigger_batch)
+    _safe("outputs", artifacts["outputs"], outputs)
+    _safe("losses", artifacts["losses"], losses)
+    _safe("geometry_snapshot", artifacts["geometry_snapshot"], geometry_snapshot)
+    _safe("gradients_summary", artifacts["gradients_summary"], gradients_summary, text=True)
+    _safe("model_state", artifacts["model_state"], model_state)
+    _safe("optimizer_state", artifacts["optimizer_state"], optimizer_state)
+
+    return {k: str(v) for k, v in artifacts.items()}

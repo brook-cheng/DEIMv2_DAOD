@@ -300,3 +300,88 @@ class TestGeometryProbe:
         offs = torch.tensor([[[0.25, 0.25]]])
         external_xyxy_rect_to_oriented_box(rect, offs)
         assert probe.snapshot()["calls"] == 0
+
+
+class TestArtifactWriters:
+
+    def test_write_run_manifest(self, tmp_path):
+        import json
+        from tool_diagnose_rep2_nan import write_run_manifest
+
+        p = tmp_path / "run_manifest.json"
+        write_run_manifest(p, {"a": 1, "b": {"c": [1, 2]}})
+        assert json.loads(p.read_text()) == {"a": 1, "b": {"c": [1, 2]}}
+
+    def test_append_event_jsonl(self, tmp_path):
+        import json
+        from tool_diagnose_rep2_nan import append_event
+
+        p = tmp_path / "events.jsonl"
+        append_event(p, {"epoch": 0, "step": 0})
+        append_event(p, {"epoch": 0, "step": 1})
+        lines = p.read_text().strip().splitlines()
+        assert len(lines) == 2
+        assert json.loads(lines[1])["step"] == 1
+
+    def test_write_progress(self, tmp_path):
+        import json
+        from tool_diagnose_rep2_nan import write_progress
+
+        p = tmp_path / "progress.json"
+        write_progress(p, {"epoch": 3, "global_step": 42})
+        assert json.loads(p.read_text())["global_step"] == 42
+
+    def test_save_failure_moves_tensors_to_cpu(self, tmp_path):
+        import json
+        from tool_diagnose_rep2_nan import save_failure
+
+        out = tmp_path / "diag"
+        paths = save_failure(
+            out,
+            traceback_text="Traceback (most recent call last):\n  boom",
+            failure_summary={"exit_code": 2, "kind": "gradient"},
+            trigger_batch={
+                "samples": torch.randn(2, 3, 4, 4),
+                "targets": [{"boxes": torch.randn(1, 5)}],
+            },
+            outputs={"pred_boxes": torch.randn(2, 10, 5)},
+            losses={"loss_total": torch.tensor(float("nan"))},
+            geometry_snapshot={"atan2_zero_inputs": 3},
+            gradients_summary={"aggregate_norm": 1.0, "anomalies": []},
+            model_state={"m": torch.randn(2)},
+            optimizer_state={"state": {}},
+        )
+        fail_dir = out / "failure"
+        assert (fail_dir / "traceback.txt").exists()
+        assert (fail_dir / "trigger_batch.pt").exists()
+        assert (fail_dir / "outputs.pt").exists()
+        assert (fail_dir / "losses.pt").exists()
+        assert (fail_dir / "model_state.pt").exists()
+        assert (fail_dir / "optimizer_state.pt").exists()
+        fs = json.loads((fail_dir / "failure_summary.json").read_text())
+        assert fs["kind"] == "gradient"
+        tb = torch.load(fail_dir / "trigger_batch.pt", map_location="cpu", weights_only=False)
+        assert tb["samples"].device.type == "cpu"
+        assert tb["samples"].requires_grad is False
+        assert paths["traceback"].endswith("traceback.txt")
+
+    def test_save_failure_records_secondary_errors(self, tmp_path, monkeypatch):
+        import json
+        from tool_diagnose_rep2_nan import save_failure
+
+        out = tmp_path / "diag"
+        save_failure(
+            out,
+            traceback_text="t",
+            failure_summary={},
+            trigger_batch={"samples": torch.randn(2)},
+            outputs={},
+            losses={},
+            geometry_snapshot={},
+            gradients_summary={},
+            model_state={},
+            optimizer_state={},
+        )
+        fs = json.loads((out / "failure" / "failure_summary.json").read_text())
+        assert "secondary_errors" in fs
+        assert (out / "failure" / "traceback.txt").read_text() == "t"
