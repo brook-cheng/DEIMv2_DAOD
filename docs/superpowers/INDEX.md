@@ -107,6 +107,8 @@
 
 [2026-08-07-bf16-forward-fp32-loss](plans/2026-08-07-bf16-forward-fp32-loss.md) — 精度路径最终实施记录：说明 FP16-only 历史决策被 NaN/Inf 结果推翻，并记录 BF16 forward + FP32 loss、无 GradScaler 的实现与验证证据。
 
+[2026-08-10-rep2-nan-diagnostic-runner](plans/2026-08-10-rep2-nan-diagnostic-runner.md) — rep2 NaN 远程诊断 runner 实施计划：7 个 TDD 任务实现 `test/tool_diagnose_rep2_nan.py` 与纯 CPU 测试，覆盖 checkpoint 分类/恢复、BF16+FP32 诊断循环、atan2 几何探针、失败现场持久化；与 specs/2026-08-10-rep2-nan-diagnostic-runner-design 配对。
+
 ---
 
 ## review/ — 评审与实验结果
