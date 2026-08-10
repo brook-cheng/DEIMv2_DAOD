@@ -1261,5 +1261,309 @@ def test_offset_validity_imports_on_disk_repo_module():
     )
 
 
+# ---------------------------------------------------------------------------
+# Stable atan2 and degenerate complete geometry contracts (rep2 fix)
+# ---------------------------------------------------------------------------
+#
+# TDD red-before-green (plan 2026-08-10-rep2-stable-atan2, Task 1): every
+# `_stable_atan2` test fails until the private operator exists in
+# engine/deim/obb_geometry.py; the lazy import keeps collection alive while
+# the symbol is missing. The zero-size complete geometry backward test fails
+# on the native Atan2Backward0 NaN, and the native defect-lock test documents
+# that PyTorch behavior (it must stay green before and after the fix).
+
+NORMAL_ATAN2_INPUTS = [
+    (1.0, 1.0),
+    (-1.0, 1.0),
+    (1.0, -1.0),
+    (-1.0, -1.0),
+    (0.5, 0.8660254),
+    (-3.0, 4.0),
+    (2.0, -0.5),
+]
+
+DEGENERATE_ATAN2_INPUTS = [
+    (0.0, 0.0),
+    (0.0, 1e-8),
+    (1e-8, 0.0),
+    (0.0, -1e-8),
+    (-1e-8, 0.0),
+    (1e-8, 1e-8),
+    (0.0, 3.1622776601683794e-5),
+    (3.1622776601683794e-5, 0.0),
+    (3.1622776601683794e-5, 3.1622776601683794e-5),
+]
+
+_NORMAL_IDS = [f"y={v[0]},x={v[1]}" for v in NORMAL_ATAN2_INPUTS]
+_DEGENERATE_IDS = [f"y={v[0]},x={v[1]}" for v in DEGENERATE_ATAN2_INPUTS]
+
+
+def _import_stable_atan2():
+    """Lazily import the not-yet-existing ``_stable_atan2`` helper.
+
+    Deliberately invoked inside test bodies so module collection continues
+    while the symbol is missing (TDD red state). After Task 2 it resolves
+    to the production private operator.
+    """
+    import engine.deim.obb_geometry as geom
+
+    return geom._stable_atan2
+
+
+def test_native_atan2_zero_zero_forward_finite_backward_nonfinite():
+    """PyTorch native atan2(0, 0): finite forward, non-finite backward.
+
+    Documents the exact defect the stable operator replaces (plan Task 1
+    Step 1): atan2(y=0, x=0) forward returns 0.0 but the backward gradient
+    is 0/0 = NaN. Must pass before any production change; if a future
+    PyTorch fixes the defect this test fails and the workaround can go.
+    """
+    y = torch.tensor(0.0, dtype=torch.float32, requires_grad=True)
+    x = torch.tensor(0.0, dtype=torch.float32, requires_grad=True)
+
+    out = torch.atan2(y, x)
+    assert torch.isfinite(out).all(), "native atan2(0, 0) forward must be finite"
+
+    out.backward()
+    assert y.grad is not None and x.grad is not None
+    y_grad_finite = torch.isfinite(y.grad).all()
+    x_grad_finite = torch.isfinite(x.grad).all()
+    assert not (y_grad_finite and x_grad_finite), (
+        "native atan2(0,0) backward unexpectedly finite; "
+        "PyTorch fixed the defect this workaround documents"
+    )
+
+
+@pytest.mark.parametrize("y, x", NORMAL_ATAN2_INPUTS, ids=_NORMAL_IDS)
+def test_stable_atan2_forward_matches_native_normal(y, x):
+    """Stable atan2 forward must equal native atan2 for normal inputs."""
+    stable = _import_stable_atan2()
+    y_t = torch.tensor(y, dtype=torch.float32)
+    x_t = torch.tensor(x, dtype=torch.float32)
+
+    expected = torch.atan2(y_t, x_t)
+    actual = stable(y_t, x_t, 1e-9)
+
+    assert actual.dtype == expected.dtype
+    assert actual.shape == expected.shape
+    assert torch.equal(actual, expected), (
+        f"stable atan2({y}, {x}) = {actual} != native {expected}"
+    )
+
+
+@pytest.mark.parametrize("y, x", DEGENERATE_ATAN2_INPUTS, ids=_DEGENERATE_IDS)
+def test_stable_atan2_forward_matches_native_degenerate(y, x):
+    """Stable atan2 forward must equal native atan2 for degenerate inputs."""
+    stable = _import_stable_atan2()
+    y_t = torch.tensor(y, dtype=torch.float32)
+    x_t = torch.tensor(x, dtype=torch.float32)
+
+    expected = torch.atan2(y_t, x_t)
+    actual = stable(y_t, x_t, 1e-9)
+
+    assert actual.dtype == expected.dtype
+    assert actual.shape == expected.shape
+    assert torch.equal(actual, expected), (
+        f"stable atan2({y}, {x}) = {actual} != native {expected}"
+    )
+
+
+@pytest.mark.parametrize("y, x", DEGENERATE_ATAN2_INPUTS, ids=_DEGENERATE_IDS)
+def test_stable_atan2_degenerate_backward_finite(y, x):
+    """Stable atan2 backward must be finite for degenerate inputs.
+
+    Native atan2 backward at these points is 0/0 = NaN (defect locked by
+    ``test_native_atan2_zero_zero_forward_finite_backward_nonfinite``);
+    the stable operator floors x²+y² at eps and must stay finite.
+    """
+    stable = _import_stable_atan2()
+    y_t = torch.tensor(y, dtype=torch.float32, requires_grad=True)
+    x_t = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+
+    with torch.autograd.detect_anomaly():
+        out = stable(y_t, x_t, 1e-9)
+        out.sum().backward()
+
+    assert y_t.grad is not None and x_t.grad is not None
+    assert torch.isfinite(y_t.grad).all(), f"y grad non-finite: {y_t.grad}"
+    assert torch.isfinite(x_t.grad).all(), f"x grad non-finite: {x_t.grad}"
+
+
+@pytest.mark.parametrize("y, x", NORMAL_ATAN2_INPUTS, ids=_NORMAL_IDS)
+def test_stable_atan2_normal_gradients_match_native(y, x):
+    """Stable and native input gradients must agree for normal inputs.
+
+    Outside the stabilized radius x²+y² >= eps both backward formulas are
+    identical; this locks that the operator does not perturb gradients on
+    well-conditioned inputs.
+    """
+    stable = _import_stable_atan2()
+    y_stable = torch.tensor(y, dtype=torch.float32, requires_grad=True)
+    x_stable = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+    y_native = torch.tensor(y, dtype=torch.float32, requires_grad=True)
+    x_native = torch.tensor(x, dtype=torch.float32, requires_grad=True)
+
+    stable(y_stable, x_stable, 1e-9).sum().backward()
+    torch.atan2(y_native, x_native).sum().backward()
+
+    assert y_stable.grad is not None and x_stable.grad is not None
+    assert y_native.grad is not None and x_native.grad is not None
+    assert torch.allclose(y_stable.grad, y_native.grad, rtol=1e-6, atol=1e-8), (
+        f"({y}, {x}): stable y-grad {y_stable.grad} != native {y_native.grad}"
+    )
+    assert torch.allclose(x_stable.grad, x_native.grad, rtol=1e-6, atol=1e-8), (
+        f"({y}, {x}): stable x-grad {x_stable.grad} != native {x_native.grad}"
+    )
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available(), reason="CUDA not available"
+)
+@pytest.mark.parametrize("y, x", DEGENERATE_ATAN2_INPUTS, ids=_DEGENERATE_IDS)
+def test_stable_atan2_bf16_cuda_forward_and_backward_finite(y, x):
+    """CUDA BF16 leaves: exact forward equivalence and finite backward.
+
+    Direct BF16 leaf tensors exercise the same dtype promotion path as the
+    captured training graph (BF16 autocast with saved BF16 inputs). The
+    backward must promote to FP32 internally and return BF16 gradients.
+    """
+    stable = _import_stable_atan2()
+    device = torch.device("cuda")
+    y_t = torch.tensor(y, dtype=torch.bfloat16, device=device, requires_grad=True)
+    x_t = torch.tensor(x, dtype=torch.bfloat16, device=device, requires_grad=True)
+
+    expected = torch.atan2(y_t, x_t)
+    actual = stable(y_t, x_t, 1e-9)
+
+    assert actual.dtype == expected.dtype
+    assert actual.shape == expected.shape
+    assert torch.equal(actual, expected), (
+        f"bf16 stable atan2({y}, {x}) = {actual} != native {expected}"
+    )
+
+    with torch.autograd.detect_anomaly():
+        actual.sum().backward()
+
+    assert y_t.grad is not None and x_t.grad is not None
+    assert y_t.grad.dtype == torch.bfloat16
+    assert x_t.grad.dtype == torch.bfloat16
+    assert torch.isfinite(y_t.grad).all(), f"bf16 y grad non-finite: {y_t.grad}"
+    assert torch.isfinite(x_t.grad).all(), f"bf16 x grad non-finite: {x_t.grad}"
+
+
+def test_complete_geometry_zero_size_backward_finite():
+    """Zero-size external rectangle + zero offsets: finite backward.
+
+    RED before the fix: the four vertices collapse to one point, the edge
+    vectors are (0, 0), and native atan2(0, 0) backward produces NaN
+    (Atan2Backward0), which detect_anomaly surfaces as an error. This is
+    the epoch-115 failure geometry at observed scale (plan Task 1 Step 5).
+    """
+    ext_t = torch.tensor([[0.3, 0.5, 0.3, 0.5]], dtype=torch.float32, requires_grad=True)
+    vo_t = torch.tensor([[0.0, 0.0]], dtype=torch.float32, requires_grad=True)
+
+    out = external_xyxy_rect_to_oriented_box(ext_t, vo_t)
+    assert torch.isfinite(
+        out
+    ).all(), f"zero-size decode produced non-finite OBB: {out}"
+
+    with torch.autograd.detect_anomaly():
+        out.sum().backward()
+
+    assert ext_t.grad is not None and vo_t.grad is not None
+    assert torch.isfinite(ext_t.grad).all(), f"ext grad non-finite: {ext_t.grad}"
+    assert torch.isfinite(vo_t.grad).all(), f"offsets grad non-finite: {vo_t.grad}"
+
+
+def test_complete_geometry_tiny_ext_backward_finite():
+    """Observed-scale tiny external rectangle: finite backward.
+
+    The smallest non-degenerate observed box (extent 3.2e-5); native
+    gradients here are huge but finite. Locks the boundary of the
+    stabilized radius (plan Task 1 Step 5).
+    """
+    ext_t = torch.tensor(
+        [[0.499984, 0.499984, 0.500016, 0.500016]],
+        dtype=torch.float32,
+        requires_grad=True,
+    )
+    vo_t = torch.tensor([[0.0, 0.0]], dtype=torch.float32, requires_grad=True)
+
+    out = external_xyxy_rect_to_oriented_box(ext_t, vo_t)
+    assert torch.isfinite(
+        out
+    ).all(), f"tiny decode produced non-finite OBB: {out}"
+
+    with torch.autograd.detect_anomaly():
+        out.sum().backward()
+
+    assert ext_t.grad is not None and vo_t.grad is not None
+    assert torch.isfinite(ext_t.grad).all(), f"ext grad non-finite: {ext_t.grad}"
+    assert torch.isfinite(vo_t.grad).all(), f"offsets grad non-finite: {vo_t.grad}"
+
+
+def test_complete_geometry_normal_forward_matches_reference():
+    """Normal geometry: decode forward must match the longer-edge reference
+    built from first principles with native atan2 (plan Task 1 Step 5).
+
+    Reconstructs the four edge vertices, the two consecutive edges, picks
+    the longer edge, applies native ``torch.atan2`` and ``remainder(pi)``,
+    and compares all five OBB components. Locks the forward contract the
+    stabilized operator must preserve bit-for-bit.
+    """
+    ext_t = torch.tensor([_VALID_EXT], dtype=torch.float32)
+    vo_t = torch.tensor([_VALID_VO], dtype=torch.float32)
+    eps = 1e-9
+
+    out = external_xyxy_rect_to_oriented_box(ext_t, vo_t)
+
+    x1, y1, x2, y2 = ext_t[..., 0], ext_t[..., 1], ext_t[..., 2], ext_t[..., 3]
+    ep, et = vo_t[..., 0], vo_t[..., 1]
+    cx = (x1 + x2) / 2
+    cy = (y1 + y2) / 2
+
+    v0 = torch.stack([x2 - ep, y1], dim=-1)
+    v1 = torch.stack([x2, y2 - et], dim=-1)
+    v2 = torch.stack([x1 + ep, y2], dim=-1)
+
+    edge_ab = v1 - v0
+    edge_bc = v2 - v1
+    len_ab = torch.sqrt(edge_ab[..., 0] ** 2 + edge_ab[..., 1] ** 2 + eps)
+    len_bc = torch.sqrt(edge_bc[..., 0] ** 2 + edge_bc[..., 1] ** 2 + eps)
+
+    w_is_ab = len_ab >= len_bc
+    w_len = torch.where(w_is_ab, len_ab, len_bc)
+    h_len = torch.where(w_is_ab, len_bc, len_ab)
+    w_dx = torch.where(w_is_ab, edge_ab[..., 0], edge_bc[..., 0])
+    w_dy = torch.where(w_is_ab, edge_ab[..., 1], edge_bc[..., 1])
+    theta = torch.remainder(torch.atan2(w_dy, w_dx), torch.pi)
+
+    expected = torch.stack([cx, cy, w_len, h_len, theta], dim=-1)
+    assert torch.equal(
+        out, expected
+    ), f"decode {out[0].tolist()} != reference {expected[0].tolist()}"
+
+
+def test_complete_geometry_unguarded_path_does_not_mutate_offsets():
+    """Unguarded decode (clamp_offsets=False) must not modify or truncate
+    the input vertex offsets.
+
+    The unguarded path is the loss-bearing training decode; mutating its
+    inputs would silently corrupt the offset branch of the graph. Uses
+    offsets the guarded path would clamp so truncation is visible (plan
+    Task 1 Step 5).
+    """
+    ext_t = torch.tensor([_VALID_EXT], dtype=torch.float32)
+    vo_t = torch.tensor([[-0.5, 5.0]], dtype=torch.float32, requires_grad=True)
+    vo_before = vo_t.detach().clone()
+
+    external_xyxy_rect_to_oriented_box(ext_t, vo_t, clamp_offsets=False)
+
+    assert torch.equal(vo_t.detach(), vo_before), (
+        "unguarded decode modified or truncated input offsets; "
+        f"before={vo_before.tolist()}, after={vo_t.detach().tolist()}"
+    )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
