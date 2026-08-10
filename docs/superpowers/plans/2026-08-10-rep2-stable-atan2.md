@@ -497,7 +497,11 @@ If the native sensitivity run does not reproduce or the fixed run does not pass,
 - Verify only: `test/tool_diagnose_rep2_nan.py`
 - Generated outputs are gitignored.
 
-- [ ] **Step 1: Run the 100-step gate in a fresh output directory.**
+- [x] **Step 1: Run the 100-step gate in a fresh output directory.**
+
+  Satisfied by the superseding remote run documented below. The exact 100-step
+  command was not used; the recorded run crossed the same failure point and
+  continued for 791 finite steps.
 
 ```bash
 python test/tool_diagnose_rep2_nan.py \
@@ -511,7 +515,7 @@ python test/tool_diagnose_rep2_nan.py \
 
 Do not reuse a non-empty output directory unless explicitly adding `--overwrite`.
 
-- [ ] **Step 2: Verify the 100-step artifacts.**
+- [x] **Step 2: Verify the 100-step artifacts.**
 
 ```bash
 wc -l test/data/outputs/diagnose_rep2_nan_fixed_100/events.jsonl
@@ -520,7 +524,10 @@ python -c "import json, math, pathlib; p=pathlib.Path('test/data/outputs/diagnos
 
 Expected: line count `100`; global steps `59800` through `59899`; original failure step `59810` crossed; no `failure/`; full checkpoint recovery; process exit `0`.
 
-- [ ] **Step 3: Run one complete epoch only after Step 2 passes.**
+- [x] **Step 3: Run one complete epoch only after Step 2 passes.**
+
+  The superseding run completed all 520 steps of epoch 115 before continuing
+  into epoch 116.
 
 ```bash
 python test/tool_diagnose_rep2_nan.py \
@@ -531,7 +538,7 @@ python test/tool_diagnose_rep2_nan.py \
   --detect-anomaly
 ```
 
-- [ ] **Step 4: Verify the complete epoch artifacts.**
+- [x] **Step 4: Verify the complete epoch artifacts.**
 
 ```bash
 wc -l test/data/outputs/diagnose_rep2_nan_fixed_epoch/events.jsonl
@@ -540,7 +547,33 @@ python -c "import json, math, pathlib; p=pathlib.Path('test/data/outputs/diagnos
 
 Expected: 520 records, `done=true`, no failure directory, exit `0`.
 
-- [ ] **Step 5: Apply the stop-loss decision.**
+**Remote acceptance evidence (2026-08-10):**
+
+- Output directory: `test/data/outputs/diagnose_rep2_nan`.
+- The run used commit `5a3834d024ade2b0ca39fa44e14cfcbc72577c04` with a
+  dirty worktree and restored the original checkpoint with
+  `recovery.fidelity == "full"`; both model and optimizer loaded successfully
+  with no missing or unexpected keys.
+- The CLI used the default `--max-epochs 10` and no
+  `--max-steps-per-epoch`, rather than the two exact commands above.
+- `events.jsonl` contains 791 consecutive records from global step `59800`
+  through `60590`. All `loss_total`, `grad_norm`, and recorded scalar loss
+  components are finite; no `failure/` directory exists.
+- The original failure point, global step `59810`, completed with finite
+  values (`loss_total=29.3155`, `grad_norm=150.5998`).
+- Epoch 115 contains exactly 520 records, from global step `59800` through
+  `60319`, all finite. The run then completed another 271 finite steps of
+  epoch 116.
+- `progress.json` does not contain `done=true` because the requested 10-epoch
+  job had not completed when the artifacts were collected. This does not
+  establish completion of the 10-epoch job; the complete epoch-115 slice is
+  the evidence for this task's one-epoch acceptance criterion.
+
+- [x] **Step 5: Apply the stop-loss decision.**
+
+  Numerical stability is accepted. Do not start a 200-epoch rep2 retrain based
+  solely on this result. Any further run is limited to an optional 5-10 epoch
+  loss/validation trend comparison against rep0.
 
 If one epoch passes, optionally continue only 5-10 epochs to observe loss and validation trends. Do not launch a 200-epoch rep2 retrain solely because the numerical fix passes. If a different first failing op appears, stop and diagnose it independently. If rep2 remains materially worse than rep0, retain rep0 as the production recommendation.
 
@@ -557,8 +590,8 @@ All items below must be evidenced before completion is claimed:
 - [x] Existing geometry, ADR loss, roundtrip, transform, angle-contract, smoke, and diagnostic tests pass.
 - [x] Native saved-failure replay returns exit 2 and fixed replay returns exit 0.
 - [x] Fixed replay with optimizer step returns exit 0 with finite state.
-- [ ] Original checkpoint crosses global step 59810 for 100 finite steps.
-- [ ] Original checkpoint completes all 520 steps of epoch 115.
+- [x] Original checkpoint crosses global step 59810 for 100 finite steps.
+- [x] Original checkpoint completes all 520 steps of epoch 115.
 - [x] No production files outside `engine/deim/obb_geometry.py` were changed for the numerical fix.
 - [x] No generated artifacts were staged or committed.
 
