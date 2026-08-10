@@ -364,7 +364,6 @@ def save_failure(
             return None
 
     _safe("traceback", artifacts["traceback"], traceback_text, text=True)
-    _safe("failure_summary", artifacts["failure_summary"], failure_summary, text=True)
     _safe("trigger_batch", artifacts["trigger_batch"], trigger_batch)
     _safe("outputs", artifacts["outputs"], outputs)
     _safe("losses", artifacts["losses"], losses)
@@ -372,6 +371,8 @@ def save_failure(
     _safe("gradients_summary", artifacts["gradients_summary"], gradients_summary, text=True)
     _safe("model_state", artifacts["model_state"], model_state)
     _safe("optimizer_state", artifacts["optimizer_state"], optimizer_state)
+    # failure_summary 最后写，确保早先产物保存失败也记入 secondary_errors
+    _safe("failure_summary", artifacts["failure_summary"], failure_summary, text=True)
 
     return {k: str(v) for k, v in artifacts.items()}
 
@@ -797,6 +798,7 @@ def build_pipeline(
         "seed": seed,
         "effective_seed": effective_seed,
         "use_amp": bool(getattr(cfg, "use_amp", False)),
+        "clip_max_norm": float(getattr(cfg, "clip_max_norm", 0.0)),
         "recovery": recovery,
         "git": git_meta,
         "amp_dtype": "bfloat16",
@@ -867,13 +869,20 @@ def main(argv: list[str] | None = None) -> int:
     meta["env"] = _collect_env()
     meta["probe_atan2_zero"] = atan2_zero_probe(str(args.device).split(":")[0])
     meta["cli"] = vars(args)
+    # 必须在 write_run_manifest 之前覆盖：build_pipeline 硬编码 True，
+    # --no-detect-anomaly 时不得把实际关闭误记为 True（re-review 发现放置顺序问题）
+    meta["detect_anomaly"] = args.detect_anomaly
     write_run_manifest(output_dir / "run_manifest.json", meta)
     (output_dir / "command.txt").write_text("python " + " ".join(sys.argv) + "\n")
 
-    # run_diagnostic 需要的运行参数：use_amp 从配置合并值注入（parse_args 无此参数）；
-    # seed 已在 build_pipeline 内解析（--seed → 配置 seed → 0，spec §3）
+    # run_diagnostic 需要的运行参数：use_amp/clip_max_norm/start_epoch 从配置/恢复结果注入
+    #（parse_args 无这些参数或默认 None）。clip_max_norm/start_epoch 缺失会导致
+    # run_diagnostic 首个有限 step 抛 AttributeError/TypeError → 伪 exit 4
+    #（最终 review 发现并修正：配置含 clip_max_norm=0.1；start_epoch 由恢复结果解析）。
     args.use_amp = meta["use_amp"]
     args.effective_seed = meta["effective_seed"]
+    args.clip_max_norm = meta["clip_max_norm"]
+    args.start_epoch = meta["recovery"]["start_epoch"]
 
     pipeline.probe = probe
     code = run_diagnostic(pipeline, args)

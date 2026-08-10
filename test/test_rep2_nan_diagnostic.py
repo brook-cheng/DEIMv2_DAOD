@@ -635,6 +635,36 @@ class TestRunDiagnostic:
         lines = (tmp_path / "events.jsonl").read_text().strip().splitlines()
         assert len(lines) == 2
 
+    def test_cli_namespace_runs_finite_pipeline(self, tmp_path):
+        """装配级回归：parse_args + main 注入后的 Namespace 必须可被 run_diagnostic 消费。
+
+        最终 review 发现 C1：run_diagnostic 读取 args.clip_max_norm，但 parse_args
+        不提供、main 曾漏注入 → 首个有限 step 抛 AttributeError → 伪 exit 4。
+        本测试用与 main 相同的注入序列构造 Namespace，验证有限路径能 exit 0。
+        """
+        from tool_diagnose_rep2_nan import parse_args, run_diagnostic
+
+        args = parse_args(
+            [
+                "--config", "cfg.yml",
+                "--checkpoint", "ckpt.pth",
+                "--output-dir", str(tmp_path),
+                "--max-epochs", "1",
+            ]
+        )
+        meta = {
+            "use_amp": False,
+            "effective_seed": 0,
+            "clip_max_norm": 0.0,
+            "recovery": {"start_epoch": 0},
+        }
+        args.use_amp = meta["use_amp"]
+        args.effective_seed = meta["effective_seed"]
+        args.clip_max_norm = meta["clip_max_norm"]
+        args.start_epoch = meta["recovery"]["start_epoch"]
+        code = run_diagnostic(_pipeline(), args)
+        assert code == 0
+
 
 class TestParseArgs:
 
