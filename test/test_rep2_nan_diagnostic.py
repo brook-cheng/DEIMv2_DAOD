@@ -210,3 +210,93 @@ class TestEnsureOutputDir:
         (d / "events.jsonl").write_text("{}")
         ensure_output_dir(d, overwrite=True)
         assert list(d.iterdir()) == []
+
+
+class TestAtan2ZeroProbe:
+
+    def test_forward_finite_backward_nonfinite(self):
+        from tool_diagnose_rep2_nan import atan2_zero_probe
+
+        r = atan2_zero_probe("cpu")
+        assert r["forward_finite"] is True
+        assert r["forward_value"] == 0.0
+        assert r["backward_grads_finite"] is False
+
+
+class TestComputeEdgeStats:
+
+    def test_degenerate_edges_detected(self):
+        from tool_diagnose_rep2_nan import compute_edge_stats
+
+        # ext_rect=(0,0,0,0), offsets=(0,0) → v0=v1=v2 → 两退化边 + atan2(0,0)
+        rect = torch.zeros(1, 1, 4)
+        offs = torch.zeros(1, 1, 2)
+        s = compute_edge_stats(rect, offs)
+        assert s["n"] == 1
+        assert s["edge_ab_zero"] == 1
+        assert s["edge_bc_zero"] == 1
+        assert s["atan2_zero_inputs"] == 1
+        # eps=1e-9 稳定化使退化边长 ≈ sqrt(1e-9)=3.16e-5，非 0
+        assert s["w_min"] < 1e-4
+        assert s["h_min"] < 1e-4
+
+    def test_normal_rect_no_atan2_zero(self):
+        from tool_diagnose_rep2_nan import compute_edge_stats
+
+        # ext_rect=(0,0,2,1), offsets=(0.5,0.25)
+        rect = torch.tensor([[[0.0, 0.0, 2.0, 1.0]]])
+        offs = torch.tensor([[[0.5, 0.25]]])
+        s = compute_edge_stats(rect, offs)
+        assert s["edge_ab_zero"] == 0
+        assert s["edge_bc_zero"] == 0
+        assert s["atan2_zero_inputs"] == 0
+        assert s["w_min"] > 1.0
+        assert s["h_min"] > 0.5
+
+    def test_returns_scalar_types(self):
+        from tool_diagnose_rep2_nan import compute_edge_stats
+
+        rect = torch.tensor([[[0.0, 0.0, 1.0, 1.0]]])
+        offs = torch.tensor([[[0.0, 0.0]]])
+        s = compute_edge_stats(rect, offs)
+        for k in ("n", "edge_ab_zero", "edge_bc_zero", "near_zero_edges", "atan2_zero_inputs"):
+            assert isinstance(s[k], int)
+        for k in ("w_min", "h_min", "w_dx_absmin", "w_dy_absmin", "eps_min", "eta_min", "eps_max", "eta_max"):
+            assert isinstance(s[k], float)
+
+
+class TestGeometryProbe:
+
+    def test_install_snapshot_uninstall(self):
+        from tool_diagnose_rep2_nan import GeometryProbe
+
+        probe = GeometryProbe()
+        probe.install()
+        try:
+            import torch
+            # 探针包装的是消费模块绑定（dfine_utils 按名导入），必须经此调用才能命中包装器
+            from engine.deim.dfine_utils import external_xyxy_rect_to_oriented_box
+
+            rect = torch.tensor([[[0.0, 0.0, 0.0, 0.0]]])
+            offs = torch.tensor([[[0.0, 0.0]]])
+            out = external_xyxy_rect_to_oriented_box(rect, offs)
+            snap = probe.snapshot()
+            assert snap["calls"] >= 1
+            assert snap.get("edge_ab_zero", 0) >= 1
+            assert out.shape == (1, 1, 5)  # 输出不受影响
+        finally:
+            probe.uninstall()
+
+    def test_probe_is_noop_after_uninstall(self):
+        from tool_diagnose_rep2_nan import GeometryProbe
+
+        probe = GeometryProbe()
+        probe.install()
+        probe.uninstall()
+        import torch
+        from engine.deim.dfine_utils import external_xyxy_rect_to_oriented_box
+
+        rect = torch.tensor([[[0.0, 0.0, 1.0, 1.0]]])
+        offs = torch.tensor([[[0.25, 0.25]]])
+        external_xyxy_rect_to_oriented_box(rect, offs)
+        assert probe.snapshot()["calls"] == 0
