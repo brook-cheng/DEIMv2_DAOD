@@ -79,6 +79,13 @@ import torch.nn as nn  # noqa: E402
 
 
 def _make_param(name, shape=(4,), *, grad=None):
+    # grad 提供时以 grad 形状为准（test_skips/test_finite 用长度 2 的 grad）
+    if grad is not None:
+        shape = (
+            grad.shape
+            if isinstance(grad, torch.Tensor)
+            else torch.tensor(grad).shape
+        )
     p = nn.Parameter(torch.randn(shape))
     if grad is not None:
         p.grad = (
@@ -142,9 +149,9 @@ class TestScanGradients:
         from tool_diagnose_rep2_nan import scan_gradients
 
         model = nn.Module()
-        model.add_module("p0", _make_param("p0", grad=[1.0, 2.0, 3.0, 4.0]))
-        model.add_module("p1", _make_param("p1", grad=[float("nan"), 1.0, 2.0, 3.0]))
-        model.add_module("p2", _make_param("p2", grad=[float("inf"), 1.0, 2.0, 3.0]))
+        model.register_parameter("p0", _make_param("p0", grad=[1.0, 2.0, 3.0, 4.0]))
+        model.register_parameter("p1", _make_param("p1", grad=[float("nan"), 1.0, 2.0, 3.0]))
+        model.register_parameter("p2", _make_param("p2", grad=[float("inf"), 1.0, 2.0, 3.0]))
         norm, anomalies = scan_gradients(model)
         assert len(anomalies) == 2
         names = {a["name"] for a in anomalies}
@@ -156,8 +163,8 @@ class TestScanGradients:
         from tool_diagnose_rep2_nan import scan_gradients
 
         model = nn.Module()
-        model.add_module("a", _make_param("a", grad=[1.0, 2.0]))
-        model.add_module("b", _make_param("b", grad=None))
+        model.register_parameter("a", _make_param("a", grad=[1.0, 2.0]))
+        model.register_parameter("b", _make_param("b", grad=None))
         norm, anomalies = scan_gradients(model)
         assert anomalies == []
         assert norm == float(1.0**2 + 2.0**2) ** 0.5
@@ -166,7 +173,7 @@ class TestScanGradients:
         from tool_diagnose_rep2_nan import scan_gradients
 
         model = nn.Module()
-        model.add_module("a", _make_param("a", grad=None))
+        model.register_parameter("a", _make_param("a", grad=None))
         norm, anomalies = scan_gradients(model)
         assert anomalies == []
         assert norm == 0.0
@@ -175,7 +182,7 @@ class TestScanGradients:
         from tool_diagnose_rep2_nan import scan_gradients
 
         model = nn.Module()
-        model.add_module("a", _make_param("a", grad=[1.0, 2.0]))
+        model.register_parameter("a", _make_param("a", grad=[1.0, 2.0]))
         norm, anomalies = scan_gradients(model)
         assert anomalies == []
         assert norm > 0.0
@@ -488,8 +495,9 @@ class TestComputeEdgeStats:
         assert s["edge_ab_zero"] == 1
         assert s["edge_bc_zero"] == 1
         assert s["atan2_zero_inputs"] == 1
-        assert s["w_min"] == 0.0
-        assert s["h_min"] == 0.0
+        # eps=1e-9 稳定化使退化边长 ≈ sqrt(1e-9)=3.16e-5，非 0
+        assert s["w_min"] < 1e-4
+        assert s["h_min"] < 1e-4
 
     def test_normal_rect_no_atan2_zero(self):
         from tool_diagnose_rep2_nan import compute_edge_stats
@@ -525,7 +533,8 @@ class TestGeometryProbe:
         probe.install()
         try:
             import torch
-            from engine.deim.obb_geometry import external_xyxy_rect_to_oriented_box
+            # 探针包装的是消费模块绑定（dfine_utils 按名导入），必须经此调用才能命中包装器
+            from engine.deim.dfine_utils import external_xyxy_rect_to_oriented_box
 
             rect = torch.tensor([[[0.0, 0.0, 0.0, 0.0]]])
             offs = torch.tensor([[[0.0, 0.0]]])
@@ -544,7 +553,7 @@ class TestGeometryProbe:
         probe.install()
         probe.uninstall()
         import torch
-        from engine.deim.obb_geometry import external_xyxy_rect_to_oriented_box
+        from engine.deim.dfine_utils import external_xyxy_rect_to_oriented_box
 
         rect = torch.tensor([[[0.0, 0.0, 1.0, 1.0]]])
         offs = torch.tensor([[[0.25, 0.25]]])
