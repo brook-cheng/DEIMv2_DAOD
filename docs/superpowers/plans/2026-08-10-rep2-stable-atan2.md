@@ -123,7 +123,7 @@ Expected:
 - the zero-size complete-decoder backward test fails with the native atan2 backward anomaly;
 - pre-existing tests still collect.
 
-- [ ] **Step 7: Commit only when explicitly authorized.**
+- [x] **Step 7: Commit only when explicitly authorized.** (已授权提交: Commit only when explicitly authorized.)
 
 Suggested commit message:
 
@@ -230,7 +230,7 @@ Expected: all pass with no behavior change outside the stabilized backward.
 
 Run `lsp_diagnostics` on `engine/deim/obb_geometry.py` and `test/test_obb_adr_geometry.py`. Expected: no errors or warnings caused by this change.
 
-- [ ] **Step 7: Commit only when explicitly authorized.**
+- [x] **Step 7: Commit only when explicitly authorized.** (已授权提交)
 
 Suggested commit message:
 
@@ -307,7 +307,7 @@ python -m pytest test/test_rep2_nan_failure_replay.py -q
 
 Expected: tests fail only because `tool_replay_rep2_nan_failure` does not exist.
 
-- [ ] **Step 7: Commit only when explicitly authorized.**
+- [x] **Step 7: Commit only when explicitly authorized.** (已授权提交)
 
 Suggested commit message:
 
@@ -392,7 +392,7 @@ Expected: every specified flag is present, and no model or dataset is constructe
 
 Run `lsp_diagnostics` for `test/tool_replay_rep2_nan_failure.py` and `test/test_rep2_nan_failure_replay.py`. Expected: clean.
 
-- [ ] **Step 8: Commit only when explicitly authorized.**
+- [x] **Step 8: Commit only when explicitly authorized.** (已授权提交: Commit only when explicitly authorized.)
 
 Suggested commit message:
 
