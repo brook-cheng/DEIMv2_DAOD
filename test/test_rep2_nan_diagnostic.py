@@ -481,3 +481,156 @@ class TestRestoreCheckpoint:
         model = self._model()
         with pytest.raises(ValueError):
             restore_checkpoint(model, None, {"optimizer": {}})
+
+
+class ToyModel(torch.nn.Module):
+    def __init__(self, nan_at_step=None):
+        super().__init__()
+        self.nan_at_step = nan_at_step
+        self.fc = torch.nn.Linear(4, 5)
+
+    def forward(self, samples, targets=None):
+        b = samples.shape[0]
+        # pred_boxes 经 self.fc 计算，保证 loss 依赖模型参数（loss 无 grad_fn
+        # 时 backward 会抛 RuntimeError，有限路径将无法 exit 0）
+        feats = self.fc(samples)
+        out = {
+            "pred_logits": torch.randn(b, 3, 2),
+            "pred_boxes": feats.unsqueeze(1).expand(b, 3, 5),
+            "pred_corners": torch.randn(b, 3, 6),
+            "ref_points": torch.randn(b, 3, 5),
+        }
+        return out
+
+
+class ToyCriterion(torch.nn.Module):
+    def forward(self, outputs, targets, **metas):
+        return {
+            "loss_a": torch.nn.functional.mse_loss(
+                outputs["pred_boxes"], torch.zeros_like(outputs["pred_boxes"])
+            )
+        }
+
+
+class ToyDataloader:
+    def __init__(self, n=4):
+        self._n = n
+
+    def __len__(self):
+        return self._n
+
+    def __iter__(self):
+        for _ in range(self._n):
+            samples = torch.randn(2, 4)
+            targets = [{"boxes": torch.randn(2, 5), "labels": torch.tensor([0, 1])}]
+            yield samples, targets
+
+
+def _pipeline(nan_at_step=None, probe=None):
+    from tool_diagnose_rep2_nan import Pipeline
+
+    model = ToyModel(nan_at_step=nan_at_step)
+    opt = torch.optim.SGD(model.parameters(), lr=1e-3)
+    return Pipeline(
+        model=model,
+        criterion=ToyCriterion(),
+        optimizer=opt,
+        lr_scheduler=None,
+        train_dataloader=ToyDataloader(),
+        device=torch.device("cpu"),
+        probe=probe,
+    )
+
+
+def _args(tmp_path, **kw):
+    import argparse
+
+    ns = argparse.Namespace(
+        start_epoch=0,
+        max_epochs=1,
+        max_steps_per_epoch=None,
+        clip_max_norm=0.0,
+        use_amp=False,
+        detect_anomaly=True,
+        output_dir=str(tmp_path),
+        save_every_steps=50,
+    )
+    for k, v in kw.items():
+        setattr(ns, k, v)
+    return ns
+
+
+class TestRunDiagnostic:
+
+    def test_finite_path_exit_0(self, tmp_path):
+        from tool_diagnose_rep2_nan import run_diagnostic
+
+        code = run_diagnostic(_pipeline(), _args(tmp_path))
+        assert code == 0
+        assert (tmp_path / "events.jsonl").exists()
+        lines = (tmp_path / "events.jsonl").read_text().strip().splitlines()
+        assert len(lines) == 4  # ToyDataloader n=4
+
+    def test_nan_loss_exit_2_saves_failure(self, tmp_path):
+        from tool_diagnose_rep2_nan import run_diagnostic
+
+        class NanCriterion(ToyCriterion):
+            def forward(self, outputs, targets, **metas):
+                return {"loss_a": torch.tensor(float("nan"))}
+
+        pipe = _pipeline()
+        pipe.criterion = NanCriterion()
+        code = run_diagnostic(pipe, _args(tmp_path))
+        assert code == 2
+        assert (tmp_path / "failure" / "traceback.txt").exists()
+        assert (tmp_path / "failure" / "failure_summary.json").exists()
+        assert (tmp_path / "failure" / "trigger_batch.pt").exists()
+
+    def test_nan_backward_exit_2(self, tmp_path):
+        from tool_diagnose_rep2_nan import run_diagnostic
+
+        class NanBackwardModel(ToyModel):
+            def forward(self, samples, targets=None):
+                out = super().forward(samples, targets)
+                # 损失依赖 atan2(0,0) → backward 产生 NaN 梯度
+                z = torch.atan2(
+                    torch.zeros(1, requires_grad=True),
+                    torch.zeros(1, requires_grad=True),
+                )
+                out["pred_boxes"] = out["pred_boxes"] + z
+                return out
+
+        pipe = _pipeline()
+        pipe.model = NanBackwardModel()
+        code = run_diagnostic(pipe, _args(tmp_path))
+        assert code == 2
+
+    def test_no_optimizer_step_on_failure(self, tmp_path):
+        from tool_diagnose_rep2_nan import run_diagnostic
+
+        pipe = _pipeline()
+
+        class NanBackwardModel(ToyModel):
+            def forward(self, samples, targets=None):
+                out = super().forward(samples, targets)
+                z = torch.atan2(
+                    torch.zeros(1, requires_grad=True),
+                    torch.zeros(1, requires_grad=True),
+                )
+                out["pred_boxes"] = out["pred_boxes"] + z
+                return out
+
+        # 必须先替换模型再拍快照（否则 before/after 比较的是不同实例，恒 False）
+        pipe.model = NanBackwardModel()
+        before = {n: p.clone() for n, p in pipe.model.named_parameters()}
+        run_diagnostic(pipe, _args(tmp_path))
+        after = {n: p.clone() for n, p in pipe.model.named_parameters()}
+        assert all(torch.equal(before[n], after[n]) for n in before)
+
+    def test_max_steps_per_epoch_cap(self, tmp_path):
+        from tool_diagnose_rep2_nan import run_diagnostic
+
+        code = run_diagnostic(_pipeline(), _args(tmp_path, max_steps_per_epoch=2))
+        assert code == 0
+        lines = (tmp_path / "events.jsonl").read_text().strip().splitlines()
+        assert len(lines) == 2

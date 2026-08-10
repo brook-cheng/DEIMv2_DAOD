@@ -8,9 +8,13 @@ import json
 import os
 import shutil
 import sys
+import time
+import traceback as _tb
+from dataclasses import dataclass
 from pathlib import Path
 
 import torch
+from torch.utils._pytree import tree_map
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
@@ -446,3 +450,237 @@ def restore_checkpoint(
         "unexpected": unexpected,
         "notes": notes,
     }
+
+
+@dataclass
+class Pipeline:
+    model: torch.nn.Module
+    criterion: torch.nn.Module
+    optimizer: torch.optim.Optimizer | None
+    lr_scheduler: object | None
+    train_dataloader: object
+    device: torch.device
+    probe: object | None = None
+
+
+def _metas(epoch: int, step: int, global_step: int, epoch_step: int) -> dict:
+    return dict(epoch=epoch, step=step, global_step=global_step, epoch_step=epoch_step)
+
+
+def _to_device(samples, targets, device):
+    samples = samples.to(device)
+    targets = [
+        {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in t.items()}
+        for t in targets
+    ]
+    return samples, targets
+
+
+def run_diagnostic(pipeline: Pipeline, args) -> int:
+    """最小单 GPU 诊断训练循环。返回退出码 0/2/4。"""
+    from engine.solver.training_diagnostics import (
+        raise_for_nonfinite_losses,
+        raise_for_nonfinite_total,
+    )
+
+    model, criterion, optimizer = pipeline.model, pipeline.criterion, pipeline.optimizer
+    loader = pipeline.train_dataloader
+    device = pipeline.device
+    probe = pipeline.probe
+    output_dir = Path(args.output_dir)
+
+    model.train()
+    criterion.train()
+    if getattr(args, "detect_anomaly", True):
+        torch.autograd.set_detect_anomaly(True)
+
+    # 循环体/失败路径共享的占位（forward_output 失败点早于 criterion 赋值）
+    samples = targets = outputs = None
+    loss_dict: dict = {}
+    grad_norm = None
+    anomalies: list[dict] = []
+
+    epoch_step = len(loader) if hasattr(loader, "__len__") else 0
+
+    def _write_event(record: dict) -> None:
+        append_event(output_dir / "events.jsonl", record)
+
+    def _fail(kind: str, exit_code: int, extra: dict) -> int:
+        summary = {
+            "exit_code": exit_code,
+            "kind": kind,
+            **extra,
+        }
+        save_failure(
+            output_dir,
+            traceback_text=_tb.format_exc() if _tb.sys.exc_info()[0] else f"kind={kind}",
+            failure_summary=summary,
+            trigger_batch={"samples": samples, "targets": targets},
+            outputs=outputs,
+            losses=loss_dict,
+            geometry_snapshot=probe.snapshot() if probe else {},
+            gradients_summary={"aggregate_norm": grad_norm, "anomalies": anomalies},
+            model_state=model.state_dict(),
+            optimizer_state=optimizer.state_dict() if optimizer else {},
+        )
+        return exit_code
+
+    try:
+        for epoch in range(args.start_epoch, args.start_epoch + args.max_epochs):
+            if hasattr(loader, "set_epoch"):
+                loader.set_epoch(epoch)
+            cur_iters = epoch * epoch_step
+
+            for i, (samples, targets) in enumerate(loader):
+                if args.max_steps_per_epoch is not None and i >= args.max_steps_per_epoch:
+                    break
+
+                global_step = epoch * epoch_step + i
+                t0 = time.time()
+                samples, targets = _to_device(samples, targets, device)
+
+                if getattr(args, "use_amp", False):
+                    with torch.autocast(
+                        device_type=str(device).split(":")[0],
+                        dtype=torch.bfloat16,
+                        cache_enabled=True,
+                    ):
+                        outputs = model(samples, targets=targets)
+                    outputs = tree_map(
+                        lambda t: t.float()
+                        if isinstance(t, torch.Tensor) and t.is_floating_point()
+                        else t,
+                        outputs,
+                    )
+                else:
+                    outputs = model(samples, targets=targets)
+
+                bad_keys = [
+                    k
+                    for k in ("pred_logits", "pred_boxes", "pred_corners", "ref_points")
+                    if k in outputs
+                    and isinstance(outputs[k], torch.Tensor)
+                    and not torch.isfinite(outputs[k]).all()
+                ]
+                if bad_keys:
+                    return _fail(
+                        "forward_output", 2,
+                        {"epoch": epoch, "step": i, "global_step": global_step, "bad_keys": bad_keys},
+                    )
+
+                loss_dict = criterion(outputs, targets, **_metas(epoch, i, global_step, epoch_step))
+
+                try:
+                    raise_for_nonfinite_losses(
+                        loss_dict, epoch=epoch, step=i, global_step=global_step
+                    )
+                    loss = sum(loss_dict.values())
+                    raise_for_nonfinite_total(
+                        loss, epoch=epoch, step=i, global_step=global_step
+                    )
+                except FloatingPointError:
+                    return _fail(
+                        "loss", 2,
+                        {
+                            "epoch": epoch, "step": i, "global_step": global_step,
+                            "loss_dict": {
+                                k: (float(v.detach().cpu()) if isinstance(v, torch.Tensor) else None)
+                                for k, v in loss_dict.items()
+                            },
+                        },
+                    )
+
+                grad_norm = None
+                anomalies = []
+                try:
+                    loss.backward()
+                except RuntimeError as e:
+                    if "out of memory" in str(e).lower():
+                        return _fail(
+                            "cuda_oom", 4,
+                            {"epoch": epoch, "step": i, "global_step": global_step, "error": str(e)},
+                        )
+                    return _fail(
+                        "backward_anomaly", 2,
+                        {"epoch": epoch, "step": i, "global_step": global_step, "error": str(e)},
+                    )
+
+                grad_norm, anomalies = scan_gradients(model)
+                if anomalies:
+                    return _fail(
+                        "gradient", 2,
+                        {
+                            "epoch": epoch, "step": i, "global_step": global_step,
+                            "aggregate_norm": grad_norm,
+                            "anomaly_params": [a["name"] for a in anomalies],
+                        },
+                    )
+
+                # 梯度全部有限 → 才允许 step
+                if args.clip_max_norm > 0:
+                    grad_norm = torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), args.clip_max_norm
+                    )
+                if optimizer is not None:
+                    optimizer.step()
+                    optimizer.zero_grad()
+
+                if pipeline.lr_scheduler is not None:
+                    optimizer = pipeline.lr_scheduler.step(cur_iters + i, optimizer)
+
+                cur_lr = optimizer.param_groups[0]["lr"] if optimizer is not None else 0.0
+                _write_event(
+                    {
+                        "epoch": epoch,
+                        "step": i,
+                        "global_step": global_step,
+                        "lr": float(cur_lr),
+                        "loss_total": float(loss.detach().cpu()),
+                        "loss_dict": {
+                            k: float(v.detach().cpu())
+                            for k, v in loss_dict.items()
+                            if isinstance(v, torch.Tensor) and v.dim() == 0
+                        },
+                        "grad_norm": float(grad_norm),
+                        "step_duration_s": round(time.time() - t0, 4),
+                        "vram_mb": int(
+                            torch.cuda.max_memory_allocated(device) // (1024 * 1024)
+                        )
+                        if str(device).startswith("cuda")
+                        else 0,
+                    }
+                )
+
+                if global_step % args.save_every_steps == 0:
+                    write_progress(
+                        output_dir / "progress.json",
+                        {"epoch": epoch, "global_step": global_step},
+                    )
+
+    except Exception as e:  # noqa: BLE001 - 兜底运行时异常（exit 4）
+        try:
+            save_failure(
+                output_dir,
+                traceback_text=_tb.format_exc(),
+                failure_summary={
+                    "exit_code": 4,
+                    "kind": "runtime",
+                    "error": f"{type(e).__name__}: {e}",
+                },
+                trigger_batch={},
+                outputs={},
+                losses={},
+                geometry_snapshot=probe.snapshot() if probe else {},
+                gradients_summary={},
+                model_state={},
+                optimizer_state={},
+            )
+        except Exception:
+            pass
+        return 4
+
+    write_progress(
+        output_dir / "progress.json",
+        {"done": True, "end_epoch": args.start_epoch + args.max_epochs},
+    )
+    return 0
