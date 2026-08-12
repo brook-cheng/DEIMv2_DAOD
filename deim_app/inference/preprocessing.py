@@ -35,7 +35,6 @@ from dataclasses import dataclass
 from typing import Sequence
 
 import torch
-import torch.nn.functional  # noqa: F401  (ensures torch ops dispatch correctly)
 import torchvision.transforms as T
 import torchvision.transforms.functional as F
 from PIL import Image

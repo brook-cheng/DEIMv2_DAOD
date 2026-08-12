@@ -229,8 +229,8 @@ def test_from_config_calls_loader_and_resolver(
     # ``deim_app.config``, not on ``deim_app.adapters.deim``.
     import deim_app.config as config_mod
 
-    seen_paths: list = []
-    seen_overrides: list = []
+    seen_paths: list[Any] = []
+    seen_overrides: list[Any] = []
 
     def fake_load(p, o=None):
         seen_paths.append(p)
@@ -260,7 +260,7 @@ def test_resolve_config_re_resolves_from_current_loaded(
     """resolve_config() with no arg re-resolves from self.loaded."""
     import deim_app.config as config_mod
 
-    seen: list = []
+    seen: list[Any] = []
     monkeypatch.setattr(
         config_mod,
         "resolve_algorithm_config",
@@ -279,7 +279,7 @@ def test_resolve_config_with_explicit_loaded(
     """resolve_config(loaded) resolves the provided loaded."""
     import deim_app.config as config_mod
 
-    seen: list = []
+    seen: list[Any] = []
     monkeypatch.setattr(
         config_mod,
         "resolve_algorithm_config",
@@ -414,14 +414,14 @@ def test_load_without_checkpoint_skips_state_loading(
     model + postprocessor are still deployed."""
     import deim_app.adapters.deim as deim_mod
 
-    load_calls: list = []
+    load_calls: list[Any] = []
     fake_torch = _FakeTorch(
         lambda p, map_location=None: load_calls.append(p) or {"model": {}}
     )
     stub = _build_stub_yaml(call_log)
     monkeypatch.setattr(deim_mod, "YAMLConfig", lambda *a, **kw: stub)
     monkeypatch.setattr(deim_mod, "torch", fake_torch)
-    select_calls: list = []
+    select_calls: list[Any] = []
     monkeypatch.setattr(
         deim_mod,
         "select_model_state",

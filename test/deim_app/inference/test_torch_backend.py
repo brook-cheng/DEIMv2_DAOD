@@ -187,38 +187,50 @@ def test_obb_mode_produces_obb_detections(small_preprocessor: Preprocessor) -> N
 
 
 # ===========================================================================
-# Class-name lookup (both paths)
+# Class-name lookup (deployed labels → class_names_by_label, always)
 # ===========================================================================
 
 
-def test_class_names_prefer_output_names_by_id(
+def test_class_name_always_uses_class_names_by_label(
     small_preprocessor: Preprocessor,
 ) -> None:
-    metadata = _make_metadata(
-        class_names_by_label={0: "fallback_a", 1: "fallback_b"},
-        output_names_by_id={0: "name_a", 1: "name_b"},
+    """Deployed postprocessor emits raw model labels (0..N-1); the
+    ``remap_mscoco_category`` branch does not fire in ``deploy_mode``. So
+    ``class_names_by_label`` is always correct, regardless of whether
+    ``output_names_by_id`` is populated.
+
+    ``output_names_by_id`` is populated below with a WRONG MS-COCO-style
+    mapping to verify it is NOT consulted. If it were, every label would be
+    misnamed (label 0 → ``"person"`` instead of ``"cat"``, etc.).
+    """
+    metadata = DatasetMetadata(
+        box_mode="hbb",
+        num_classes=3,
+        class_names_by_label={0: "cat", 1: "dog", 2: "bird"},
+        # output_names_by_id populated with WRONG MS-COCO-style mapping
+        # to verify it is NOT consulted.
+        output_names_by_id={0: "person", 1: "bicycle", 2: "car"},
     )
-    backend, _, _ = _build_backend(metadata, "hbb", small_preprocessor)
+    backend, _, _ = _build_backend(
+        metadata,
+        "hbb",
+        small_preprocessor,
+        labels=torch.tensor([0, 1, 2]),
+        boxes=torch.tensor(
+            [[1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0], [9.0, 10.0, 11.0, 12.0]]
+        ),
+        scores=torch.tensor([0.9, 0.8, 0.7]),
+    )
 
     collection = backend.predict((_make_input_image("img0", 8, 8),), batch_size=1)
 
-    names = [d.class_name for d in collection.predictions[0].detections]
-    assert names == ["name_a", "name_b"]
-
-
-def test_class_names_fall_back_to_class_names_by_label(
-    small_preprocessor: Preprocessor,
-) -> None:
-    metadata = _make_metadata(
-        class_names_by_label={0: "alpha", 1: "beta"},
-        output_names_by_id={},
-    )
-    backend, _, _ = _build_backend(metadata, "hbb", small_preprocessor)
-
-    collection = backend.predict((_make_input_image("img0", 8, 8),), batch_size=1)
-
-    names = [d.class_name for d in collection.predictions[0].detections]
-    assert names == ["alpha", "beta"]
+    dets = collection.predictions[0].detections
+    for det, expected_name in zip(dets, ["cat", "dog", "bird"]):
+        assert det.class_name == expected_name, (
+            f"deployed label {det.class_id} should map via class_names_by_label "
+            f"(expected {expected_name!r}, got {det.class_name!r}); "
+            "output_names_by_id must NOT be consulted in deploy mode."
+        )
 
 
 # ===========================================================================

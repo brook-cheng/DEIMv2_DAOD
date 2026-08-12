@@ -17,11 +17,11 @@ Postprocessor contract (verified against
     where boxes are ALREADY in original-image pixel coordinates. The backend
     MUST NOT rescale HBB or OBB boxes after postprocessing.
 
-Class-name lookup: prefers ``metadata.output_names_by_id`` when it is non-empty
-and contains the emitted label id (this is the dataset-native id space used
-when the postprocessor emits remapped category ids), and falls back to
-``metadata.class_names_by_label`` for raw model labels. Both branches are
-covered by the unit tests.
+Class-name lookup: always uses ``metadata.class_names_by_label`` keyed by the
+raw model label (``0..N-1``). In ``deploy_mode`` the postprocessor returns at
+its ``deploy_mode`` guard *before* the ``remap_mscoco_category`` branch, so the
+emitted labels are always contiguous model labels — never dataset-native
+category ids. ``output_names_by_id`` is intentionally NOT consulted here.
 
 Boundary: this module imports only from ``deim_app``, ``torch``, and the
 standard library — never from ``engine``.
@@ -243,16 +243,19 @@ class TorchBackend:
         return tuple(detections)
 
     def _class_name_for_label(self, label_id: int) -> str:
-        """Resolve a class name, preferring ``output_names_by_id`` when present.
+        """Resolve a deployed label id to its class name.
 
-        ``output_names_by_id`` covers the case where the postprocessor emits
-        dataset-native category ids (e.g. remapped MS COCO ids). When it is
-        empty or does not contain ``label_id`` (e.g. deploy-mode raw model
-        labels), fall back to ``class_names_by_label``.
+        The deployed :class:`PostProcessor` returns raw model labels
+        (``0..N-1``) — the ``remap_mscoco_category`` branch does not execute in
+        ``deploy_mode`` (see ``engine/deim/postprocessor.py``: it returns at the
+        ``if self.deploy_mode`` guard, *before* the remap block). Therefore
+        ``class_names_by_label`` — which keys on contiguous model labels — is
+        the correct mapping for every case, and ``output_names_by_id`` (which
+        keys on dataset-native category ids, e.g. remapped MS COCO ids) must
+        NEVER be consulted here. Using ``output_names_by_id`` would silently
+        misname every label for a deployed MS COCO HBB model (e.g. label 1 →
+        ``"person"`` instead of ``"bicycle"``).
         """
-        output_names = self._metadata.output_names_by_id
-        if output_names and label_id in output_names:
-            return output_names[label_id]
         return self._metadata.class_names_by_label[label_id]
 
 

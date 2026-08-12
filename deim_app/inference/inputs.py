@@ -20,17 +20,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Union
+from typing import Union
 
 from PIL import Image
 
 from deim_app.errors import InputSourceError
-
-if TYPE_CHECKING:
-    # ``InputSource`` is a Union alias; the PIL.Image.Image leg is quoted so
-    # the module does not hard-depend on PIL at type-check time (it is imported
-    # above for runtime). Kept under TYPE_CHECKING for clarity.
-    pass
 
 __all__ = ["InputImage", "InputSource", "list_inputs"]
 
