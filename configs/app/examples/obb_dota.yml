@@ -1,0 +1,33 @@
+__include__:
+  - ../base/obb_app.yml
+
+# ============================================================================
+# Example: OBB detection on DOTA-format data using DEIMv2 DINOv3 ViT-S/16+.
+# Override the paths below to point at your DOTA dataset.
+# DOTA format uses per-image .txt annotation files (8-coord polygon + class).
+# ============================================================================
+
+project:
+  name: deimv2-dota
+  output_dir: ./outputs/deimv2-dota
+
+runtime:
+  input_size: [640, 640]
+  seed: 42
+
+data:
+  format: DOTA
+  train_images: /data/DOTA/train/images/
+  train_annotations: /data/DOTA/train/labels/
+  val_images: /data/DOTA/val/images/
+  val_annotations: /data/DOTA/val/labels/
+  classes_file: /data/DOTA/classes.txt
+  num_workers: 2
+  cache_images: disk
+
+train:
+  epochs: 200
+  batch_size: 4
+  learning_rate: 5.0e-4
+  device: cuda
+  amp: True

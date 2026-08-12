@@ -1,0 +1,33 @@
+__include__:
+  - ../base/hbb_app.yml
+
+# ============================================================================
+# Example: HBB detection on MS COCO using DEIMv2 DINOv3 ViT-S/16.
+# Override the paths below to point at your local COCO clone.
+# MS COCO uses category IDs 1..90 (with gaps); the preset carries
+# remap_mscoco_category: True so the standard mapping is applied.
+# ============================================================================
+
+project:
+  name: deimv2-coco
+  output_dir: ./outputs/deimv2-coco
+
+runtime:
+  input_size: [640, 640]
+  seed: 42
+
+data:
+  format: COCO
+  train_images: /data/COCO/train2017/
+  train_annotations: /data/COCO/annotations/instances_train2017.json
+  val_images: /data/COCO/val2017/
+  val_annotations: /data/COCO/annotations/instances_val2017.json
+  num_workers: 4
+  cache_images: none
+
+train:
+  epochs: 68
+  batch_size: 4
+  learning_rate: 5.0e-4
+  device: cuda
+  amp: True

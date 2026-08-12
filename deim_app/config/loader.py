@@ -125,8 +125,13 @@ def validate_public_keys(data: Mapping[str, object], location: str) -> None:
 # __include__ validation
 # ---------------------------------------------------------------------------
 
-#: Approved application-base path marker (used to reject direct algorithm-preset includes).
+#: Approved application-base directory marker (used to reject direct algorithm-preset includes).
 _APPROVED_BASE_DIR = "configs/app/base/"
+
+#: Exact basenames the user YAML's single ``__include__`` may resolve to.
+#: Tests that write synthetic bases to ``tmp_path`` monkeypatch this tuple
+#: (see ``test/deim_app/config/conftest.py``).
+_APPROVED_BASE_NAMES: tuple[str, ...] = ("hbb_app.yml", "obb_app.yml")
 
 
 def validate_single_application_base(source: Path, includes: object) -> Path:
@@ -136,9 +141,15 @@ def validate_single_application_base(source: Path, includes: object) -> Path:
     message):
       * ``__include__`` absent, empty, or not length-1
       * the single entry is not a string
-      * the entry traverses parent directories (``..``)
+      * the entry's basename is not in :data:`_APPROVED_BASE_NAMES`
       * the entry references ``configs/`` outside ``configs/app/base/``
       * the resolved file does not exist
+
+    Parent-directory traversal (``..``) is permitted because the basename
+    whitelist + existence check already constrain the resolved target to
+    an approved application-base file.  This allows legitimate sibling-
+    directory includes such as ``../base/hbb_app.yml`` from
+    ``configs/app/examples/``.
     """
     if not isinstance(includes, list) or len(includes) != 1:
         count: object = len(includes) if isinstance(includes, list) else "missing"
@@ -153,10 +164,12 @@ def validate_single_application_base(source: Path, includes: object) -> Path:
             f"got {type(raw).__name__} ({raw!r})"
         )
     parts = raw.replace("\\", "/").split("/")
-    if ".." in parts:
+    basename = parts[-1] if parts else ""
+    if basename not in _APPROVED_BASE_NAMES:
         raise AppConfigError(
-            f"application base: __include__ '{raw}' must not traverse parent "
-            f"directories"
+            f"application base: __include__ '{raw}' basename '{basename}' is "
+            f"not an approved application base; approved basenames: "
+            f"{list(_APPROVED_BASE_NAMES)}"
         )
     if "configs/" in raw and _APPROVED_BASE_DIR not in raw:
         raise AppConfigError(

@@ -323,7 +323,9 @@ def test_empty_include_list_rejected(tmp_path: Path) -> None:
         load_app_config(path)
 
 
-def test_parent_traversal_in_include_rejected(tmp_path: Path) -> None:
+def test_parent_traversal_to_unapproved_basename_rejected(tmp_path: Path) -> None:
+    """``..`` traversal itself is allowed (for sibling-directory includes like
+    ``../base/hbb_app.yml``), but the target basename must still be approved."""
     path = write_yaml(
         tmp_path / "user.yml",
         {"__include__": ["../secret.yml"]},

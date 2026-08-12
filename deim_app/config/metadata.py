@@ -1,0 +1,294 @@
+"""Dataset metadata loaders for the application layer.
+
+Reads COCO JSON and OBB ``classes.txt`` annotation metadata using only the
+Python standard library (``json`` for COCO, plain text for OBB).  This module
+MUST NOT import ``engine.*`` or ``pycocotools`` — the dependency boundary
+(``test/deim_app/test_dependency_boundaries.py``) permits engine imports only
+in ``deim_app/adapters/``.
+
+The MS COCO 1..90 → 0..79 category mapping is inlined below from
+``engine/data/dataset/coco_dataset.py`` (``mscoco_category2name``) to avoid
+the engine import.  The source is documented in the constant docstring.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+
+from deim_app.errors import AppConfigError
+
+__all__ = [
+    "DatasetMetadata",
+    "load_coco_metadata",
+    "load_obb_metadata",
+]
+
+
+# ---------------------------------------------------------------------------
+# Frozen result container
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class DatasetMetadata:
+    """Immutable dataset metadata derived from on-disk annotation files.
+
+    Attributes:
+        box_mode: ``"hbb"`` for horizontal bounding boxes (COCO), ``"obb"``
+            for oriented bounding boxes (DOTA / YOLO-OBB).
+        num_classes: Number of foreground classes the model must predict
+            (excluding any background index).  Drives the top-level
+            ``num_classes`` engine field.
+        class_names_by_label: Contiguous zero-based model label → human-readable
+            class name.  This is the mapping the model's classification head
+            uses internally.
+        output_names_by_id: Emitted category ID → class name.  After the
+            postprocessor remaps model labels to dataset-native category IDs
+            (only when ``remap_mscoco_category=True``), this mapping gives the
+            name for each emitted ID.  For contiguous (non-remapped) datasets
+            this is identical to ``class_names_by_label``.
+    """
+
+    box_mode: str
+    num_classes: int
+    class_names_by_label: Mapping[int, str]
+    output_names_by_id: Mapping[int, str]
+
+
+# ---------------------------------------------------------------------------
+# OBB metadata (classes.txt)
+# ---------------------------------------------------------------------------
+
+
+def load_obb_metadata(classes_file: Path) -> DatasetMetadata:
+    """Read an OBB ``classes.txt`` file and derive :class:`DatasetMetadata`.
+
+    The file must contain one class name per non-empty line (whitespace
+    stripped).  Line order defines the zero-based label assignment: the first
+    non-empty line is label 0, the second is label 1, etc.
+
+    Raises:
+        AppConfigError: if ``classes_file`` does not exist.
+    """
+    classes_file = Path(classes_file)
+    if not classes_file.exists():
+        raise AppConfigError(
+            f"data.classes_file '{classes_file}' does not exist; "
+            f"cannot derive OBB metadata"
+        )
+
+    raw_lines = classes_file.read_text(encoding="utf-8").splitlines()
+    names = [line.strip() for line in raw_lines if line.strip()]
+    class_names_by_label: dict[int, str] = {i: name for i, name in enumerate(names)}
+
+    return DatasetMetadata(
+        box_mode="obb",
+        num_classes=len(names),
+        class_names_by_label=class_names_by_label,
+        output_names_by_id=dict(class_names_by_label),
+    )
+
+
+# ---------------------------------------------------------------------------
+# COCO metadata (instances JSON)
+# ---------------------------------------------------------------------------
+
+#: MS COCO 1..90 (with gaps) category-id → name mapping.
+#:
+#: Inlined verbatim from ``engine/data/dataset/coco_dataset.py:180-261``
+#: (``mscoco_category2name``) to avoid importing ``engine.*`` from the
+#: application layer (dependency-boundary rule).  The canonical source is
+#: the COCO dataset's official ``instances_val2017.json`` ``categories`` list;
+#: the engine copy is itself derived from torchvision's COCO utilities.
+_MSCOCO_CATEGORY2NAME: dict[int, str] = {
+    1: "person",
+    2: "bicycle",
+    3: "car",
+    4: "motorcycle",
+    5: "airplane",
+    6: "bus",
+    7: "train",
+    8: "truck",
+    9: "boat",
+    10: "traffic light",
+    11: "fire hydrant",
+    13: "stop sign",
+    14: "parking meter",
+    15: "bench",
+    16: "bird",
+    17: "cat",
+    18: "dog",
+    19: "horse",
+    20: "sheep",
+    21: "cow",
+    22: "elephant",
+    23: "bear",
+    24: "zebra",
+    25: "giraffe",
+    27: "backpack",
+    28: "umbrella",
+    31: "handbag",
+    32: "tie",
+    33: "suitcase",
+    34: "frisbee",
+    35: "skis",
+    36: "snowboard",
+    37: "sports ball",
+    38: "kite",
+    39: "baseball bat",
+    40: "baseball glove",
+    41: "skateboard",
+    42: "surfboard",
+    43: "tennis racket",
+    44: "bottle",
+    46: "wine glass",
+    47: "cup",
+    48: "fork",
+    49: "knife",
+    50: "spoon",
+    51: "bowl",
+    52: "banana",
+    53: "apple",
+    54: "sandwich",
+    55: "orange",
+    56: "broccoli",
+    57: "carrot",
+    58: "hot dog",
+    59: "pizza",
+    60: "donut",
+    61: "cake",
+    62: "chair",
+    63: "couch",
+    64: "potted plant",
+    65: "bed",
+    67: "dining table",
+    70: "toilet",
+    72: "tv",
+    73: "laptop",
+    74: "mouse",
+    75: "remote",
+    76: "keyboard",
+    77: "cell phone",
+    78: "microwave",
+    79: "oven",
+    80: "toaster",
+    81: "sink",
+    82: "refrigerator",
+    84: "book",
+    85: "clock",
+    86: "vase",
+    87: "scissors",
+    88: "teddy bear",
+    89: "hair drier",
+    90: "toothbrush",
+}
+
+#: MS COCO contiguous-label mapping: ``{category_id: contiguous_label}``.
+#: Derived identically to ``engine/data/dataset/coco_dataset.py:263``
+#: (``mscoco_category2label = {k: i for i, k in enumerate(mscoco_category2name.keys())}``).
+_MSCOCO_CATEGORY2LABEL: dict[int, int] = {
+    cat_id: label for label, cat_id in enumerate(_MSCOCO_CATEGORY2NAME)
+}
+
+
+def load_coco_metadata(
+    annotation_path: Path,
+    remap_mscoco_category: bool = False,
+) -> DatasetMetadata:
+    """Read a COCO-format JSON and derive :class:`DatasetMetadata`.
+
+    Args:
+        annotation_path: Path to a COCO ``instances*.json`` file.
+        remap_mscoco_category: When ``False`` (default), category IDs in the
+            JSON must be contiguous zero-based (``0, 1, ..., N-1``); any gap or
+            offset raises :class:`AppConfigError` with a message containing
+            ``"contiguous"``.  When ``True``, the standard MS COCO 1..90 IDs
+            (with gaps) are accepted and remapped to contiguous 0..79 labels
+            using the canonical mapping from
+            ``engine/data/dataset/coco_dataset.py``.
+
+    Raises:
+        AppConfigError: if the file does not exist, is not valid JSON, or
+            (when ``remap_mscoco_category=False``) the category IDs are not
+            contiguous zero-based.
+    """
+    annotation_path = Path(annotation_path)
+    if not annotation_path.exists():
+        raise AppConfigError(
+            f"data annotation file '{annotation_path}' does not exist; "
+            f"cannot derive COCO metadata"
+        )
+
+    try:
+        raw = json.loads(annotation_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise AppConfigError(
+            f"data annotation file '{annotation_path}' is not valid JSON: {exc}"
+        ) from exc
+
+    if not isinstance(raw, dict) or "categories" not in raw:
+        raise AppConfigError(
+            f"data annotation file '{annotation_path}' is missing a 'categories' list"
+        )
+
+    categories = raw["categories"]
+    if not isinstance(categories, list):
+        raise AppConfigError(
+            f"data annotation file '{annotation_path}' 'categories' must be a list"
+        )
+
+    if remap_mscoco_category:
+        return _build_remapped_metadata(categories)
+
+    return _build_contiguous_metadata(categories, annotation_path)
+
+
+def _build_contiguous_metadata(
+    categories: list[dict], annotation_path: Path
+) -> DatasetMetadata:
+    sorted_cats = sorted(categories, key=lambda c: c["id"])
+    ids = [c["id"] for c in sorted_cats]
+
+    expected = list(range(len(ids)))
+    if ids != expected:
+        raise AppConfigError(
+            f"data annotation file '{annotation_path}' has non-contiguous "
+            f"category IDs {ids}; when remap_mscoco_category is False, IDs must "
+            f"be contiguous zero-based (0..N-1). Set remap_mscoco_category=True "
+            f"in the preset to accept standard MS COCO 1..90 IDs."
+        )
+
+    class_names_by_label = {i: cat["name"] for i, cat in enumerate(sorted_cats)}
+    return DatasetMetadata(
+        box_mode="hbb",
+        num_classes=len(sorted_cats),
+        class_names_by_label=class_names_by_label,
+        output_names_by_id=dict(class_names_by_label),
+    )
+
+
+def _build_remapped_metadata(categories: list[dict]) -> DatasetMetadata:
+    user_cat2name = {c["id"]: c["name"] for c in categories}
+
+    unknown_ids = set(user_cat2name) - set(_MSCOCO_CATEGORY2NAME)
+    if unknown_ids:
+        raise AppConfigError(
+            f"remap_mscoco_category=True but category IDs {sorted(unknown_ids)} "
+            f"are not standard MS COCO IDs (expected 1..90 with known gaps)"
+        )
+
+    class_names_by_label: dict[int, str] = {
+        _MSCOCO_CATEGORY2LABEL[cat_id]: _MSCOCO_CATEGORY2NAME[cat_id]
+        for cat_id in _MSCOCO_CATEGORY2NAME
+    }
+    output_names_by_id = dict(_MSCOCO_CATEGORY2NAME)
+
+    return DatasetMetadata(
+        box_mode="hbb",
+        num_classes=len(_MSCOCO_CATEGORY2NAME),
+        class_names_by_label=class_names_by_label,
+        output_names_by_id=output_names_by_id,
+    )
