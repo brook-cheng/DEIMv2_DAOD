@@ -93,10 +93,11 @@ class FakeAdapter:
         *,
         inference: InferenceConfig | None = None,
         is_loaded: bool = True,
+        metadata: DatasetMetadata | None = None,
     ) -> None:
         self._model: object | None = object() if is_loaded else None
         self.box_mode: str = "hbb"
-        self.metadata: DatasetMetadata = make_metadata()
+        self.metadata: DatasetMetadata = metadata or make_metadata()
         self.loaded: LoadedAppConfig = make_loaded(inference or InferenceConfig())
         self.predict_calls: list[tuple[object, int | None]] = []
         self.load_calls: list[tuple[str | Path | None, bool]] = []

@@ -230,8 +230,8 @@ class DetectionModel:
 
         Raises:
             AppConfigError: if any name is not found among the dataset's
-                known class names (union of ``class_names_by_label`` and
-                ``output_names_by_id`` values).
+                known class names (``class_names_by_label`` values from the
+                resolved metadata).
         """
         if class_filter is None:
             return None
@@ -240,14 +240,17 @@ class DetectionModel:
             return None
 
         metadata = self._adapter.metadata
-        known = set(metadata.class_names_by_label.values()) | set(
-            metadata.output_names_by_id.values()
-        )
+        # Per Task 6 contract: deployed inference resolves names via
+        # class_names_by_label only. output_names_by_id is for non-deploy
+        # evaluation paths and is never produced by the inference backend,
+        # so filtering by those names would silently match nothing.
+        known = set(metadata.class_names_by_label.values())
         unknown = [n for n in names if n not in known]
         if unknown:
             raise AppConfigError(
                 "class_filter contains unknown class name(s): "
                 + ", ".join(unknown)
-                + f". Known classes: {sorted(known)}"
+                + f". Known classes (from metadata.class_names_by_label): "
+                + f"{sorted(known)}"
             )
         return names

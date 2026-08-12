@@ -17,6 +17,7 @@ from __future__ import annotations
 import pytest
 
 from deim_app.api import DetectionModel
+from deim_app.config.metadata import DatasetMetadata
 from deim_app.config.schema import InferenceConfig
 from deim_app.errors import AppConfigError, InferenceBackendError
 from deim_app.predictions.collection import PredictionCollection
@@ -156,6 +157,27 @@ def test_class_filter_rejects_partial_unknown_names(fake_adapter: FakeAdapter) -
     model = DetectionModel(fake_adapter)
     with pytest.raises(AppConfigError, match="c0.*totally_unknown|totally_unknown.*c0"):
         model.predict_filtered("images", class_filter=["c0", "totally_unknown"])
+
+
+def test_class_filter_validates_against_class_names_by_label_only() -> None:
+    """Deployed inference resolves names via class_names_by_label; names that
+    exist only in output_names_by_id must be rejected (they would silently
+    match zero detections after the COCO remap)."""
+    metadata = DatasetMetadata(
+        box_mode="hbb",
+        num_classes=1,
+        class_names_by_label={0: "cat"},
+        output_names_by_id={0: "person"},
+    )
+    model = DetectionModel(FakeAdapter(metadata=metadata))
+    # class_names_by_label name: accepted (filters the 'c0' detection away).
+    result = model.predict_filtered("images", class_filter=["cat"])
+    assert len(result.predictions[0].detections) == 0
+    # output_names_by_id-only name: rejected before inference starts.
+    with pytest.raises(
+        AppConfigError, match=r"unknown class name\(s\): person"
+    ):
+        model.predict_filtered("images", class_filter=["person"])
 
 
 def test_class_filter_from_config_default_is_applied() -> None:
