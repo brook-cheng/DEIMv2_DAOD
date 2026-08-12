@@ -27,6 +27,7 @@ from PIL import Image
 from deim_app.config import LoadedAppConfig
 from deim_app.config.metadata import DatasetMetadata
 from deim_app.config.schema import AppConfig, InferenceConfig
+from deim_app.errors import ExportError
 from deim_app.predictions.collection import PredictionCollection
 from deim_app.predictions.types import HBBDetection, ImagePrediction, Timings
 
@@ -103,6 +104,7 @@ class FakeAdapter:
         self.load_calls: list[tuple[str | Path | None, bool]] = []
         self.train_called: bool = False
         self.evaluate_calls: list[str | Path | None] = []
+        self.export_calls: list[tuple[str | Path | None, str, str | Path | None]] = []
 
     def load(
         self,
@@ -127,6 +129,22 @@ class FakeAdapter:
 
     def evaluate(self, checkpoint: str | Path | None = None) -> None:
         self.evaluate_calls.append(checkpoint)
+
+    def export(
+        self,
+        checkpoint: str | Path,
+        format: str,
+        output: str | Path,
+    ) -> Path:
+        """Spy mirroring DeimDetectionAdapter.export — always raises ExportError.
+
+        Records the call so CLI tests can assert delegation, then raises the
+        same ExportError the real adapter raises in v1.
+        """
+        self.export_calls.append((checkpoint, format, output))
+        raise ExportError(
+            "No export format is enabled in the first application-layer version"
+        )
 
 
 # ---------------------------------------------------------------------------
