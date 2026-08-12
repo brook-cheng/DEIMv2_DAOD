@@ -151,6 +151,16 @@
 
 ---
 
+## engineering/ — 工程化应用层用户文档
+
+> 这些文档位于 `docs/engineering/`（不在 `docs/superpowers/` 下），是面向终端用户的工程化应用层（`deim_app`）使用指南，与 SDD/MEMO 制品体系互补。此处仅作索引登记。
+
+[application-config](../engineering/application-config.md) — `deim_app` 应用 YAML 配置指南首版：六段公共字段表、继承与覆盖优先级、HBB COCO / OBB DOTA / OBB YOLO-OBB 三例、类别元数据来源、preset 拥有的参数类别、`pretrained` vs `resume` 语义、`remap_mscoco_category` 自动检测规则。
+
+[inference-api](../engineering/inference-api.md) — `deim_app` 推理 Python API 与统一 CLI 指南：`DetectionModel` 快速上手、四个子命令（train/eval/infer/export）的批准 flag 表、JSON/DOTA/visualization 三种输出格式、端到端 smoke 命令。
+
+---
+
 ## 约定
 
 - ★ **canonical** 标记的文档是当前技术路线的主参考文档
