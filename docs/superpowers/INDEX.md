@@ -11,6 +11,8 @@
 
 [2026-08-10-rep2-stable-atan2-design](specs/2026-08-10-rep2-stable-atan2-design.md) — DEIMv2-OBB rep2 atan2 数值稳定性修复设计：保持 forward 几何语义不变，仅稳定 backward 分母奇点（`_StableAtan2` 自定义 autograd，`(x²+y²).clamp_min(eps)`，FP16/BF16 临时 FP32），并定义失败现场回放工具的验收契约。
 
+[2026-08-12-focused-application-layer-design](specs/2026-08-12-focused-application-layer-design.md) ★ **canonical** — DEIMv2 聚焦型工程应用层设计：以简化参数设置和统一推理应用为首版目标，通过稳定 AppConfig、任务适配器和结构化 HBB/OBB Prediction 隔离持续变化的底层算法。
+
 [2026-06-02-deimv2-obb-proposal](specs/2026-06-02-deimv2-obb-proposal.md) — DEIMv2-OBB 变更提案：通过 `box_mode` 闸门为 DEIMv2 增加定向边界框支持，使用 ADR 6-distribution DDF。
 
 [2026-06-02-deimv2-obb-design](specs/2026-06-02-deimv2-obb-design.md) — DEIMv2-OBB 架构设计：HBB/OBB 双路径，组件变更与向后兼容保证。
@@ -112,6 +114,8 @@
 [2026-08-10-rep2-nan-diagnostic-runner](plans/2026-08-10-rep2-nan-diagnostic-runner.md) — rep2 NaN 远程诊断 runner 实施计划：7 个 TDD 任务实现 `test/tool_diagnose_rep2_nan.py` 与纯 CPU 测试，覆盖 checkpoint 分类/恢复、BF16+FP32 诊断循环、atan2 几何探针、失败现场持久化；与 specs/2026-08-10-rep2-nan-diagnostic-runner-design 配对。
 
 [2026-08-10-rep2-stable-atan2](plans/2026-08-10-rep2-stable-atan2.md) — rep2 atan2 数值稳定性修复实施计划：TDD 稳定 atan2 算子与退化几何测试、`_StableAtan2` 实现与 rep2 解码调用替换、失败现场回放工具契约与实现、本地回归与 seed 控制敏感性验收；与 specs/2026-08-10-rep2-stable-atan2-design 配对。
+
+[2026-08-12-focused-application-layer](plans/2026-08-12-focused-application-layer.md) ★ **canonical** — DEIMv2 聚焦型工程应用层首版实施计划：10 个 TDD 任务实现可继承应用 YAML、HBB COCO/OBB DOTA/YOLO-OBB 映射、DEIM adapter、结构化预测、共享 Python API/CLI 和 PyTorch 推理。
 
 ---
 
