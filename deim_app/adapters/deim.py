@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 import torch
 
 from engine.core import YAMLConfig
+from engine.solver import TASKS
 
 from deim_app.adapters.base import DetectionAdapter
 from deim_app.adapters.checkpoint import select_model_state
@@ -218,6 +219,20 @@ class DeimDetectionAdapter(DetectionAdapter):
     # Engine object construction + checkpoint load
     # ------------------------------------------------------------------
 
+    def _build_engine_cfg(self) -> YAMLConfig:
+        """Construct a fresh ``YAMLConfig`` from the resolved config.
+
+        Shared by :meth:`load`, :meth:`train`, and :meth:`evaluate` so they
+        all build the engine config the same way:
+        ``YAMLConfig(str(config_path), **resolved.overrides)``. Keeping the
+        construction in one place guarantees the three entry points forward
+        the same path and overrides — only their post-construction mutations
+        (``device`` / ``resume``) and solver dispatch differ.
+        """
+        return YAMLConfig(
+            str(self.resolved.config_path), **self.resolved.overrides
+        )
+
     def load(
         self,
         checkpoint: str | Path | None = None,
@@ -228,7 +243,8 @@ class DeimDetectionAdapter(DetectionAdapter):
         Ordering (mirrors ``tools/inference/torch_inf.py`` and
         ``tools/deployment/export_onnx.py``):
 
-          1. ``YAMLConfig(str(config_path), **resolved.overrides)``.
+          1. ``YAMLConfig(str(config_path), **resolved.overrides)`` via
+             :meth:`_build_engine_cfg`.
           2. Disable backbone pretrained download (``HGNetv2.pretrained=False``
              when present) so it cannot race the checkpoint load.
           3. If ``checkpoint`` is not ``None``: ``torch.load`` →
@@ -242,7 +258,7 @@ class DeimDetectionAdapter(DetectionAdapter):
         left at its default initialization (used for skeleton ONNX export).
         """
         # 1. Build engine objects.
-        cfg = YAMLConfig(str(self.resolved.config_path), **self.resolved.overrides)
+        cfg = self._build_engine_cfg()
         self._cfg = cfg
 
         # 2. Disable backbone pretrained download. Mirrors
@@ -336,18 +352,41 @@ class DeimDetectionAdapter(DetectionAdapter):
         return backend.predict(inputs, batch_size=resolved_batch_size)
 
     def train(self) -> None:
-        """Launch a training run. Implemented in Task 8."""
-        raise NotImplementedError("Task 8 implements train")
+        """Build the solver and run one full training cycle via ``solver.fit()``.
+
+        Does NOT call subprocess. Builds the solver from a freshly constructed
+        :class:`~engine.core.YAMLConfig` (via :meth:`_build_engine_cfg`),
+        registers it through ``TASKS[cfg.yaml_cfg['task']]``, applies
+        ``app.train.device`` so ``BaseSolver._setup`` places the model on the
+        configured device, then calls ``fit()`` — which internally runs
+        ``train()`` (setup + resume-from-``cfg.resume``) and the epoch loop.
+        """
+        cfg = self._build_engine_cfg()
+        cfg.device = self.loaded.app.train.device
+        solver = TASKS[cfg.yaml_cfg["task"]](cfg)
+        solver.fit()
 
     def evaluate(self, checkpoint: str | Path | None = None) -> None:
-        """Run evaluation. Implemented in Task 8."""
-        raise NotImplementedError("Task 8 implements evaluate")
+        """Build the solver and run one evaluation pass via ``solver.val()``.
+
+        When ``checkpoint`` is provided, set ``cfg.resume = str(checkpoint)``
+        so ``BaseSolver.eval`` loads it. When ``checkpoint`` is ``None`` the
+        adapter leaves any preset / config-provided ``cfg.resume`` untouched
+        (preserving the resume behavior the engine already implements).
+        Applies ``app.evaluation.device`` regardless.
+        """
+        cfg = self._build_engine_cfg()
+        if checkpoint is not None:
+            cfg.resume = str(checkpoint)
+        cfg.device = self.loaded.app.evaluation.device
+        solver = TASKS[cfg.yaml_cfg["task"]](cfg)
+        solver.val()
 
     def supported_export_formats(self) -> tuple[str, ...]:
         """Return the export formats this adapter supports.
 
-        Empty in the first application-layer version; ``export`` always raises
-        :class:`ExportError` until Task 8 wires a real exporter.
+        No export format is enabled in the first application-layer version;
+        :meth:`export` always raises :class:`ExportError`.
         """
         return ()
 
@@ -357,7 +396,7 @@ class DeimDetectionAdapter(DetectionAdapter):
         format: str,
         output: str | Path,
     ) -> Path:
-        """Export the model. Implemented in Task 8."""
+        """Export the model. v1 always raises — no export format is enabled."""
         raise ExportError(
             "No export format is enabled in the first application-layer version"
         )

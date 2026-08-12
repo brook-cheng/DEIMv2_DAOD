@@ -565,7 +565,10 @@ def test_load_class_count_check_ignores_keys_only_in_checkpoint(
     assert stub.model.load_state_dict_calls == 1
 
 
-# ---- stubs (predict/train/evaluate/export) -------------------------------------
+# ---- stubs (predict/export) --------------------------------------------------
+#
+# train() and evaluate() are exercised in test_solver_wrappers.py (Task 8).
+# supported_export_formats() and export() keep their v1 behavior locked here.
 
 
 def test_predict_no_longer_raises_not_implemented(patched_adapter):
@@ -577,16 +580,6 @@ def test_predict_no_longer_raises_not_implemented(patched_adapter):
     patched_adapter.load(checkpoint="/ckpt.pth")
     with pytest.raises(InputSourceError):
         patched_adapter.predict("nonexistent-source")
-
-
-def test_train_raises_not_implemented(patched_adapter):
-    with pytest.raises(NotImplementedError):
-        patched_adapter.train()
-
-
-def test_evaluate_raises_not_implemented(patched_adapter):
-    with pytest.raises(NotImplementedError):
-        patched_adapter.evaluate()
 
 
 def test_supported_export_formats_empty(patched_adapter):
