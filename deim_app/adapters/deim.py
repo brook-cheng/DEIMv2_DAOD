@@ -92,7 +92,7 @@ _CLASS_HEAD_SUFFIXES: tuple[str, ...] = (
 #: leaves are class-prediction heads. Checked as a dotted-path segment (not a
 #: substring) so a backbone module named e.g. ``foo_dec_score_head`` is not a
 #: false positive.
-_CLASS_HEAD_MODUELIST_NAMES: frozenset[str] = frozenset({"dec_score_head"})
+_CLASS_HEAD_MODULELIST_NAMES: frozenset[str] = frozenset({"dec_score_head"})
 
 
 def _is_class_head_key(name: str) -> bool:
@@ -102,7 +102,7 @@ def _is_class_head_key(name: str) -> bool:
             return True
     # ModuleList heads: <parent>...dec_score_head.{i}.{weight,bias}.
     parts = name.split(".")
-    if len(parts) >= 3 and parts[-3] in _CLASS_HEAD_MODUELIST_NAMES:
+    if len(parts) >= 3 and parts[-3] in _CLASS_HEAD_MODULELIST_NAMES:
         leaf = parts[-1]
         if leaf == "weight" or leaf == "bias":
             return True
