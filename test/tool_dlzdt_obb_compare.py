@@ -79,54 +79,34 @@ OUTPUT_VISUAL_DIR = os.path.join(OUTPUT_ROOT, "comparison_images_train")
 
 DET_DIRS = [
     OUTPUT_YOLO_DOTA_DIR,
-    # "./test/data/outputs/dlzdt_res/hp_fz_rep0_0717_val",
-    # "./test/data/outputs/dlzdt_res/hp_fz_rep3_0717_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep0_0714_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep0_0715_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep1_0714_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep1_0715_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep3_0714_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep3_0717_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep3_0722_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep3_0723_last_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep3_nloss_0722_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep2_nloss_0723_last_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep1_nloss_0723_last_val",
-    # "./test/data/outputs/dlzdt_res/sp_ft_rep0_nloss_0723_last_val",
-    "./test/data/outputs/dlzdt_res/sp_fz_rep0_nloss_0725_val",
-    "./test/data/outputs/dlzdt_res/sp_fz_rep1_nloss_0725_val",
-    "./test/data/outputs/dlzdt_res/sp_fz_rep2_nloss_0725_val",
-    "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_0725_val",
-    "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_a0_0725_val",
+    "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0",
+    "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_shifted",
+    "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_mangle",
+    "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_offset_post",
+    "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep1",
+    "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep2",
+    "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3",
+    "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_afp",
+    "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_fused",
 ]
 MODEL_NAMES = [
     "YOLO-OBB",
-    # "hp_fz_rep0_17",
-    # "hp_fz_rep3_17",
-    # "sp_ft_rep0_14",
-    # "sp_ft_rep0_15",
-    # "sp_ft_rep1_14",
-    # "sp_ft_rep1_15",
-    # "sp_ft_rep3_14",
-    # "sp_ft_rep3_17",
-    # "sp_ft_rep3_22",
-    # "sp_ft_rep3_23",
-    # "sp_ft_rep3_22_n",
-    # "sp_ft_rep2_n_23",
-    # "sp_ft_rep1_n_23",
-    # "sp_ft_rep0_n_23",
-    "sp_fz_rep0",
-    "sp_fz_rep1",
-    "sp_fz_rep2",
-    "sp_fz_rep3",
-    "sp_fz_rep3_a0",
+    "abl_rep0",
+    "abl_rep0_shifted",
+    "abl_rep0_mangle",
+    "abl_rep0_offset_post",
+    "abl_rep1",
+    "abl_rep2",
+    "abl_rep3",
+    "abl_rep3_afp",
+    "abl_rep3_fused",
 ]
 # DET_DIRS = [
 #     "./test/data/outputs/dlzdt_sp_rep0_train",
 #     "./test/data/outputs/dlzdt_sp_rep1_train",
 # ]
 # MODEL_NAMES = ["DEIMv2-OBB-SP-Rep0", "DEIMv2-OBB-SP-Rep1"]
-VIS_IMAGE_NUM = 200
+VIS_IMAGE_NUM = 250
 
 IOUV = None
 # IOUV = None

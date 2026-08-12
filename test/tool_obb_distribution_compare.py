@@ -439,19 +439,27 @@ def main():
     GT_DOTA_DIR = "./test/data/outputs/dlzdt_obb_compare_val/gt_dota"
     DET_DIRS = [
         "./test/data/outputs/dlzdt_obb_compare_val/yolo_dota",
-        "./test/data/outputs/dlzdt_res/sp_fz_rep0_nloss_0725_val",
-        "./test/data/outputs/dlzdt_res/sp_fz_rep1_nloss_0725_val",
-        "./test/data/outputs/dlzdt_res/sp_fz_rep2_nloss_0725_val",
-        "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_0725_val",
-        "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_a0_0725_val"
+        "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0",
+        "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_shifted",
+        "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_mangle",
+        "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_offset_post",
+        "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep1",
+        "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep2",
+        "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3",
+        "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_afp",
+        "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_fused",
     ]
     MODEL_NAMES = [
         "YOLO-OBB",
-        "sp_fz_rep0",
-        "sp_fz_rep1",
-        "sp_fz_rep2",
-        "sp_fz_rep3",
-        "sp_fz_rep3_a0",
+        "abl_rep0",
+        "abl_rep0_shifted",
+        "abl_rep0_mangle",
+        "abl_rep0_offset_post",
+        "abl_rep1",
+        "abl_rep2",
+        "abl_rep3",
+        "abl_rep3_afp",
+        "abl_rep3_fused",
     ]
     OUTPUT_PNG = "./test/data/outputs/dlzdt_obb_compare_val/obb_distribution_compare/obb_distribution_compare.png"
     OUTPUT_TXT = "./test/data/outputs/dlzdt_obb_compare_val/obb_distribution_compare/obb_distribution_compare.txt"

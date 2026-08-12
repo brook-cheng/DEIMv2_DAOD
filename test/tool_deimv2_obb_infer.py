@@ -84,6 +84,7 @@ from tools.model_compare.obb_utils import (
     deimv2_obb_outputs_to_dota,
     visualize_dota_predictions,
 )
+from tools.model_compare.obb_inference_geometry import rescale_obb_to_original
 
 
 class DEIMv2OBB(nn.Module):
@@ -204,21 +205,16 @@ def infer_obb_and_export(
 
             for output in results:
                 labels = output["labels"].cpu().numpy()
-                boxes = output["boxes"].cpu().numpy()
                 scores = output["scores"].cpu().numpy()
 
                 if len(labels) == 0:
                     continue
 
-                # rescale OBB boxes: (cx, cy, w, h, θ)
-                # cx, cy, w, h 乘缩放因子；θ 不变
-                scale_y = orig_h / imgsz[0]
-                scale_x = orig_w / imgsz[1]
-                boxes[:, 0] *= scale_x  # cx
-                boxes[:, 1] *= scale_y  # cy
-                boxes[:, 2] *= scale_x  # w
-                boxes[:, 3] *= scale_y  # h
-                # boxes[:, 4] (θ) unchanged
+                boxes = rescale_obb_to_original(
+                    output["boxes"].cpu(),
+                    original_size=(orig_h, orig_w),
+                    inference_size=imgsz,
+                ).numpy()
 
                 # keep all detections with their scores; score_threshold now
                 # filters only the visualization, so the DOTA export retains the
@@ -253,13 +249,9 @@ def infer_obb_and_export(
 
 
 if __name__ == "__main__":
-    # img_dir = (
-    #     "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/val"
-    # )
-    # classes_txt = (
-    #     "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/classes.txt"
-    # )
-    img_dir = "/mnt/d/project_data/model_test/error_det/10kV镇楼线#005杆现场勘察2026-08-07 16_40_07_crop"
+    img_dir = (
+        "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/val"
+    )
     classes_txt = (
         "/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/classes.txt"
     )
@@ -269,43 +261,67 @@ if __name__ == "__main__":
     device = "cuda:0"
 
     infoes = [
+        # {
+        #     "config": "configs/custom_obb/dlzdt/ablation/abl_rep3.yml",
+        #     "ckpt": "outputs/sp_ft_rep3_0723_last.pth",
+        #     "output_dir": "/mnt/d/project_data/model_test/error_det/deimv2-obb-ouputs/10kV镇楼线#005杆现场勘察2026-08-07 16_40_07/dota",
+        #     "vis_dir": "/mnt/d/project_data/model_test/error_det/deimv2-obb-ouputs/10kV镇楼线#005杆现场勘察2026-08-07 16_40_07/vis",
+        #     "infer_flag": True,
+        # }
+        {
+            "config": "configs/custom_obb/dlzdt/sp_fz_common.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep0.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_shifted.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep0_shifted.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_shifted",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_mangle.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep0_mangle.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_mangle",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_offset_post.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep0_offset_post.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_offset_post",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_rep1.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep1.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep1",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_rep2.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep2.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep2",
+            "infer_flag": True,
+        },
         {
             "config": "configs/custom_obb/dlzdt/ablation/abl_rep3.yml",
-            "ckpt": "outputs/sp_ft_rep3_0723_last.pth",
-            "output_dir": "/mnt/d/project_data/model_test/error_det/deimv2-obb-ouputs/10kV镇楼线#005杆现场勘察2026-08-07 16_40_07/dota",
-            "vis_dir": "/mnt/d/project_data/model_test/error_det/deimv2-obb-ouputs/10kV镇楼线#005杆现场勘察2026-08-07 16_40_07/vis",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep3.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3",
             "infer_flag": True,
-        }
-        # {
-        #     "config": "configs/custom_obb/dlzdt/sp_fz_rep0_nloss.yml",
-        #     "ckpt": "outputs/sp_fz_rep0_nloss_0725.pth",
-        #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep0_nloss_0725_val",
-        #     "infer_flag": True,
-        # },
-        # {
-        #     "config": "configs/custom_obb/dlzdt/sp_fz_rep1_nloss.yml",
-        #     "ckpt": "outputs/sp_fz_rep1_nloss_0725.pth",
-        #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep1_nloss_0725_val",
-        #     "infer_flag": True,
-        # },
-        # {
-        #     "config": "configs/custom_obb/dlzdt/sp_fz_rep2_nloss.yml",
-        #     "ckpt": "outputs/sp_fz_rep2_nloss_0725.pth",
-        #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep2_nloss_0725_val",
-        #     "infer_flag": True,
-        # },
-        # {
-        #     "config": "configs/custom_obb/dlzdt/sp_fz_rep3_nloss.yml",
-        #     "ckpt": "outputs/sp_fz_rep3_nloss_0725.pth",
-        #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_0725_val",
-        #     "infer_flag": True,
-        # },
-        # {
-        #     "config": "configs/custom_obb/dlzdt/sp_fz_rep3_nloss_a0.yml",
-        #     "ckpt": "outputs/sp_fz_rep3_nloss_a0_0725.pth",
-        #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_a0_0725_val",
-        #     "infer_flag": True,
-        # },
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_rep3_afp.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep3_afp.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_afp",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_rep3_fused.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep3_fused.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_fused",
+            "infer_flag": True,
+        },
     ]
 
     for info in infoes:

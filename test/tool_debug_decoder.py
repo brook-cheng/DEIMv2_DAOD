@@ -368,7 +368,9 @@ def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root, img_dir=None
         )
         print(f"  Diff {n}: {png}")
 
-        matched_gt_obbs, matched_pred_obbs = match_and_get_obbs(gt_per_img, pred_per_img, iou_thr=0.1)
+        matched_gt_obbs, matched_pred_obbs = match_and_get_obbs(
+            gt_per_img, pred_per_img, iou_thr=0.1
+        )
         if matched_gt_obbs:
             cls = classify_errors(
                 torch.tensor(np.array(matched_gt_obbs)),
@@ -376,12 +378,18 @@ def phase_analysis(gt_dota_dir, det_dirs, model_names, output_root, img_dir=None
                 iou_threshold=0.5,
                 angle_threshold_deg=15.0,
             )
-            diff_report.append(f"  [classification] ok={cls['ok']} swap={cls['swap_artifact']} genuine={cls['genuine_angle_error']}")
+            diff_report.append(
+                f"  [classification] ok={cls['ok']} swap={cls['swap_artifact']} genuine={cls['genuine_angle_error']}"
+            )
 
         if img_dir is not None:
             draw_outlier_images(
-                outlier_records, img_dir, report_dir, n,
-                wh_threshold=1.0, angle_threshold=20.0,
+                outlier_records,
+                img_dir,
+                report_dir,
+                n,
+                wh_threshold=1.0,
+                angle_threshold=20.0,
             )
 
     with open(os.path.join(report_dir, "difference_report.txt"), "w") as f:
@@ -764,37 +772,61 @@ def main_multi():
     VIS_STEP = 20
 
     MODEL_LIST = [
-            # {
-            #     "config": "configs/custom_obb/dlzdt/sp_fz_rep0_nloss.yml",
-            #     "ckpt": "outputs/sp_fz_rep0_nloss_0725.pth",
-            #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep0_nloss_0725_train",
-            #     "infer_flag": True,
-            # },
-            # {
-            #     "config": "configs/custom_obb/dlzdt/sp_fz_rep1_nloss.yml",
-            #     "ckpt": "outputs/sp_fz_rep1_nloss_0725.pth",
-            #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep1_nloss_0725_train",
-            #     "infer_flag": True,
-            # },
-            # {
-            #     "config": "configs/custom_obb/dlzdt/sp_fz_rep2_nloss.yml",
-            #     "ckpt": "outputs/sp_fz_rep2_nloss_0725.pth",
-            #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep2_nloss_0725_train",
-            #     "infer_flag": True,
-            # },
-            # {
-            #     "config": "configs/custom_obb/dlzdt/sp_fz_rep3_nloss.yml",
-            #     "ckpt": "outputs/sp_fz_rep3_nloss_0725.pth",
-            #     "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_0725_train",
-            #     "infer_flag": True,
-            # },
-            {
-                "config": "configs/custom_obb/dlzdt/sp_fz_rep3_nloss_a0.yml",
-                "ckpt": "outputs/sp_fz_rep3_nloss_a0_0725.pth",
-                "output_dir": "./test/data/outputs/dlzdt_res/sp_fz_rep3_nloss_a0_0725_train",
-                "infer_flag": True,
-            },
-        ]
+        {
+            "config": "configs/custom_obb/dlzdt/sp_fz_common.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep0.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_debug",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_shifted.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep0_shifted.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_shifted_debug",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_mangle.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep0_mangle.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_mangle_debug",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_offset_post.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep0_offset_post.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_offset_post_debug",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_rep1.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep1.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep1_debug",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_rep2.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep2.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep2_debug",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_rep3.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep3.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_debug",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_rep3_afp.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep3_afp.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_afp_debug",
+            "infer_flag": True,
+        },
+        {
+            "config": "configs/custom_obb/dlzdt/ablation/abl_rep3_fused.yml",
+            "ckpt": "outputs/dlzdt_ablation/abl_rep3_fused.pth",
+            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_fused_debug",
+            "infer_flag": True,
+        },
+    ]
 
     for m in MODEL_LIST:
         run_debug(
