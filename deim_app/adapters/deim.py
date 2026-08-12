@@ -287,8 +287,53 @@ class DeimDetectionAdapter(DetectionAdapter):
         device: str | None = None,
         batch_size: int | None = None,
     ) -> "PredictionCollection":
-        """Run inference. Implemented in Task 6."""
-        raise NotImplementedError("Task 6 implements predict")
+        """Run inference over ``source`` and return the full collection.
+
+        ``source`` is anything :func:`deim_app.inference.inputs.list_inputs`
+        accepts (a single image path, a directory, or an in-memory
+        ``PIL.Image.Image``). The returned :class:`PredictionCollection` is
+        UNFILTERED — score thresholding, top-k, and class filtering are facade
+        / CLI responsibilities.
+
+        ``device`` and ``batch_size`` default to the values in the loaded
+        ``app.inference`` section when not supplied. ``checkpoint`` is accepted
+        for protocol symmetry but the model must already be loaded via
+        :meth:`load`; passing a different checkpoint here raises
+        :class:`InferenceBackendError` (re-loading mid-predict is out of scope
+        for v1).
+        """
+        from deim_app.errors import InferenceBackendError
+        from deim_app.inference.inputs import list_inputs
+        from deim_app.inference.preprocessing import Preprocessor
+        from deim_app.inference.torch_backend import TorchBackend
+
+        if checkpoint is not None:
+            raise InferenceBackendError(
+                "predict(checkpoint=...) is not supported; the model is already "
+                "loaded via load(). Pass the checkpoint to load() instead."
+            )
+        if self._model is None or self._postprocessor is None:
+            raise InferenceBackendError(
+                "Model is not loaded. Call load(checkpoint) before predict()."
+            )
+
+        inference = self.loaded.app.inference
+        runtime = self.loaded.app.runtime
+        resolved_device = device if device is not None else inference.device
+        resolved_batch_size = (
+            batch_size if batch_size is not None else inference.batch_size
+        )
+
+        inputs = list_inputs(source)
+        backend = TorchBackend(
+            model=self._model,
+            postprocessor=self._postprocessor,
+            preprocessor=Preprocessor(runtime.input_size),
+            metadata=self.metadata,
+            box_mode=self.box_mode,
+            device=resolved_device,
+        )
+        return backend.predict(inputs, batch_size=resolved_batch_size)
 
     def train(self) -> None:
         """Launch a training run. Implemented in Task 8."""

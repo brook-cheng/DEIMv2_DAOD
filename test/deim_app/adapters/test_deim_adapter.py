@@ -568,10 +568,15 @@ def test_load_class_count_check_ignores_keys_only_in_checkpoint(
 # ---- stubs (predict/train/evaluate/export) -------------------------------------
 
 
-def test_predict_raises_not_implemented(patched_adapter):
+def test_predict_no_longer_raises_not_implemented(patched_adapter):
+    """Task 6 implements ``predict``. A loaded adapter now delegates to the
+    inference pipeline, so a bogus source surfaces as ``InputSourceError``
+    (from ``list_inputs``) rather than ``NotImplementedError``."""
+    from deim_app.errors import InputSourceError
+
     patched_adapter.load(checkpoint="/ckpt.pth")
-    with pytest.raises(NotImplementedError):
-        patched_adapter.predict("source")
+    with pytest.raises(InputSourceError):
+        patched_adapter.predict("nonexistent-source")
 
 
 def test_train_raises_not_implemented(patched_adapter):
