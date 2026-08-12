@@ -67,7 +67,9 @@ optimizer:
   weight_decay: 0.000125
 
 # ---- COCO-specific settings (carried as defaults; no dataset paths) ----
-remap_mscoco_category: True
+# remap_mscoco_category is omitted — the app resolver auto-detects by matching
+# category names against the MS COCO 80-class standard. Set it explicitly in
+# the engine YAML only if you need to override the auto-detection.
 
 evaluator:
   type: CocoEvaluator

@@ -193,27 +193,41 @@ _MSCOCO_CATEGORY2LABEL: dict[int, int] = {
     cat_id: label for label, cat_id in enumerate(_MSCOCO_CATEGORY2NAME)
 }
 
+#: The 80 MS COCO category names as a set, for auto-detection.
+#: Derived from ``_MSCOCO_CATEGORY2NAME.values()``.
+_MSCOCO_CATEGORY_NAMES: frozenset[str] = frozenset(_MSCOCO_CATEGORY2NAME.values())
+
+#: The standard MS COCO 1..90 category IDs (with gaps) as a set.
+_MSCOCO_CATEGORY_IDS: frozenset[int] = frozenset(_MSCOCO_CATEGORY2NAME)
+
 
 def load_coco_metadata(
     annotation_path: Path,
-    remap_mscoco_category: bool = False,
+    remap_mscoco_category: bool | None = None,
 ) -> DatasetMetadata:
     """Read a COCO-format JSON and derive :class:`DatasetMetadata`.
 
     Args:
         annotation_path: Path to a COCO ``instances*.json`` file.
-        remap_mscoco_category: When ``False`` (default), category IDs in the
-            JSON must be contiguous zero-based (``0, 1, ..., N-1``); any gap or
-            offset raises :class:`AppConfigError` with a message containing
-            ``"contiguous"``.  When ``True``, the standard MS COCO 1..90 IDs
-            (with gaps) are accepted and remapped to contiguous 0..79 labels
-            using the canonical mapping from
-            ``engine/data/dataset/coco_dataset.py``.
+        remap_mscoco_category: Controls how category IDs are interpreted.
+
+            * ``True`` (explicit): the JSON must contain exactly the standard
+              MS COCO 80 category names and 1..90 IDs. If the names do not
+              match, raises :class:`AppConfigError` suggesting
+              ``remap_mscoco_category=False``.
+            * ``False`` (explicit): category IDs must be contiguous zero-based
+              (``0, 1, ..., N-1``); any gap raises :class:`AppConfigError`
+              with ``"contiguous"`` in the message.
+            * ``None`` (default — auto-detect): if the category names and IDs
+              exactly match the MS COCO 80-class standard, remaps as ``True``.
+              Otherwise requires contiguous zero-based IDs (non-contiguous
+              raises ``AppConfigError``). This eliminates silent label
+              corruption for custom datasets whose IDs overlap 1..90.
 
     Raises:
-        AppConfigError: if the file does not exist, is not valid JSON, or
-            (when ``remap_mscoco_category=False``) the category IDs are not
-            contiguous zero-based.
+        AppConfigError: if the file does not exist, is not valid JSON,
+            category IDs are non-contiguous (in contiguous mode), or
+            category names don't match MS COCO (in explicit remap mode).
     """
     annotation_path = Path(annotation_path)
     if not annotation_path.exists():
@@ -240,10 +254,44 @@ def load_coco_metadata(
             f"data annotation file '{annotation_path}' 'categories' must be a list"
         )
 
-    if remap_mscoco_category:
-        return _build_remapped_metadata(categories)
+    json_names = frozenset(str(cat.get("name", "")).strip() for cat in categories)
+    json_ids = frozenset(cat["id"] for cat in categories)
+    is_mscoco = (
+        json_names == _MSCOCO_CATEGORY_NAMES
+        and json_ids == _MSCOCO_CATEGORY_IDS
+    )
 
+    if remap_mscoco_category is True:
+        if not is_mscoco:
+            _raise_remap_name_mismatch(json_names, annotation_path)
+        return _build_remapped_metadata()
+
+    if remap_mscoco_category is False:
+        return _build_contiguous_metadata(categories, annotation_path)
+
+    # remap_mscoco_category is None — auto-detect
+    if is_mscoco:
+        return _build_remapped_metadata()
     return _build_contiguous_metadata(categories, annotation_path)
+
+
+def _raise_remap_name_mismatch(
+    json_names: frozenset[str], annotation_path: Path
+) -> None:
+    """Raise an actionable error for explicit ``True`` with non-MS-COCO names."""
+    missing = _MSCOCO_CATEGORY_NAMES - json_names
+    extra = json_names - _MSCOCO_CATEGORY_NAMES
+    details: list[str] = []
+    if missing:
+        details.append(f"missing {len(missing)} MS COCO names (e.g. {sorted(missing)[:3]})")
+    if extra:
+        details.append(f"found {len(extra)} non-MS-COCO names (e.g. {sorted(extra)[:3]})")
+    raise AppConfigError(
+        f"remap_mscoco_category=True but categories in '{annotation_path}' "
+        f"do not match the standard MS COCO 80 names ({'; '.join(details)}). "
+        f"Set remap_mscoco_category=False (or omit it for auto-detection) "
+        f"for custom datasets with contiguous zero-based IDs."
+    )
 
 
 def _build_contiguous_metadata(
@@ -256,9 +304,9 @@ def _build_contiguous_metadata(
     if ids != expected:
         raise AppConfigError(
             f"data annotation file '{annotation_path}' has non-contiguous "
-            f"category IDs {ids}; when remap_mscoco_category is False, IDs must "
-            f"be contiguous zero-based (0..N-1). Set remap_mscoco_category=True "
-            f"in the preset to accept standard MS COCO 1..90 IDs."
+            f"category IDs {ids}; IDs must be contiguous zero-based (0..N-1). "
+            f"If this is the standard MS COCO dataset, ensure all 80 category "
+            f"names and 1..90 IDs are present for auto-detection."
         )
 
     class_names_by_label = {i: cat["name"] for i, cat in enumerate(sorted_cats)}
@@ -270,16 +318,7 @@ def _build_contiguous_metadata(
     )
 
 
-def _build_remapped_metadata(categories: list[dict]) -> DatasetMetadata:
-    user_cat2name = {c["id"]: c["name"] for c in categories}
-
-    unknown_ids = set(user_cat2name) - set(_MSCOCO_CATEGORY2NAME)
-    if unknown_ids:
-        raise AppConfigError(
-            f"remap_mscoco_category=True but category IDs {sorted(unknown_ids)} "
-            f"are not standard MS COCO IDs (expected 1..90 with known gaps)"
-        )
-
+def _build_remapped_metadata() -> DatasetMetadata:
     class_names_by_label: dict[int, str] = {
         _MSCOCO_CATEGORY2LABEL[cat_id]: _MSCOCO_CATEGORY2NAME[cat_id]
         for cat_id in _MSCOCO_CATEGORY2NAME

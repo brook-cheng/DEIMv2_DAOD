@@ -246,7 +246,18 @@ def _load_metadata(overrides: dict[str, Any], app: AppConfig) -> DatasetMetadata
             raise AppConfigError(
                 "data.train_annotations is required for COCO format metadata loading"
             )
-        remap = bool(overrides.get("remap_mscoco_category", False))
-        return load_coco_metadata(Path(ann_path), remap_mscoco_category=remap)
+        remap_raw = overrides.get("remap_mscoco_category", None)
+        metadata = load_coco_metadata(
+            Path(ann_path), remap_mscoco_category=remap_raw
+        )
+        # Propagate the actual remap decision to overrides so the
+        # CocoDetection dataset class (which reads remap_mscoco_category via
+        # __share__) gets the correct flag.
+        remap_actual = (
+            set(metadata.output_names_by_id.keys())
+            != set(metadata.class_names_by_label.keys())
+        )
+        overrides["remap_mscoco_category"] = remap_actual
+        return metadata
 
     raise AppConfigError(f"Unsupported data format '{fmt}' for metadata loading")

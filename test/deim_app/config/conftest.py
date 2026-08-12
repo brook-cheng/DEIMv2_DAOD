@@ -210,7 +210,6 @@ def make_engine_base(box_mode: str = "hbb") -> dict[str, Any]:
         "use_ema": True,
         "seed": None,
         "output_dir": "./logs",
-        "remap_mscoco_category": (box_mode == "hbb"),
         "lrsheduler": "flatcosine",
         "lr_gamma": 0.5,
         "warmup_iter": 2000,
@@ -306,3 +305,17 @@ def write_coco_json(
     }
     path.write_text(json.dumps(data), encoding="utf-8")
     return path
+
+
+def mscoco_categories() -> list[dict[str, Any]]:
+    """Return all 80 standard MS COCO categories with their canonical 1..90 IDs.
+
+    Mirrors the ``categories`` list in COCO ``instances_val2017.json``.
+    Used by tests that need auto-detection to recognise the MS COCO standard.
+    """
+    from deim_app.config.metadata import _MSCOCO_CATEGORY2NAME
+
+    return [
+        {"id": cat_id, "name": name}
+        for cat_id, name in sorted(_MSCOCO_CATEGORY2NAME.items())
+    ]

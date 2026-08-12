@@ -36,6 +36,7 @@ from deim_app.errors import AppConfigError
 
 from conftest import (
     make_engine_base,
+    mscoco_categories,
     valid_base_dict,
     valid_obb_base_dict,
     write_classes_file,
@@ -113,10 +114,6 @@ def _make_loaded(
         app = AppConfig.from_mapping(base_dict)
 
     eb = engine_base if engine_base is not None else make_engine_base(box_mode)
-    # Ensure HBB synthetic base doesn't force remap (use contiguous IDs).
-    if box_mode == "hbb":
-        eb = copy.deepcopy(eb)
-        eb["remap_mscoco_category"] = False
 
     return LoadedAppConfig(
         app=app,
@@ -204,35 +201,103 @@ class TestCocoMetadataContiguous:
             load_coco_metadata(tmp_path / "nonexistent.json")
 
 
-class TestCocoMetadataRemap:
-    def test_mscoco_standard_ids_accepted_and_remapped(self, tmp_path: Path) -> None:
-        """The standard MS COCO 1..90 IDs (with gaps) must be accepted."""
-        categories = [
-            {"id": 1, "name": "person"},
-            {"id": 2, "name": "bicycle"},
-            {"id": 3, "name": "car"},
-        ]
-        ann = write_coco_json(tmp_path / "instances.json", categories=categories)
+class TestCocoMetadataExplicitRemap:
+    """remap_mscoco_category=True — strict: must match MS COCO 80 names exactly."""
+
+    def test_explicit_true_with_full_mscoco_remapped(self, tmp_path: Path) -> None:
+        ann = write_coco_json(tmp_path / "instances.json", categories=mscoco_categories())
         metadata = load_coco_metadata(ann, remap_mscoco_category=True)
         assert metadata.box_mode == "hbb"
-        # The remap produces contiguous labels from the FULL 80-class mapping,
-        # regardless of how many categories the JSON lists.
         assert metadata.num_classes == 80
-        # label 0 -> person, label 1 -> bicycle, label 2 -> car
         assert metadata.class_names_by_label[0] == "person"
         assert metadata.class_names_by_label[1] == "bicycle"
-        assert metadata.class_names_by_label[2] == "car"
-        # output_names_by_id maps the original COCO category IDs
+        assert metadata.class_names_by_label[79] == "toothbrush"
         assert metadata.output_names_by_id[1] == "person"
         assert metadata.output_names_by_id[90] == "toothbrush"
 
-    def test_remap_full_label_count_is_80(self, tmp_path: Path) -> None:
-        categories = [{"id": cid, "name": name} for cid, name in [(1, "person"), (90, "toothbrush")]]
-        ann = write_coco_json(tmp_path / "instances.json", categories=categories)
-        metadata = load_coco_metadata(ann, remap_mscoco_category=True)
+    def test_explicit_true_with_custom_names_rejected(self, tmp_path: Path) -> None:
+        """Explicit True with non-MS-COCO names must raise, not silently remap."""
+        ann = write_coco_json(
+            tmp_path / "instances.json",
+            categories=[
+                {"id": 1, "name": "person"},
+                {"id": 2, "name": "bicycle"},
+            ],
+        )
+        with pytest.raises(AppConfigError, match="remap_mscoco_category=True"):
+            load_coco_metadata(ann, remap_mscoco_category=True)
+
+    def test_explicit_true_error_suggests_false(self, tmp_path: Path) -> None:
+        ann = write_coco_json(
+            tmp_path / "instances.json",
+            categories=[{"id": 0, "name": "widget"}, {"id": 1, "name": "gadget"}],
+        )
+        with pytest.raises(AppConfigError, match="remap_mscoco_category=False"):
+            load_coco_metadata(ann, remap_mscoco_category=True)
+
+
+class TestCocoMetadataAutoDetect:
+    """remap_mscoco_category=None (default) — auto-detect by name+ID match."""
+
+    def test_auto_with_mscoco_names_remapped(self, tmp_path: Path) -> None:
+        ann = write_coco_json(tmp_path / "instances.json", categories=mscoco_categories())
+        metadata = load_coco_metadata(ann)
         assert metadata.num_classes == 80
         assert metadata.class_names_by_label[0] == "person"
-        assert metadata.class_names_by_label[79] == "toothbrush"
+        assert metadata.output_names_by_id[1] == "person"
+
+    def test_auto_with_custom_contiguous_no_remap(self, tmp_path: Path) -> None:
+        """Custom dataset with 0..N-1 IDs → no remap, names used as-is."""
+        ann = write_coco_json(
+            tmp_path / "instances.json",
+            categories=[
+                {"id": 0, "name": "widget"},
+                {"id": 1, "name": "gadget"},
+            ],
+        )
+        metadata = load_coco_metadata(ann)
+        assert metadata.num_classes == 2
+        assert metadata.class_names_by_label == {0: "widget", 1: "gadget"}
+        assert metadata.output_names_by_id == {0: "widget", 1: "gadget"}
+
+    def test_auto_with_non_contiguous_overlapping_1_90_rejected(self, tmp_path: Path) -> None:
+        """Custom non-MS-COCO dataset with IDs in 1..90 range must NOT silently remap."""
+        ann = write_coco_json(
+            tmp_path / "instances.json",
+            categories=[
+                {"id": 1, "name": "cat"},
+                {"id": 3, "name": "dog"},
+            ],
+        )
+        with pytest.raises(AppConfigError, match="contiguous"):
+            load_coco_metadata(ann)
+
+    def test_auto_default_is_none(self, tmp_path: Path) -> None:
+        """Verify the function signature default is None (auto-detect)."""
+        import inspect
+
+        sig = inspect.signature(load_coco_metadata)
+        assert sig.parameters["remap_mscoco_category"].default is None
+
+
+class TestCocoMetadataExplicitNoRemap:
+    """remap_mscoco_category=False — contiguous zero-based IDs required."""
+
+    def test_explicit_false_with_contiguous_accepted(self, tmp_path: Path) -> None:
+        ann = write_coco_json(
+            tmp_path / "instances.json",
+            categories=[{"id": 0, "name": "x"}, {"id": 1, "name": "y"}],
+        )
+        metadata = load_coco_metadata(ann, remap_mscoco_category=False)
+        assert metadata.num_classes == 2
+
+    def test_explicit_false_with_non_contiguous_rejected(self, tmp_path: Path) -> None:
+        ann = write_coco_json(
+            tmp_path / "instances.json",
+            categories=[{"id": 1, "name": "a"}, {"id": 3, "name": "b"}],
+        )
+        with pytest.raises(AppConfigError, match="contiguous"):
+            load_coco_metadata(ann, remap_mscoco_category=False)
 
 
 # ===========================================================================
