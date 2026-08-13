@@ -73,6 +73,13 @@ class _FacadeAdapter(Protocol):
 
     def evaluate(self, checkpoint: str | Path | None = ...) -> None: ...
 
+    def export(
+        self,
+        checkpoint: str | Path,
+        format: str,
+        output: str | Path,
+    ) -> Path: ...
+
 
 class DetectionModel:
     """Application facade over a detection adapter.
