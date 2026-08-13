@@ -10,10 +10,16 @@ Task 3 additions:
     ops, collate_fn, scheduler, etc.) so mapping tests can assert exact paths
     without loading the real preset YAMLs.
   - ``write_classes_file`` / ``write_coco_json`` — metadata fixtures.
-  - ``_APPROVED_BASE_NAMES_PATCH`` — autouse fixture that extends the approved
-    basename set with the synthetic names used by loader tests
-    (``base.yml``, ``base_a.yml``, ``base_b.yml``) so the tightened include
-    check does not reject them.
+
+Trust-boundary model (Task 2):
+  - ``_isolate_approved_base_paths`` (autouse) replaces the loader's
+    repo-default approved-path tuple with a fresh per-test mutable list seeded
+    with the canonical repo bases, so a test approves a synthetic base ONLY by
+    registering its resolved path on top of those defaults.
+  - ``register_app_base`` / ``write_app_base`` register resolved ``tmp_path``
+    bases into that list. No test globally approves an arbitrary basename, so
+    an attacker-style same-name or symlinked file is rejected exactly as in
+    production.
 """
 
 from __future__ import annotations
@@ -33,22 +39,50 @@ def write_yaml(path: Path, data: dict[str, Any]) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Autouse: permit synthetic base basenames in the tightened include check
+# Per-test exact-path allowlist for synthetic application bases
 # ---------------------------------------------------------------------------
-
-#: Synthetic base-file names used by Task 2 loader tests.  After Task 3
-#: tightens ``validate_single_application_base`` to require an approved
-#: basename, this autouse fixture patches the approved set so these names
-#: continue to load from ``tmp_path``.
-_SYNTHETIC_BASE_NAMES = ("base.yml", "base_a.yml", "base_b.yml")
 
 
 @pytest.fixture(autouse=True)
-def _patch_approved_base_names(monkeypatch: pytest.MonkeyPatch) -> None:
+def _isolate_approved_base_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give each test a fresh mutable approved-path list seeded with repo defaults.
+
+    The list starts from the loader's canonical approved bases (the real
+    ``configs/app/base/{hbb,obb}_app.yml``), so end-to-end tests that include
+    those real bases keep working. A test that writes a synthetic base to
+    ``tmp_path`` must register that base's resolved path via
+    ``register_app_base`` / ``write_app_base`` — no basename is ever globally
+    approved, so a malicious same-name or symlinked file planted in
+    ``tmp_path`` is rejected exactly as in production.
+    """
     from deim_app.config import loader as _loader
 
-    patched = tuple(_loader._APPROVED_BASE_NAMES) + _SYNTHETIC_BASE_NAMES
-    monkeypatch.setattr(_loader, "_APPROVED_BASE_NAMES", patched)
+    seeded: list[Path] = list(_loader._APPROVED_BASE_PATHS)
+    monkeypatch.setattr(_loader, "_APPROVED_BASE_PATHS", seeded)
+
+
+def register_app_base(path: Path) -> Path:
+    """Register a synthetic base's resolved path as approved for the active test.
+
+    Appends ``path.resolve()`` to the loader's per-test approved list (the
+    autouse fixture replaces the default tuple with a mutable list). A no-op
+    when no test fixture is active, so helpers remain safe to import anywhere.
+    """
+    from deim_app.config import loader as _loader
+
+    approved = _loader._APPROVED_BASE_PATHS
+    if isinstance(approved, list):
+        resolved = path.resolve()
+        if resolved not in approved:
+            approved.append(resolved)
+    return path
+
+
+def write_app_base(path: Path, data: dict[str, Any]) -> Path:
+    """Write a synthetic application base and register it as approved."""
+    written = write_yaml(path, data)
+    register_app_base(written)
+    return written
 
 
 def valid_base_dict(device: str = "cuda") -> dict[str, Any]:
@@ -126,7 +160,9 @@ def write_base_and_user(
     user_name: str = "user.yml",
 ) -> Path:
     """Write both files and return the path to the user YAML."""
-    write_yaml(tmp_path / base_name, base if base is not None else valid_base_dict())
+    write_app_base(
+        tmp_path / base_name, base if base is not None else valid_base_dict()
+    )
     return write_yaml(
         tmp_path / user_name,
         user if user is not None else valid_user_dict(base_name),

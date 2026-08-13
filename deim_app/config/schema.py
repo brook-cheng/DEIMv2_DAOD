@@ -40,6 +40,17 @@ __all__ = [
 DATA_FORMATS: frozenset[str] = frozenset({"COCO", "DOTA", "YOLO-OBB"})
 CACHE_MODES: frozenset[str] = frozenset({"none", "disk", "ram"})
 
+#: Writer formats accepted by ``inference.output_formats``. Mirrors the CLI
+#: ``--format`` choices (``deim_app.cli._KNOWN_FORMATS``); validated at config
+#: construction time so unknown formats never reach inference or write time.
+#: ``dota`` is format-known but requires an OBB ``data.format`` (see
+#: :meth:`AppConfig.from_mapping`).
+INFERENCE_OUTPUT_FORMATS: frozenset[str] = frozenset({"json", "visualization", "dota"})
+
+#: ``data.format`` values that produce oriented bounding boxes (OBB). The DOTA
+#: writer requires OBB geometry; HBB-only COCO is incompatible.
+_OBB_DATA_FORMATS: frozenset[str] = frozenset({"DOTA", "YOLO-OBB"})
+
 
 # ---------------------------------------------------------------------------
 # Primitive type/range validators
@@ -295,6 +306,12 @@ def _build_inference(d: Mapping[str, object]) -> InferenceConfig:
     class_filter = _expect_str_tuple(cf_raw, "inference.class_filter") if cf_raw is not None else None
     of_raw = d.get("output_formats", ("json", "visualization"))
     output_formats = _expect_str_tuple(of_raw, "inference.output_formats")
+    unknown = sorted(set(output_formats) - INFERENCE_OUTPUT_FORMATS)
+    if unknown:
+        raise AppConfigError(
+            f"inference.output_formats must be one of "
+            f"{sorted(INFERENCE_OUTPUT_FORMATS)}, got unknown: {unknown}"
+        )
     return InferenceConfig(
         checkpoint=checkpoint,
         device=_expect_str(d.get("device", "cuda"), "inference.device"),
@@ -352,4 +369,14 @@ class AppConfig:
                     f"got {type(section_data).__name__}"
                 )
             kwargs[section] = builder(section_data)
+
+        data_fmt: str = kwargs["data"].format
+        output_formats: tuple[str, ...] = kwargs["inference"].output_formats
+        if "dota" in output_formats and data_fmt not in _OBB_DATA_FORMATS:
+            raise AppConfigError(
+                f"inference.output_formats 'dota' (DOTA writer) is incompatible "
+                f"with data.format={data_fmt!r} (HBB); DOTA writer requires "
+                f"OBB data (DOTA or YOLO-OBB)"
+            )
+
         return cls(**kwargs)

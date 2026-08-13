@@ -20,6 +20,7 @@ from conftest import (
     valid_base_dict,
     valid_obb_base_dict,
     valid_user_dict,
+    write_app_base,
     write_base_and_user,
     write_yaml,
 )
@@ -35,7 +36,7 @@ def test_rejects_algorithm_key_in_user_yaml(tmp_path: Path) -> None:
         tmp_path / "bad.yml",
         {"__include__": ["base.yml"], "DEIMTransformer": {"angle_rep": 2}},
     )
-    write_yaml(tmp_path / "base.yml", valid_base_dict())
+    write_app_base(tmp_path / "base.yml", valid_base_dict())
     with pytest.raises(AppConfigError, match="DEIMTransformer"):
         load_app_config(path)
 
@@ -50,7 +51,7 @@ def test_rejects_direct_include_of_algorithm_yaml(tmp_path: Path) -> None:
 
 
 def test_cli_device_overrides_user_and_base_yaml(tmp_path: Path) -> None:
-    base = write_yaml(tmp_path / "base.yml", valid_base_dict(device="cpu"))
+    base = write_app_base(tmp_path / "base.yml", valid_base_dict(device="cpu"))
     user = write_yaml(
         tmp_path / "user.yml",
         {"__include__": [base.name], "train": {"device": "cuda:0"}},
@@ -340,6 +341,42 @@ def test_non_string_include_entry_rejected(tmp_path: Path) -> None:
         load_app_config(path)
 
 
+def test_arbitrary_same_name_base_rejected(tmp_path: Path) -> None:
+    """An attacker-controlled ``hbb_app.yml`` written outside the repo is refused.
+
+    The basename matches an approved application-base name, but the resolved
+    path is not a canonical approved path, so the include must be rejected.
+    Trust is anchored to exact resolved paths, never to basenames.
+    """
+    malicious = write_yaml(tmp_path / "hbb_app.yml", valid_base_dict())
+    user = write_yaml(
+        tmp_path / "user.yml",
+        {"__include__": [malicious.name]},
+    )
+    with pytest.raises(AppConfigError, match="application base"):
+        load_app_config(user)
+
+
+def test_symlink_to_outside_same_name_rejected(tmp_path: Path) -> None:
+    """A symlink named ``hbb_app.yml`` pointing outside the repo is refused.
+
+    ``resolve()`` follows the symlink to its real target; that real target is
+    not an approved application-base path, so the include is rejected even
+    though the link itself carries an approved basename.
+    """
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = write_yaml(outside / "evil.yml", valid_base_dict())
+    link = tmp_path / "hbb_app.yml"
+    link.symlink_to(target)
+    user = write_yaml(
+        tmp_path / "user.yml",
+        {"__include__": [link.name]},
+    )
+    with pytest.raises(AppConfigError, match="application base"):
+        load_app_config(user)
+
+
 # ---------------------------------------------------------------------------
 # LoadedAppConfig shape + immutability + engine_base isolation
 # ---------------------------------------------------------------------------
@@ -372,7 +409,7 @@ def test_engine_base_contains_full_merged_dict(tmp_path: Path) -> None:
 
 def test_engine_base_not_mutated_across_calls(tmp_path: Path) -> None:
     """Two independent loads must not leak state (load_config mutable-default guard)."""
-    base_a = write_yaml(tmp_path / "base_a.yml", valid_base_dict())
+    base_a = write_app_base(tmp_path / "base_a.yml", valid_base_dict())
     user_a = write_yaml(
         tmp_path / "user_a.yml",
         {"__include__": [base_a.name], "train": {"epochs": 5}},
@@ -380,7 +417,7 @@ def test_engine_base_not_mutated_across_calls(tmp_path: Path) -> None:
     loaded_a = load_app_config(user_a)
     assert loaded_a.app.train.epochs == 5
 
-    base_b = write_yaml(tmp_path / "base_b.yml", valid_obb_base_dict(fmt="DOTA"))
+    base_b = write_app_base(tmp_path / "base_b.yml", valid_obb_base_dict(fmt="DOTA"))
     user_b = write_yaml(
         tmp_path / "user_b.yml",
         {"__include__": [base_b.name], "train": {"epochs": 50}},
@@ -400,19 +437,75 @@ def test_app_config_is_frozen(tmp_path: Path) -> None:
         loaded.app.train.epochs = 999
 
 
-def test_class_filter_and_output_formats_coerced_to_tuples(tmp_path: Path) -> None:
+def test_class_filter_and_known_output_formats_coerced_to_tuples(
+    tmp_path: Path,
+) -> None:
+    """List values are coerced to tuples; only known writer formats are used.
+
+    Tuple coercion is exercised independently from format validation: this test
+    uses two known formats so it passes once coercion works, even before format
+    whitelisting exists. Format rejection is covered by
+    ``test_unknown_output_format_rejected`` below.
+    """
     base = valid_base_dict()
     base["inference"] = {
         **base["inference"],
         "class_filter": ["car", "truck"],
-        "output_formats": ["json", "csv"],
+        "output_formats": ["json", "visualization"],
     }
     path = write_base_and_user(tmp_path, base=base)
     loaded = load_app_config(path)
     assert loaded.app.inference.class_filter == ("car", "truck")
-    assert loaded.app.inference.output_formats == ("json", "csv")
+    assert loaded.app.inference.output_formats == ("json", "visualization")
     assert isinstance(loaded.app.inference.class_filter, tuple)
     assert isinstance(loaded.app.inference.output_formats, tuple)
+
+
+@pytest.mark.parametrize("bad_format", ["csv", "xml", "parquet", "DOTA"])
+def test_unknown_output_format_rejected(tmp_path: Path, bad_format: str) -> None:
+    """Unknown writer names in ``inference.output_formats`` are rejected at
+    ``AppConfig`` construction time (not deferred to CLI/write time)."""
+    base = valid_base_dict()
+    base["inference"] = {
+        **base["inference"],
+        "output_formats": ["json", bad_format],
+    }
+    path = write_base_and_user(tmp_path, base=base)
+    with pytest.raises(AppConfigError, match=r"inference\.output_formats"):
+        load_app_config(path)
+
+
+def test_dota_output_rejected_for_hbb_data_format(tmp_path: Path) -> None:
+    """``inference.output_formats`` containing ``dota`` must be rejected at
+    ``AppConfig`` construction time when ``data.format`` is HBB (COCO).
+
+    DOTA writer requires oriented bounding boxes; HBB-only COCO data is
+    incompatible. The rejection must surface at the config boundary, before
+    inference or write time.
+    """
+    base = valid_base_dict()  # data.format == "COCO" (HBB)
+    base["inference"] = {
+        **base["inference"],
+        "output_formats": ["json", "dota"],
+    }
+    path = write_base_and_user(tmp_path, base=base)
+    with pytest.raises(AppConfigError, match=r"(inference\.output_formats|DOTA|HBB)"):
+        load_app_config(path)
+
+
+@pytest.mark.parametrize("fmt", ["DOTA", "YOLO-OBB"])
+def test_dota_output_accepted_for_obb_data_format(tmp_path: Path, fmt: str) -> None:
+    """``inference.output_formats`` containing ``dota`` is accepted when
+    ``data.format`` is OBB (DOTA or YOLO-OBB)."""
+    base = valid_obb_base_dict(fmt=fmt)
+    base["inference"] = {
+        **base["inference"],
+        "output_formats": ["json", "dota", "visualization"],
+    }
+    path = write_base_and_user(tmp_path, base=base)
+    loaded = load_app_config(path)
+    assert "dota" in loaded.app.inference.output_formats
+    assert loaded.app.data.format == fmt
 
 
 def test_checkpoint_coerced_to_path(tmp_path: Path) -> None:
@@ -426,7 +519,7 @@ def test_checkpoint_coerced_to_path(tmp_path: Path) -> None:
 
 def test_missing_public_sections_use_defaults(tmp_path: Path) -> None:
     # Base that only declares train — other sections fall back to dataclass defaults
-    write_yaml(tmp_path / "base.yml", {"train": {"epochs": 3, "batch_size": 2}})
+    write_app_base(tmp_path / "base.yml", {"train": {"epochs": 3, "batch_size": 2}})
     user = write_yaml(tmp_path / "user.yml", {"__include__": ["base.yml"]})
     loaded = load_app_config(user)
     assert loaded.app.train.epochs == 3

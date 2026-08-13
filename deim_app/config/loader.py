@@ -125,13 +125,23 @@ def validate_public_keys(data: Mapping[str, object], location: str) -> None:
 # __include__ validation
 # ---------------------------------------------------------------------------
 
-#: Approved application-base directory marker (used to reject direct algorithm-preset includes).
-_APPROVED_BASE_DIR = "configs/app/base/"
+#: Repository root (this file lives at ``<repo>/deim_app/config/loader.py``).
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: Exact basenames the user YAML's single ``__include__`` may resolve to.
-#: Tests that write synthetic bases to ``tmp_path`` monkeypatch this tuple
-#: (see ``test/deim_app/config/conftest.py``).
-_APPROVED_BASE_NAMES: tuple[str, ...] = ("hbb_app.yml", "obb_app.yml")
+#: Approved application-base paths, resolved to the two canonical repository
+#: files. Trust is anchored to these exact resolved paths — never to basenames
+#: and never to raw substring containment, both of which an attacker can
+#: satisfy by planting a same-named file or a symlink outside the repo.
+#:
+#: Tests that write synthetic bases to ``tmp_path`` replace this tuple with a
+#: per-test mutable list and register each resolved synthetic path into it via
+#: ``register_app_base`` / ``write_app_base``
+#: (see ``test/deim_app/config/conftest.py``). No test globally approves an
+#: arbitrary basename.
+_APPROVED_BASE_PATHS: tuple[Path, ...] = (
+    (_REPO_ROOT / "configs" / "app" / "base" / "hbb_app.yml").resolve(),
+    (_REPO_ROOT / "configs" / "app" / "base" / "obb_app.yml").resolve(),
+)
 
 
 def validate_single_application_base(source: Path, includes: object) -> Path:
@@ -141,15 +151,16 @@ def validate_single_application_base(source: Path, includes: object) -> Path:
     message):
       * ``__include__`` absent, empty, or not length-1
       * the single entry is not a string
-      * the entry's basename is not in :data:`_APPROVED_BASE_NAMES`
-      * the entry references ``configs/`` outside ``configs/app/base/``
+      * the resolved real path (symlinks followed) is not a member of
+        :data:`_APPROVED_BASE_PATHS`
       * the resolved file does not exist
 
-    Parent-directory traversal (``..``) is permitted because the basename
-    whitelist + existence check already constrain the resolved target to
-    an approved application-base file.  This allows legitimate sibling-
-    directory includes such as ``../base/hbb_app.yml`` from
-    ``configs/app/examples/``.
+    Trust is established by exact resolved-path membership, so an attacker
+    cannot bypass it by planting a same-basename file or a symlink to an
+    outside same-named file. Parent-directory traversal (``..``) needs no
+    special handling: ``resolve()`` collapses it and the resulting real path
+    must still be an approved one, which permits legitimate sibling-directory
+    includes such as ``../base/hbb_app.yml`` from ``configs/app/examples/``.
     """
     if not isinstance(includes, list) or len(includes) != 1:
         count: object = len(includes) if isinstance(includes, list) else "missing"
@@ -163,20 +174,13 @@ def validate_single_application_base(source: Path, includes: object) -> Path:
             f"application base: __include__ entry must be a string, "
             f"got {type(raw).__name__} ({raw!r})"
         )
-    parts = raw.replace("\\", "/").split("/")
-    basename = parts[-1] if parts else ""
-    if basename not in _APPROVED_BASE_NAMES:
-        raise AppConfigError(
-            f"application base: __include__ '{raw}' basename '{basename}' is "
-            f"not an approved application base; approved basenames: "
-            f"{list(_APPROVED_BASE_NAMES)}"
-        )
-    if "configs/" in raw and _APPROVED_BASE_DIR not in raw:
-        raise AppConfigError(
-            f"application base: __include__ '{raw}' must resolve to "
-            f"{_APPROVED_BASE_DIR}hbb_app.yml or {_APPROVED_BASE_DIR}obb_app.yml"
-        )
     resolved = (source.parent / raw).resolve()
+    if resolved not in _APPROVED_BASE_PATHS:
+        raise AppConfigError(
+            f"application base: __include__ '{raw}' resolved to {resolved}, "
+            f"which is not an approved application base; approved paths: "
+            f"{[str(p) for p in _APPROVED_BASE_PATHS]}"
+        )
     if not resolved.exists():
         raise AppConfigError(
             f"application base: '{raw}' resolved to {resolved} but file does "
