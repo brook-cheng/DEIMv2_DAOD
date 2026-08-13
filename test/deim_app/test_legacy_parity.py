@@ -888,7 +888,7 @@ def _obb_legacy_tool_infer(
     image = Image.open(img_path).convert("RGB")
     orig_w, orig_h = image.size
     input_tensor = transform(image).unsqueeze(0).to(device)
-    dst_sz = torch.tensor([size[0], size[1]], device=device)[None, :]
+    dst_sz = torch.tensor([size[1], size[0]], device=device)[None, :]
     # Match the legacy tool's call signature.
     with torch.no_grad():
         results = model(input_tensor, orig_target_sizes=dst_sz)

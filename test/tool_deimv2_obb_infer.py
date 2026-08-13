@@ -197,7 +197,7 @@ def infer_obb_and_export(
             image = Image.open(img_path).convert("RGB")
             orig_w, orig_h = image.size
             input_tensor = transform(image).unsqueeze(0).to(device)
-            dst_sz = torch.tensor([imgsz[0], imgsz[1]], device=device)[None, :]
+            dst_sz = torch.tensor([imgsz[1], imgsz[0]], device=device)[None, :]
             src_sz = torch.tensor([orig_h, orig_w], device=device)
 
             with torch.no_grad():

@@ -43,3 +43,31 @@ def test_non_focal_obb_postprocessor_uses_class_dim_and_scaled_boxes():
     assert result["labels"].tolist() == [0]
     assert torch.allclose(result["scores"], expected_score.reshape(1))
     assert torch.allclose(result["boxes"][0], expected_box, atol=1e-6)
+
+
+def test_obb_postprocessor_scales_with_width_height_factor_order():
+    # Given: a non-focal PostProcessor in OBB mode with a single normalized
+    # OBB (cx, cy, w, h, theta) and a non-square pixel-space image size.
+    processor = PostProcessor(
+        num_classes=2,
+        use_focal_loss=False,
+        num_top_queries=1,
+        remap_mscoco_category=False,
+        box_mode="obb",
+    )
+    logits = torch.tensor([[[4.0, 0.0]]], dtype=torch.float32)
+    pred_boxes = torch.tensor(
+        [[[0.5, 0.5, 0.2, 0.1, math.pi / 4]]], dtype=torch.float32
+    )
+    orig_sizes = torch.tensor([[1024.0, 576.0]])
+
+    # When: the postprocessor scales the OBB into pixel space.
+    result = processor(
+        {"pred_logits": logits, "pred_boxes": pred_boxes}, orig_sizes
+    )[0]
+
+    # Then: cx is scaled by width and cy by height, w is scaled by width
+    # and h by height (not swapped), and theta is left unchanged.
+    expected_box = torch.tensor([512.0, 288.0, 204.8, 57.6, math.pi / 4])
+    assert result["labels"].tolist() == [0]
+    assert torch.allclose(result["boxes"][0], expected_box, atol=1e-5)
