@@ -7,6 +7,8 @@
 
 ## specs/ — 已批准规范
 
+[2026-08-13-obb-ablation-cleanup-design](specs/2026-08-13-obb-ablation-cleanup-design.md) — OBB ablation 清理设计：移除已被 sp_fz_common 取代的冗余 angle_rep/offset_scale_source 等实验旋钮与配置，收敛到稳定表示集 （[中文版](specs/2026-08-13-obb-ablation-cleanup-design_CN.md)）。
+
 [2026-08-13-obb-evaluation-coordinate-fixes-design](specs/2026-08-13-obb-evaluation-coordinate-fixes-design.md) — OBB 评估坐标修复设计：纠正推理/后处理中的 width/height 因子顺序与坐标约定，统一 hw ordering。
 
 [2026-08-10-rep2-nan-diagnostic-runner-design](specs/2026-08-10-rep2-nan-diagnostic-runner-design.md) — DEIMv2-OBB rep2 NaN 远程诊断 runner：单 GPU 短程恢复训练、autograd anomaly 定位、rep2 几何探针与完整失败现场回传设计。
@@ -118,6 +120,8 @@
 [2026-08-10-rep2-stable-atan2](plans/2026-08-10-rep2-stable-atan2.md) — rep2 atan2 数值稳定性修复实施计划：TDD 稳定 atan2 算子与退化几何测试、`_StableAtan2` 实现与 rep2 解码调用替换、失败现场回放工具契约与实现、本地回归与 seed 控制敏感性验收；与 specs/2026-08-10-rep2-stable-atan2-design 配对。
 
 [2026-08-12-focused-application-layer](plans/2026-08-12-focused-application-layer.md) ★ **canonical** — DEIMv2 聚焦型工程应用层首版实施计划：10 个 TDD 任务实现可继承应用 YAML、HBB COCO/OBB DOTA/YOLO-OBB 映射、DEIM adapter、结构化预测、共享 Python API/CLI 和 PyTorch 推理。
+
+[2026-08-13-obb-ablation-cleanup](plans/2026-08-13-obb-ablation-cleanup.md) — OBB ablation 清理实施计划：TDD 移除冗余 angle_rep/offset_scale_source 旋钮与配置，保留稳定表示集 （[中文版](plans/2026-08-13-obb-ablation-cleanup_CN.md)）。
 
 [2026-08-13-obb-offline-hw-order-fix](plans/2026-08-13-obb-offline-hw-order-fix.md) — OBB 离线 hw-order 修复实施计划：TDD 修正推理工具与 postprocessor 的 width/height 因子顺序，统一坐标约定。
 
