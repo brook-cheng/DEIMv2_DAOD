@@ -149,3 +149,6 @@ test/data
 # Training logs (log.txt, log_*.txt)
 /log*.txt
 .omo
+
+# Generated outputs (predictions, inference artifacts)
+/out
