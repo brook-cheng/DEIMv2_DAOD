@@ -1,4 +1,4 @@
-"""Importable test doubles for ``DetectionModel`` facade tests (Task 7).
+"""Importable test doubles for ``DetectionModel`` facade tests.
 
 Separated into its own module from ``conftest.py`` for two reasons:
 
@@ -9,12 +9,17 @@ Separated into its own module from ``conftest.py`` for two reasons:
 
 2. **basedpyright ``reportImplicitRelativeImport``**: conftest.py is treated
    as a package member, so ``from <sibling> import ...`` inside it triggers
-   the rule. Moving fixtures into this module (where ``FakeAdapter`` is
-   defined locally — no import needed) and registering it via
-   ``pytest_plugins`` in conftest.py sidesteps the issue cleanly.
+   the rule. Keeping ``FakeAdapter`` and the fixtures defined locally in this
+   module (no sibling import needed here) sidesteps the issue for the spy
+   class itself.
 
-Both ``conftest.py`` (via ``pytest_plugins``) and ``test_api.py`` (via
-``from _facade_fakes import FakeAdapter``) use this module.
+Both ``conftest.py`` and ``test_api.py`` / ``test_cli.py`` consume this
+module via ``from _facade_fakes import ...``. ``conftest.py`` re-exports the
+``fake_adapter`` and ``unloaded_fake_adapter`` fixtures so pytest discovers
+them at the conftest scope; it used to register this module via
+``pytest_plugins``, but pytest 9 rejects ``pytest_plugins`` in a non-top-level
+conftest, so the fixtures are now imported directly (see conftest.py for the
+full rationale).
 """
 
 from __future__ import annotations
