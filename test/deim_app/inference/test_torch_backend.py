@@ -55,8 +55,10 @@ class StubModel(nn.Module):
         self.outputs = outputs
         self.last_input: torch.Tensor | None = None
         self.forward_calls: int = 0
+        self.forward_inference_mode: list[bool] = []
 
     def forward(self, tensor: torch.Tensor) -> dict[str, torch.Tensor]:
+        self.forward_inference_mode.append(torch.is_inference_mode_enabled())
         self.last_input = tensor
         self.forward_calls += 1
         return self.outputs
@@ -82,12 +84,14 @@ class StubPostprocessor(nn.Module):
         self.scores_template = scores_template
         self.calls: list[tuple[dict[str, torch.Tensor], torch.Tensor]] = []
         self.forward_calls: int = 0
+        self.forward_inference_mode: list[bool] = []
 
     def forward(
         self,
         outputs: dict[str, torch.Tensor],
         orig_target_sizes: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self.forward_inference_mode.append(torch.is_inference_mode_enabled())
         self.calls.append((outputs, orig_target_sizes))
         self.forward_calls += 1
         n = int(orig_target_sizes.shape[0])
@@ -346,6 +350,59 @@ def test_invalid_batch_size_raises(small_preprocessor: Preprocessor) -> None:
     )
     with pytest.raises(ValueError):
         backend.predict((_make_input_image("i0", 8, 8),), batch_size=0)
+
+
+# ===========================================================================
+# Autograd safety: model + postprocessor run under torch.inference_mode()
+# ===========================================================================
+
+
+def test_model_forward_runs_under_inference_mode(
+    small_preprocessor: Preprocessor,
+) -> None:
+    """The model forward must execute inside ``torch.inference_mode()`` so a
+    deployed inference pass never builds an autograd graph (memory + speed)."""
+    backend, model, _ = _build_backend(
+        _make_metadata({0: "a", 1: "b"}), "hbb", small_preprocessor
+    )
+
+    backend.predict((_make_input_image("img0", 8, 8),), batch_size=1)
+
+    assert model.forward_inference_mode == [True]
+
+
+def test_postprocessor_runs_under_inference_mode(
+    small_preprocessor: Preprocessor,
+) -> None:
+    """The postprocessor call must also execute inside
+    ``torch.inference_mode()`` — its tensor ops would otherwise retain history
+    anchored to the model outputs."""
+    backend, _, post = _build_backend(
+        _make_metadata({0: "a", 1: "b"}), "hbb", small_preprocessor
+    )
+
+    backend.predict((_make_input_image("img0", 8, 8),), batch_size=1)
+
+    assert post.forward_inference_mode == [True]
+
+
+def test_inference_mode_enabled_across_multi_batch(
+    small_preprocessor: Preprocessor,
+) -> None:
+    """Every batch's model + postprocessor forward runs under inference mode."""
+    backend, model, post = _build_backend(
+        _make_metadata({0: "a", 1: "b"}), "hbb", small_preprocessor
+    )
+    inputs = (
+        _make_input_image("i0", 8, 8),
+        _make_input_image("i1", 8, 8),
+        _make_input_image("i2", 8, 8),
+    )
+
+    backend.predict(inputs, batch_size=2)
+
+    assert model.forward_inference_mode == [True, True]
+    assert post.forward_inference_mode == [True, True]
 
 
 # ===========================================================================

@@ -154,14 +154,19 @@ class TorchBackend:
             device=self._device,
         )
 
-        # 4. Model forward (per-batch timing).
+        # 4. Model forward (per-batch timing) under inference_mode so no
+        #    autograd graph is built for the deployed pass.
         inf_start = time.perf_counter()
-        outputs = self._model(batch_tensor)
+        with torch.inference_mode():
+            outputs = self._model(batch_tensor)
         inference_s = time.perf_counter() - inf_start
 
-        # 5. Postprocessor (per-batch timing) → deploy tuple.
+        # 5. Postprocessor (per-batch timing) → deploy tuple. Also under
+        #    inference_mode — its tensor ops would otherwise retain history
+        #    anchored to the model outputs.
         post_start = time.perf_counter()
-        post_out = self._postprocessor(outputs, orig_target_sizes)
+        with torch.inference_mode():
+            post_out = self._postprocessor(outputs, orig_target_sizes)
         postprocess_s = time.perf_counter() - post_start
         labels, boxes, scores = post_out
 
