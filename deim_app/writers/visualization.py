@@ -18,8 +18,12 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 from deim_app.adapters.geometry import draw_obb_detections
-from deim_app.predictions.collection import PredictionCollection
-from deim_app.predictions.types import HBBDetection, OBBDetection
+from deim_app.predictions.types import (
+    HBBDetection,
+    ImagePrediction,
+    OBBDetection,
+    PredictionCollectionLike,
+)
 
 
 def _ext_for(image_id: str) -> str:
@@ -29,7 +33,14 @@ def _ext_for(image_id: str) -> str:
     return ".png"
 
 
-def _draw_hbb_inline(image: Image.Image, pred, color, line_width, alpha, score_threshold) -> Image.Image:
+def _draw_hbb_inline(
+    image: Image.Image,
+    pred: ImagePrediction,
+    color: tuple[int, int, int],
+    line_width: int,
+    alpha: float,
+    score_threshold: float,
+) -> Image.Image:
     """Draw HBB rectangles with PIL directly (no engine import needed)."""
     canvas = image.copy()
     draw = ImageDraw.Draw(canvas, "RGBA")
@@ -47,10 +58,10 @@ def _draw_hbb_inline(image: Image.Image, pred, color, line_width, alpha, score_t
 
 
 def write_visualization(
-    collection: PredictionCollection,
+    collection: PredictionCollectionLike,
     output_dir: Path,
     *,
-    color: tuple = (255, 0, 0),
+    color: tuple[int, int, int] = (255, 0, 0),
     line_width: int = 2,
     alpha: float = 0.3,
     score_threshold: float = 0.0,

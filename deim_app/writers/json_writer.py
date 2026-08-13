@@ -12,8 +12,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from deim_app.predictions.collection import PredictionCollection
-from deim_app.predictions.types import HBBDetection, OBBDetection
+from deim_app.predictions.types import (
+    HBBDetection,
+    OBBDetection,
+    PredictionCollectionLike,
+)
 
 
 def _detection_to_dict(det: Any) -> dict[str, Any]:
@@ -50,7 +53,7 @@ def _image_to_dict(pred: Any) -> dict[str, Any]:
     }
 
 
-def write_json(collection: PredictionCollection, path: Path) -> Path:
+def write_json(collection: PredictionCollectionLike, path: Path) -> Path:
     """Serialise ``collection`` to ``path`` as a JSON array (one entry per image)."""
     payload = [_image_to_dict(p) for p in collection.predictions]
     path.parent.mkdir(parents=True, exist_ok=True)

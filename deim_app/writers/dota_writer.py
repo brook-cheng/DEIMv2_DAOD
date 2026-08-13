@@ -16,14 +16,13 @@ import os
 from pathlib import Path
 
 from deim_app.errors import ExportError
-from deim_app.predictions.collection import PredictionCollection
-from deim_app.predictions.types import OBBDetection
+from deim_app.predictions.types import OBBDetection, PredictionCollectionLike
 
 # Geometry must come from the adapter, never from the engine directly.
 from deim_app.adapters.geometry import obb_to_polygon
 
 
-def write_dota(collection: PredictionCollection, path: Path) -> Path:
+def write_dota(collection: PredictionCollectionLike, path: Path) -> Path:
     if collection.box_mode != "obb":
         raise ExportError(
             f"DOTA export requires box_mode='obb'; got {collection.box_mode!r}"

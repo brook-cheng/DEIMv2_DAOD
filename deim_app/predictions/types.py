@@ -22,7 +22,7 @@ Note on storage: ``xyxy`` is ``(x1, y1, x2, y2)`` axis-aligned; ``xywhr`` is
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Union
+from typing import Literal, Protocol, Union
 
 from PIL import Image
 
@@ -112,3 +112,20 @@ class ImagePrediction:
     original_size: tuple[int, int]
     detections: tuple[Detection, ...]
     timings: Timings
+
+
+class PredictionCollectionLike(Protocol):
+    """Structural shape writers need from a prediction collection.
+
+    Writers depend on this Protocol instead of importing
+    :class:`~deim_app.predictions.collection.PredictionCollection` directly,
+    breaking the ``collection -> writer -> collection`` import cycle that
+    otherwise arises because ``PredictionCollection`` lazily imports each
+    writer inside its export method bodies.
+    """
+
+    @property
+    def box_mode(self) -> Literal["hbb", "obb"]: ...
+
+    @property
+    def predictions(self) -> tuple[ImagePrediction, ...]: ...

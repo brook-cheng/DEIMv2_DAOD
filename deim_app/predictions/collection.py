@@ -119,7 +119,7 @@ class PredictionCollection:
         self,
         output_dir: str | Path,
         *,
-        color: tuple = (255, 0, 0),
+        color: tuple[int, int, int] = (255, 0, 0),
         line_width: int = 2,
         alpha: float = 0.3,
         score_threshold: float = 0.0,
