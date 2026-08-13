@@ -1,0 +1,49 @@
+__include__:
+  - ../presets/deimv2_dinov3_sp_hbb.yml
+
+# ============================================================================
+# HBB (COCO) application base — safe defaults for horizontal-bbox detection.
+# Users include this file via __include__ and override the six public sections.
+# Concrete dataset paths are supplied by the user YAML, never by this base.
+# ============================================================================
+
+project:
+  name: deimv2-hbb
+  output_dir: ./outputs/deimv2-hbb
+
+runtime:
+  input_size: [640, 640]
+  seed: 42
+
+data:
+  format: COCO
+  train_images: null
+  train_annotations: null
+  val_images: null
+  val_annotations: null
+  num_workers: 4
+  cache_images: none
+
+train:
+  epochs: 68
+  batch_size: 4
+  learning_rate: 5.0e-4
+  device: cuda
+  amp: True
+  early_stopping:
+    enabled: False
+    patience: 10
+
+evaluation:
+  batch_size: 4
+  device: cuda
+
+inference:
+  checkpoint: null
+  device: cuda
+  batch_size: 1
+  score_threshold: 0.25
+  top_k: 300
+  output_formats:
+    - json
+    - visualization

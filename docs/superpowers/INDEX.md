@@ -11,6 +11,8 @@
 
 [2026-08-10-rep2-stable-atan2-design](specs/2026-08-10-rep2-stable-atan2-design.md) — DEIMv2-OBB rep2 atan2 数值稳定性修复设计：保持 forward 几何语义不变，仅稳定 backward 分母奇点（`_StableAtan2` 自定义 autograd，`(x²+y²).clamp_min(eps)`，FP16/BF16 临时 FP32），并定义失败现场回放工具的验收契约。
 
+[2026-08-12-focused-application-layer-design](specs/2026-08-12-focused-application-layer-design.md) ★ **canonical** — DEIMv2 聚焦型工程应用层设计：以简化参数设置和统一推理应用为首版目标，通过稳定 AppConfig、任务适配器和结构化 HBB/OBB Prediction 隔离持续变化的底层算法。
+
 [2026-06-02-deimv2-obb-proposal](specs/2026-06-02-deimv2-obb-proposal.md) — DEIMv2-OBB 变更提案：通过 `box_mode` 闸门为 DEIMv2 增加定向边界框支持，使用 ADR 6-distribution DDF。
 
 [2026-06-02-deimv2-obb-design](specs/2026-06-02-deimv2-obb-design.md) — DEIMv2-OBB 架构设计：HBB/OBB 双路径，组件变更与向后兼容保证。
@@ -113,6 +115,8 @@
 
 [2026-08-10-rep2-stable-atan2](plans/2026-08-10-rep2-stable-atan2.md) — rep2 atan2 数值稳定性修复实施计划：TDD 稳定 atan2 算子与退化几何测试、`_StableAtan2` 实现与 rep2 解码调用替换、失败现场回放工具契约与实现、本地回归与 seed 控制敏感性验收；与 specs/2026-08-10-rep2-stable-atan2-design 配对。
 
+[2026-08-12-focused-application-layer](plans/2026-08-12-focused-application-layer.md) ★ **canonical** — DEIMv2 聚焦型工程应用层首版实施计划：10 个 TDD 任务实现可继承应用 YAML、HBB COCO/OBB DOTA/YOLO-OBB 映射、DEIM adapter、结构化预测、共享 Python API/CLI 和 PyTorch 推理。
+
 ---
 
 ## review/ — 评审与实验结果
@@ -144,6 +148,16 @@
 [2026-08-04-obb-angle-units-audit](review/2026-08-04-obb-angle-units-audit.md) — DEIMv2 OBB 角度量纲全链路审计报告（只读）：角度量纲跨全链路的只读审计。
 
 [2026-08-05-obb-angle-units-final-audit](review/2026-08-05-obb-angle-units-final-audit.md) — DEIMv2 OBB 角度量纲最终审计与修改建议：角度量纲最终审计结论与修改建议。
+
+---
+
+## engineering/ — 工程化应用层用户文档
+
+> 这些文档位于 `docs/engineering/`（不在 `docs/superpowers/` 下），是面向终端用户的工程化应用层（`deim_app`）使用指南，与 SDD/MEMO 制品体系互补。此处仅作索引登记。
+
+[application-config](../engineering/application-config.md) — `deim_app` 应用 YAML 配置指南首版：六段公共字段表、继承与覆盖优先级、HBB COCO / OBB DOTA / OBB YOLO-OBB 三例、类别元数据来源、preset 拥有的参数类别、`pretrained` vs `resume` 语义、`remap_mscoco_category` 自动检测规则。
+
+[inference-api](../engineering/inference-api.md) — `deim_app` 推理 Python API 与统一 CLI 指南：`DetectionModel` 快速上手、四个子命令（train/eval/infer/export）的批准 flag 表、JSON/DOTA/visualization 三种输出格式、端到端 smoke 命令。
 
 ---
 

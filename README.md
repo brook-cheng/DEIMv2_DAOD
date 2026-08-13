@@ -73,6 +73,7 @@
 ## 🧭 Table of Content
 * [1. 🤖 Model Zoo](#1-model-zoo)
 * [2. ⚡ Quick Start](#2-quick-start)
+* [📦 Application Layer (deim_app)](#-application-layer-deim_app)
 * [3. 🛠️ Usage](#3-usage)
 * [4. 🧰 Tools](#4-tools)
 * [5. 📜 Citation](#5-citation)
@@ -247,6 +248,21 @@ ckpts/
 ### Using Models from Hugging Face
 
 You can see examples in [hf_models.ipynb](./hf_models.ipynb)
+
+## 📦 Application Layer (deim_app)
+
+For business/Application usage with simplified YAML config and unified Python/CLI inference:
+
+- [Application Config Guide](docs/engineering/application-config.md)
+- [Inference API & CLI Guide](docs/engineering/inference-api.md)
+
+```python
+from deim_app import DetectionModel
+model = DetectionModel.from_config("configs/app/examples/obb_yolo.yml")
+model.load("model.pth")
+results = model.predict_filtered("images/", score_threshold=0.25)
+results.export_dota("outputs/dota")
+```
 
 ## 3. Usage
 <details open>
