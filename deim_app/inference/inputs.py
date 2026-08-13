@@ -112,7 +112,9 @@ def _enumerate_directory(directory: Path) -> tuple[InputImage, ...]:
     """Return supported images in ``directory`` sorted by filename.
 
     Non-recursive. Raises :class:`InputSourceError` when no supported images
-    are found so a caller never silently receives an empty collection.
+    are found so a caller never silently receives an empty collection, or when
+    two supported files share a stem (their ``image_id`` values would collide
+    and downstream writers would silently overwrite one result with the other).
     """
     candidates = sorted(
         entry
@@ -124,7 +126,32 @@ def _enumerate_directory(directory: Path) -> tuple[InputImage, ...]:
             f"directory '{directory}' contains no supported images "
             f"(extensions: {sorted(SUPPORTED_IMAGE_EXTENSIONS)})"
         )
+    _raise_on_duplicate_stems(directory, candidates)
     return tuple(_input_from_file(entry) for entry in candidates)
+
+
+def _raise_on_duplicate_stems(directory: Path, candidates: list[Path]) -> None:
+    """Raise :class:`InputSourceError` if any two ``candidates`` share a stem.
+
+    Called after extension filtering (so an unrelated ``same.txt`` cannot cause
+    a false collision with ``same.png``) and before image loading (so inference
+    never runs against an ambiguous source set). Collision names are reported
+    sorted for deterministic error messages.
+    """
+    seen: dict[str, Path] = {}
+    colliding: set[str] = set()
+    for entry in candidates:
+        stem = entry.stem
+        if stem in seen:
+            colliding.add(stem)
+        else:
+            seen[stem] = entry
+    if colliding:
+        names = ", ".join(sorted(colliding))
+        raise InputSourceError(
+            f"directory '{directory}' contains supported images with "
+            f"duplicate stems that would collide on image_id: {names}"
+        )
 
 
 def _input_from_file(path: Path) -> InputImage:

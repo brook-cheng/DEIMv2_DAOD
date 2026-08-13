@@ -97,3 +97,30 @@ def test_unsupported_extension_file_raises(tmp_path: Path) -> None:
     txt.write_text("not an image")
     with pytest.raises(InputSourceError):
         list_inputs(str(txt))
+
+
+def test_directory_with_duplicate_stem_across_extensions_raises(tmp_path: Path) -> None:
+    """Two supported files sharing a stem would collide on ``image_id``.
+
+    Given a directory containing ``same.jpg`` and ``same.png``, the writer
+    layer (which derives its output filename from ``image_id``) would silently
+    overwrite one result with the other. The input enumeration boundary must
+    reject the directory before any image is loaded or inference runs, naming
+    the colliding stem so the user can disambiguate the sources.
+    """
+    # Given: a directory with two supported images sharing stem "same".
+    _write_image(tmp_path / "same.jpg", size=(4, 4))
+    _write_image(tmp_path / "same.png", size=(4, 4))
+    # And: an unrelated non-colliding supported image that must NOT suppress
+    # the collision check (it would be silently dropped if we just deduped).
+    _write_image(tmp_path / "other.bmp", size=(4, 4))
+
+    # When: enumerating the directory.
+    with pytest.raises(InputSourceError) as excinfo:
+        list_inputs(str(tmp_path))
+
+    # Then: the error names the colliding stem deterministically.
+    message = str(excinfo.value)
+    assert "same" in message
+    # And: the message is deterministic (sorted, no insertion-order leak).
+    assert "other" not in message
