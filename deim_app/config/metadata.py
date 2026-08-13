@@ -17,6 +17,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict
 
 from deim_app.errors import AppConfigError
 
@@ -294,8 +295,15 @@ def _raise_remap_name_mismatch(
     )
 
 
+class _CocoCategory(TypedDict):
+    """COCO-format category entry as read from ``instances_*.json``."""
+
+    id: int
+    name: str
+
+
 def _build_contiguous_metadata(
-    categories: list[dict], annotation_path: Path
+    categories: list[_CocoCategory], annotation_path: Path
 ) -> DatasetMetadata:
     sorted_cats = sorted(categories, key=lambda c: c["id"])
     ids = [c["id"] for c in sorted_cats]
