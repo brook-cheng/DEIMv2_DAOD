@@ -7,6 +7,8 @@
 
 ## specs/ — 已批准规范
 
+[2026-08-13-multiview-canonical-obb-architecture-design](specs/2026-08-13-multiview-canonical-obb-architecture-design.md) — 多视图规范坐标 DEIMv2-OBB 架构设计：统一多视图/多分辨率下的 OBB 规范坐标表示与转换边界。
+
 [2026-08-13-obb-ablation-cleanup-design](specs/2026-08-13-obb-ablation-cleanup-design.md) — OBB ablation 清理设计：移除已被 sp_fz_common 取代的冗余 angle_rep/offset_scale_source 等实验旋钮与配置，收敛到稳定表示集 （[中文版](specs/2026-08-13-obb-ablation-cleanup-design_CN.md)）。
 
 [2026-08-13-obb-evaluation-coordinate-fixes-design](specs/2026-08-13-obb-evaluation-coordinate-fixes-design.md) — OBB 评估坐标修复设计：纠正推理/后处理中的 width/height 因子顺序与坐标约定，统一 hw ordering。
