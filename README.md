@@ -30,6 +30,10 @@
     DEIMv2 is an evolution of the DEIM framework while leveraging the rich features from DINOv3. Our method is designed with various model sizes, from an ultra-light version up to S, M, L, and X, to be adaptable for a wide range of scenarios. Across these variants, DEIMv2 achieves state-of-the-art performance, with the S-sized model notably surpassing 50 AP on the challenging COCO benchmark.
 </p>
 
+<p align="center">
+    English | <a href="./README_CN.md">简体中文</a>
+</p>
+
 ---
 
 
@@ -60,8 +64,6 @@
   <img src="./figures/deimv2_coco_AP_vs_GFLOPs.png" alt="Image 2" width="49%">
 </p>
 
-</details>
-
 
 
 ## 🚀 Updates
@@ -71,17 +73,147 @@
 - [x] **\[2025.9.26\]** Release DEIMv2 series.
 
 ## 🧭 Table of Content
-* [1. 🤖 Model Zoo](#1-model-zoo)
+* [1. 🧭 Model Series at a Glance](#1-model-series-at-a-glance)
 * [2. ⚡ Quick Start](#2-quick-start)
+* [3. 🤖 Model Zoo](#3-model-zoo)
+* [4. 🚀 Quick Start (Engine)](#4-quick-start-engine)
 * [📦 Application Layer (deim_app)](#-application-layer-deim_app)
-* [3. 🛠️ Usage](#3-usage)
-* [4. 🧰 Tools](#4-tools)
-* [5. 📜 Citation](#5-citation)
-* [6. 🙏 Acknowledgement](#6-acknowledgement)
-* [7. ⭐ Star History](#7-star-history)
+* [5. 🛠️ Usage](#5-usage)
+* [6. 🧰 Tools](#6-tools)
+* [7. 📜 Citation](#7-citation)
+* [8. 🙏 Acknowledgement](#8-acknowledgement)
+* [9. ⭐ Star History](#9-star-history)
 
 
-## 1. Model Zoo
+## 1. Model Series at a Glance
+
+DEIMv2 ships two model families plus two dataset-neutral application presets.
+All published numbers below come from the [Model Zoo](#3-model-zoo).
+
+| Family | Variants | #Params | COCO AP | GFLOPs | Sweet spot |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **HGNetv2** | Atto / Femto / Pico / N | 0.5M - 3.6M | 23.8 - 43.0 | 0.8 - 6.8 | Compact, latency-sensitive workloads |
+| **DINOv3** | S / M / L / X | 9.7M - 50.3M | 50.9 - 57.8 | 25.6 - 151.6 | Accuracy-oriented workloads |
+
+- **HGNetv2 family:** `configs/deimv2/deimv2_hgnetv2_*_coco.yml`
+- **DINOv3 family:** `configs/deimv2/deimv2_dinov3_*_coco.yml`
+
+Two `deim_app` presets:
+
+| Preset | Backbone | Box mode | Datasets | Annotation formats |
+| :--- | :--- | :---: | :--- | :--- |
+| HBB ([yml](./configs/app/presets/deimv2_dinov3_sp_hbb.yml)) | DINOv3 ViT-S/16 + STA | `hbb` | COCO | COCO JSON |
+| OBB ([yml](./configs/app/presets/deimv2_dinov3_sp_obb.yml)) | DINOv3 ViT-S/16+ + STA | `obb` | DOTA, YOLO-OBB | DOTA `.txt`, YOLO-OBB `.txt` |
+
+Choose the HBB preset for horizontal-box detection on COCO-style datasets and
+the OBB preset for rotated boxes on DOTA or YOLO-OBB data. OBB datasets require
+a `classes_file`; HBB reads classes from the COCO annotation JSON. No AP is
+listed for the presets: they are dataset-neutral.
+
+## 2. Quick Start
+
+`deim_app` runs training, evaluation, and inference from one YAML config per
+dataset. For the full CLI and Python API, see the
+[Inference API & CLI Guide](docs/engineering/inference-api.md); for the YAML
+schema, see the [Application Config Guide](docs/engineering/application-config.md).
+
+### Setup
+
+```shell
+conda create -n deimv2 python=3.11 -y
+conda activate deimv2
+pip install -r requirements.txt
+```
+
+### Choose a config
+
+Three examples cover the supported formats:
+
+| Example | Format | Box mode |
+| :--- | :--- | :---: |
+| [hbb_coco.yml](./configs/app/examples/hbb_coco.yml) | COCO | HBB |
+| [obb_dota.yml](./configs/app/examples/obb_dota.yml) | DOTA | OBB |
+| [obb_yolo.yml](./configs/app/examples/obb_yolo.yml) | YOLO-OBB | OBB |
+
+Copy the example that matches your dataset and edit its `data` section: point
+`train_images`, `train_annotations`, `val_images`, and `val_annotations` at
+your paths. OBB examples also require `classes_file` (one class name per
+line); COCO class names come from the annotation JSON instead.
+
+### Train
+
+```shell
+python -m deim_app train \
+  -c configs/app/examples/hbb_coco.yml \
+  --device cuda \
+  [--resume /path/to/checkpoint.pth] \
+  [--output-dir ./outputs/my-run]
+```
+
+`--resume` continues an interrupted run from a full training-state checkpoint
+and is mutually exclusive with `train.pretrained` in the YAML.
+
+### Evaluate
+
+```shell
+python -m deim_app eval \
+  -c configs/app/examples/hbb_coco.yml \
+  -r /path/to/model.pth \
+  [--device cuda]
+```
+
+### Infer
+
+HBB, JSON and visualization:
+
+```shell
+python -m deim_app infer \
+  -c configs/app/examples/hbb_coco.yml \
+  -r /path/to/model.pth \
+  -i /path/to/images \
+  -o /tmp/deim-app-output \
+  --score-threshold 0.25 \
+  --format json visualization
+```
+
+OBB, JSON plus DOTA labels and visualization:
+
+```shell
+python -m deim_app infer \
+  -c configs/app/examples/obb_yolo.yml \
+  -r /path/to/model.pth \
+  -i /path/to/images \
+  -o /tmp/deim-app-output \
+  --score-threshold 0.25 \
+  --format json dota visualization
+```
+
+`json` and `visualization` work for both HBB and OBB; `dota` is OBB-only.
+
+### Python API
+
+```python
+from deim_app import DetectionModel
+
+model = DetectionModel.from_config("configs/app/examples/obb_yolo.yml")
+model.load("outputs/model.pth")
+results = model.predict_filtered("images/", score_threshold=0.25)
+results.export_json("outputs/predictions.json")
+results.export_dota("outputs/dota")
+results.save_images("outputs/visualization")
+```
+
+`from_config` does not load weights; call `load` next. `predict_filtered`
+applies `score_threshold`, `class_filter`, and `top_k` from the config by
+default.
+
+### Export
+
+The `deim_app export` subcommand is not enabled and always raises
+`ExportError`. For ONNX and TensorRT export, use the [Tools](#6-tools)
+(`tools/deployment/export_onnx.py` and `trtexec`).
+
+## 3. Model Zoo
 
 | Model | Dataset | AP | #Params | GFLOPs | Latency (ms) | config | checkpoint | log |
 | :---: | :---: | :---: | :---: | :---: |:------------:| :---: | :---: | :---: |
@@ -97,7 +229,7 @@
 
 
 
-## 2. Quick start
+## 4. Quick Start (Engine)
 
 ### Setup
 
@@ -251,20 +383,12 @@ You can see examples in [hf_models.ipynb](./hf_models.ipynb)
 
 ## 📦 Application Layer (deim_app)
 
-For business/Application usage with simplified YAML config and unified Python/CLI inference:
+The `deim_app` workflow is covered in
+[2. Quick Start](#2-quick-start). For the full
+reference, see the [Application Config Guide](docs/engineering/application-config.md)
+and the [Inference API & CLI Guide](docs/engineering/inference-api.md).
 
-- [Application Config Guide](docs/engineering/application-config.md)
-- [Inference API & CLI Guide](docs/engineering/inference-api.md)
-
-```python
-from deim_app import DetectionModel
-model = DetectionModel.from_config("configs/app/examples/obb_yolo.yml")
-model.load("model.pth")
-results = model.predict_filtered("images/", score_threshold=0.25)
-results.export_dota("outputs/dota")
-```
-
-## 3. Usage
+## 5. Usage
 <details open>
 <summary> COCO2017 </summary>
 
@@ -423,7 +547,7 @@ DEIMCriterion:
 
 </details>
 
-## 4. Tools
+## 6. Tools
 <details>
 <summary> Deployment </summary>
 
@@ -514,7 +638,7 @@ python reference/convert_weight.py model.pth
 </details>
 
 
-## 5. Citation
+## 7. Citation
 If you use `DEIMv2` or its methods in your work, please cite the following BibTeX entries:
 <details open>
 <summary> bibtex </summary>
@@ -530,11 +654,11 @@ If you use `DEIMv2` or its methods in your work, please cite the following BibTe
 ```
 </details>
 
-## 6. Acknowledgement
+## 8. Acknowledgement
 Our work is built upon [D-FINE](https://github.com/Peterande/D-FINE), [RT-DETR](https://github.com/lyuwenyu/RT-DETR), [DEIM](https://github.com/ShihuaHuang95/DEIM), and [DINOv3](https://github.com/facebookresearch/dinov3). Thanks for their great work!
 
 ✨ Feel free to contribute and reach out if you have any questions! ✨
 
-## 7. Star History
+## 9. Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Intellindust-AI-Lab/DEIMv2&type=Date)](https://www.star-history.com/#Intellindust-AI-Lab/DEIMv2&Date)

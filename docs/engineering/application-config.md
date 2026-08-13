@@ -1,22 +1,20 @@
 # Application Config Guide (`deim_app`)
 
-This document is the canonical reference for the **first-version** application
-config contract exposed by `deim_app`. It covers the public YAML schema,
-inheritance & override priority, the three bundled examples (HBB COCO, OBB
-DOTA, OBB YOLO-OBB), class-metadata sources, parameters intentionally owned
-by presets, and `pretrained` vs `resume` semantics.
+English | [简体中文](application-config_CN.md)
 
-For the inference Python API and CLI see [inference-api.md](inference-api.md).
+The **first-version** config contract for `deim_app`: the public YAML schema,
+inheritance and override priority, preset-owned parameters, and
+`pretrained`/`resume` semantics. Inference API and CLI are documented in
+[inference-api.md](inference-api.md).
 
 ---
 
 ## 1. Public field table
 
-The application YAML accepts **only** the six top-level sections below. Every
-other key (algorithm sections such as `DEIMTransformer`, `optimizer`,
-`angle_rep`, `num_classes`, `epoches`, …) is rejected by the loader before any
-engine object is constructed. The whitelist is enforced by
-`deim_app.config.loader.validate_public_keys`.
+The application YAML accepts **only** the six top-level sections below. Any
+other key (`DEIMTransformer`, `optimizer`, `angle_rep`, `num_classes`,
+`epoches`, …) is rejected before the engine is constructed; the whitelist is
+enforced by `deim_app.config.loader.validate_public_keys`.
 
 ### `project`
 
@@ -234,10 +232,9 @@ For COCO the resolver auto-detects whether to apply the standard MS COCO
 * Otherwise the resolver requires **contiguous zero-based ids** (`0, 1, …, N-1`)
   and refuses non-contiguous ids with an actionable error.
 
-This eliminates a class of silent label-corruption bugs that occurred when
-custom datasets whose ids overlapped the MS COCO range were accidentally
-remapped. To override the auto-detection, set `remap_mscoco_category` explicitly
-in the algorithm preset (rarely needed).
+This guards against silent label corruption when custom datasets whose ids
+overlap the MS COCO range are accidentally remapped. To override, set
+`remap_mscoco_category` explicitly in the algorithm preset (rarely needed).
 
 ---
 
@@ -274,17 +271,15 @@ load time.
 | `pretrained` | `tuning`     | **Backbone init only.** Loads just enough to initialise the backbone (typically ImageNet weights). Training starts from scratch elsewhere (no optimizer / EMA state restored). Use this when starting a fresh run with a pretrained backbone. |
 | `resume`     | `resume`     | **Full training state.** Restores model + optimizer + EMA + scheduler + epoch counter, so training continues exactly where the checkpoint left off.                |
 
-The mutual-exclusion guard prevents the common mistake of asking for both
-backbone init and full-state resume in the same run, which would silently
-produce undefined ordering.
+This guard prevents specifying both backbone init and full-state resume in one
+run, which would yield undefined ordering.
 
 ---
 
 ## 7. Verification
 
-The structural invariants in this document are enforced continuously by
-`test/deim_app/test_legacy_parity.py` (always-run) and the broader
-`test/deim_app/` suite. Run them with:
+These invariants are enforced by `test/deim_app/test_legacy_parity.py` and the
+broader `test/deim_app/` suite. Run them with:
 
 ```bash
 pytest test/deim_app/ -v

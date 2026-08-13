@@ -1,8 +1,9 @@
 # Inference API & CLI Guide (`deim_app`)
 
-This document is the canonical reference for performing inference through the
-`deim_app` application layer in the **first version**. It covers the Python
-API, the unified CLI, output formats, and a manual smoke command.
+English | [简体中文](inference-api_CN.md)
+
+This guide covers the **first-version** `deim_app` inference API, CLI, output
+formats, and manual smoke test.
 
 For the application YAML schema see [application-config.md](application-config.md).
 
@@ -22,14 +23,12 @@ filtered.export_dota("outputs/dota")
 filtered.save_images("outputs/visualization")
 ```
 
-Key points:
-
 * `from_config` **does not** load the checkpoint — call `load` next. It returns
-  `self`, so the chain `DetectionModel.from_config(...).load(...)` is idiomatic.
+  `self`, so `DetectionModel.from_config(...).load(...)` can be chained.
 * `predict` returns the **full unfiltered** collection; `predict_filtered`
   applies `score_threshold` → `class_filter` → `top_k` (defaults from the
   loaded config's `inference` section) and returns an immutable view.
-* The full collection is never mutated by filtering — both views coexist.
+* Filtering does not modify the full collection; both views remain available.
 * Class-filter names are validated against dataset metadata before any
   inference runs; unknown names raise `AppConfigError`.
 
@@ -71,9 +70,8 @@ for det in img_pred.detections:
 
 ## 2. CLI reference
 
-The unified entry point is `python -m deim_app`. Four subcommands are
-supported: `train`, `eval`, `infer`, `export`. The flag whitelist is exhaustive
-— unknown flags are rejected by argparse at exit code 2.
+The entry point is `python -m deim_app`, with four subcommands: `train`, `eval`,
+`infer`, and `export`. Unknown flags are rejected by argparse with exit code 2.
 
 ### 2.1 `infer`
 
@@ -112,9 +110,9 @@ python -m deim_app train \
   [--output-dir ./outputs/my-run]
 ```
 
-Delegates to the engine solver's `fit()` — the training loop itself is
-unchanged from the legacy `train.py` entry point. `--resume` is mutually
-exclusive with `train.pretrained` from the YAML.
+Training calls the engine solver's `fit()` and uses the same loop as the legacy
+`train.py` entry point. `--resume` is mutually exclusive with
+`train.pretrained` from the YAML.
 
 ### 2.3 `eval`
 
@@ -125,8 +123,8 @@ python -m deim_app eval \
   [--device cuda]
 ```
 
-Delegates to the engine solver's `val()`. The checkpoint is loaded via the
-solver's resume path; evaluation runs one full pass over the validation set.
+Evaluation calls the engine solver's `val()`. The checkpoint is loaded through
+the solver's resume path, followed by one full pass over the validation set.
 
 ### 2.4 `export`
 
@@ -140,16 +138,15 @@ python -m deim_app export \
 ```
 
 > **Note:** no export format is enabled in the first application-layer version;
-> `export` always raises `ExportError`. The subcommand exists so the CLI
-> surface is stable — a future version will wire ONNX / OpenVINO / TensorRT
-> export through this entry point.
+> `export` always raises `ExportError`. The command is reserved for future
+> ONNX / OpenVINO / TensorRT support.
 
 ---
 
 ## 3. Output formats
 
-All three writers consume one immutable `PredictionCollection`; they can be
-combined freely in a single invocation.
+All three writers use the same immutable `PredictionCollection` and can be
+combined in one invocation.
 
 | Format         | Writer                         | Output                                                                                       |
 |----------------|--------------------------------|----------------------------------------------------------------------------------------------|
@@ -163,9 +160,8 @@ combined freely in a single invocation.
 
 ## 4. Manual end-to-end smoke test
 
-This is the recommended one-command verification that an OBB pipeline is wired
-correctly end-to-end. It runs one inference call and asks for all three output
-formats from a single invocation:
+Use this command to check an OBB pipeline end to end. It runs inference once
+and writes all three output formats:
 
 ```bash
 python -m deim_app infer \
@@ -199,9 +195,9 @@ Verify:
 3. Each `visualization/*.png` is the source image with rotated polygons
    overlaid, scored above `--score-threshold`.
 
-This is a **manual** smoke step — it is not automated because it depends on a
-locally-available checkpoint and dataset. The numerical parity between this
-new path and the legacy tools (`tools/inference/torch_inf.py`,
+This smoke test is **manual** because it requires a local checkpoint and
+dataset. Numerical parity between this path and the legacy tools
+(`tools/inference/torch_inf.py`,
 `test/tool_deimv2_obb_infer.py`) is gated automatically by
 `test/deim_app/test_legacy_parity.py` when the `DEIM_APP_PARITY_*` env vars are
-populated.
+set.
