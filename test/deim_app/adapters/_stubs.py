@@ -14,7 +14,7 @@ import torch
 
 
 class StubModel:
-    """Records load_state_dict / deploy calls; serves a canned state_dict."""
+    """Records load_state_dict / deploy / to calls; serves a canned state_dict."""
 
     def __init__(
         self,
@@ -27,6 +27,8 @@ class StubModel:
         self.last_strict: Any = None
         self.load_state_dict_calls: int = 0
         self.deploy_calls: int = 0
+        self.to_calls: int = 0
+        self.last_device: Any = None
 
     def state_dict(self) -> dict[str, torch.Tensor]:
         return dict(self._state)
@@ -43,17 +45,33 @@ class StubModel:
         self.deploy_calls += 1
         return self
 
+    def to(self, *args: Any, **kwargs: Any) -> "StubModel":
+        """Mirror nn.Module.to(); record the device argument and return self."""
+        self._call_log.append("model.to")
+        self.to_calls += 1
+        self.last_device = args[0] if args else kwargs.get("device")
+        return self
+
 
 class StubPostprocessor:
-    """Records its deploy() call."""
+    """Records its deploy() and to() calls."""
 
     def __init__(self, call_log: list[str]) -> None:
         self._call_log = call_log
         self.deploy_calls: int = 0
+        self.to_calls: int = 0
+        self.last_device: Any = None
 
     def deploy(self) -> "StubPostprocessor":
         self._call_log.append("postprocessor.deploy")
         self.deploy_calls += 1
+        return self
+
+    def to(self, *args: Any, **kwargs: Any) -> "StubPostprocessor":
+        """Mirror nn.Module.to(); record the device argument and return self."""
+        self._call_log.append("postprocessor.to")
+        self.to_calls += 1
+        self.last_device = args[0] if args else kwargs.get("device")
         return self
 
 

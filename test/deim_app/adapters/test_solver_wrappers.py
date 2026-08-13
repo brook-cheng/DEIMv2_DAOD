@@ -273,9 +273,24 @@ def test_build_engine_cfg_used_by_load_train_evaluate(
             self.yaml_cfg = {"task": "detection"}
             self.device = ""
             self.resume = None
-            # load() deploys model + postprocessor even with checkpoint=None.
-            self.model = type("_M", (), {"deploy": lambda self: self})()
-            self.postprocessor = type("_P", (), {"deploy": lambda self: self})()
+            # load() deploys model + postprocessor even with checkpoint=None,
+            # then moves both to inference.device.
+            self.model = type(
+                "_M",
+                (),
+                {
+                    "deploy": lambda self: self,
+                    "to": lambda self, *a, **kw: self,
+                },
+            )()
+            self.postprocessor = type(
+                "_P",
+                (),
+                {
+                    "deploy": lambda self: self,
+                    "to": lambda self, *a, **kw: self,
+                },
+            )()
             construction_log.append((cfg_path, dict(kwargs)))
 
     import deim_app.adapters.deim as deim_mod

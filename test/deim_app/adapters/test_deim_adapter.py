@@ -358,9 +358,12 @@ def test_load_propagates_prefer_ema_to_select_state(
 def test_load_call_order(patched_adapter, call_log):
     """Full post-YAML call order:
     torch.load → select_model_state → model.load_state_dict → model.deploy
-    → postprocessor.deploy.
+    → postprocessor.deploy → model.to(device) → postprocessor.to(device).
 
     (YAMLConfig is constructed FIRST, before anything else can happen.)
+    Both deployed modules are moved to ``loaded.app.inference.device`` after
+    deploy because ``deploy()`` returns ``self`` — the device move must follow
+    to act on the deployed module identity.
     """
     patched_adapter.load(checkpoint="/ckpt.pth")
 
@@ -370,6 +373,8 @@ def test_load_call_order(patched_adapter, call_log):
         "model.load_state_dict",
         "model.deploy",
         "postprocessor.deploy",
+        "model.to",
+        "postprocessor.to",
     ]
 
 
@@ -389,6 +394,35 @@ def test_load_deploy_called_after_load_state_dict(patched_adapter, call_log):
     assert stub.model.deploy_calls == 1
     assert stub.postprocessor.deploy_calls == 1
     assert call_log.index("model.load_state_dict") < call_log.index("model.deploy")
+
+
+def test_load_moves_deployed_modules_to_inference_device(
+    patched_adapter, canned_loaded
+):
+    """After deploy(), both model and postprocessor are moved to
+    ``loaded.app.inference.device`` so a CUDA-configured app does not silently
+    run on CPU (and vice versa). ``deploy()`` returns ``self`` so the move must
+    act on the already-deployed module identity.
+    """
+    expected_device = canned_loaded.app.inference.device
+
+    patched_adapter.load(checkpoint="/ckpt.pth")
+
+    stub = _last_stub_yaml()
+    assert stub.model.to_calls == 1
+    assert stub.postprocessor.to_calls == 1
+    assert stub.model.last_device == expected_device
+    assert stub.postprocessor.last_device == expected_device
+
+
+def test_load_moves_modules_after_deploy(patched_adapter, call_log):
+    """Device moves must follow deploy() — they act on the deployed module."""
+    patched_adapter.load(checkpoint="/ckpt.pth")
+
+    assert call_log.index("model.deploy") < call_log.index("model.to")
+    assert call_log.index("postprocessor.deploy") < call_log.index(
+        "postprocessor.to"
+    )
 
 
 def test_load_stores_model_and_postprocessor(patched_adapter):
@@ -531,6 +565,51 @@ def test_load_class_count_check_passes_on_matching_heads(
     adapter.load(checkpoint="/ckpt.pth")  # must NOT raise
     assert stub.model.load_state_dict_calls == 1
     assert stub.model.deploy_calls == 1
+
+
+def test_load_class_count_check_flags_missing_model_head_keys(
+    monkeypatch, canned_resolved, canned_loaded, call_log
+):
+    """A model class-head key absent from the checkpoint is an
+    incompatibility — the check must raise ``CheckpointCompatibilityError``
+    BEFORE ``load_state_dict`` (a missing class-head parameter would otherwise
+    be silently papered over by ``strict=False`` and the model would run with
+    random class-head weights). This is the mirror of the checkpoint-only
+    tolerance test below: keys the MODEL needs but the checkpoint lacks are
+    flagged; keys only the checkpoint carries are still tolerated."""
+    import deim_app.adapters.deim as deim_mod
+
+    H = 256
+    model_state = {
+        "backbone.w": torch.zeros(4),
+        "decoder.enc_score_head.weight": torch.zeros(15, H),  # MISSING from ckpt
+        "decoder.dec_score_head.0.bias": torch.zeros(15),  # MISSING from ckpt
+    }
+    ckpt_state = {
+        "backbone.w": torch.zeros(4),  # matches → not flagged
+    }
+    stub = _build_stub_yaml(call_log, model_state=model_state)
+    monkeypatch.setattr(deim_mod, "YAMLConfig", lambda *a, **kw: stub)
+    monkeypatch.setattr(
+        deim_mod,
+        "torch",
+        _FakeTorch(lambda p, map_location=None: {"ema": {"module": ckpt_state}}),
+    )
+    monkeypatch.setattr(
+        deim_mod, "select_model_state", lambda c, prefer_ema=True: ckpt_state
+    )
+
+    adapter = DeimDetectionAdapter(resolved=canned_resolved, loaded=canned_loaded)
+    with pytest.raises(CheckpointCompatibilityError) as exc:
+        adapter.load(checkpoint="/ckpt.pth")
+
+    msg = str(exc.value)
+    assert "decoder.enc_score_head.weight" in msg
+    assert "decoder.dec_score_head.0.bias" in msg
+    # The matching backbone key must NOT be named.
+    assert "backbone.w" not in msg
+    # load_state_dict must NOT have run (check fires first).
+    assert stub.model.load_state_dict_calls == 0
 
 
 def test_load_class_count_check_ignores_keys_only_in_checkpoint(

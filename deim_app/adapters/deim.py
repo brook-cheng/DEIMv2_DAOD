@@ -122,20 +122,33 @@ def _verify_class_count_compatibility(
     model_state: Mapping[str, Any],
     ckpt_state: Mapping[str, Any],
 ) -> None:
-    """Raise ``CheckpointCompatibilityError`` if any class-head key present in
-    BOTH ``model_state`` and ``ckpt_state`` has a different shape.
+    """Raise ``CheckpointCompatibilityError`` when any class-head key the model
+    requires is absent from the checkpoint or has a different shape.
 
-    The class-count dimension lives on a different axis depending on the layer
-    type (Linear weight → axis 0; Embedding → axis 0; bias → axis 0), so we
-    compare the FULL shape: any mismatch on a class-head key signals an
-    incompatible checkpoint. Keys present in only one side are NOT flagged
-    here — they are handled by the subsequent ``strict=False`` load.
+    Two failure modes are flagged, both BEFORE ``load_state_dict`` runs:
+
+      * A class-head key present in ``model_state`` but absent from
+        ``ckpt_state``. Without this check the subsequent ``strict=False``
+        load would silently leave the model's class heads at their random
+        initialization — the model would run but its predictions would be
+        garbage, which is the exact failure mode this adapter exists to make
+        impossible.
+      * A class-head key present in BOTH mappings whose shapes differ. The
+        class-count dimension lives on a different axis depending on the
+        layer type (Linear weight → axis 0; Embedding → axis 0; bias →
+        axis 0), so the FULL shape is compared.
+
+    Keys present ONLY in ``ckpt_state`` (checkpoint-only keys) are NOT
+    flagged here — they are handled by the subsequent ``strict=False`` load
+    and do not affect the model's class predictions.
     """
+    missing: list[str] = []
     mismatched: list[str] = []
     for key, model_tensor in model_state.items():
         if not _is_class_head_key(key):
             continue
         if key not in ckpt_state:
+            missing.append(key)
             continue
         model_shape = _shape_of(model_tensor)
         ckpt_shape = _shape_of(ckpt_state[key])
@@ -145,11 +158,22 @@ def _verify_class_count_compatibility(
             mismatched.append(
                 f"{key} (checkpoint {list(ckpt_shape)} vs model {list(model_shape)})"
             )
+    problems: list[str] = []
+    if missing:
+        problems.append(
+            "missing class-prediction head keys (present in model, absent from "
+            "checkpoint): " + ", ".join(missing)
+        )
     if mismatched:
+        problems.append(
+            "shape-incompatible class-prediction head keys: "
+            + "; ".join(mismatched)
+        )
+    if problems:
         raise CheckpointCompatibilityError(
             "Checkpoint class-count is incompatible with the configured model "
             "for the following class-prediction head keys: "
-            + "; ".join(mismatched)
+            + "; ".join(problems)
             + ". Re-train the checkpoint for the configured number of classes "
             "or point the adapter at a matching checkpoint."
         )
@@ -253,6 +277,8 @@ class DeimDetectionAdapter(DetectionAdapter):
           5. ``model.load_state_dict(state, strict=False)`` — non-strict so a
              partial match (e.g. a tuning checkpoint) still loads cleanly.
           6. ``model.deploy()`` and ``postprocessor.deploy()``.
+          7. ``model.to(inference.device)`` and ``postprocessor.to(inference.device)``
+             — moves both deployed modules to the configured inference device.
 
         When ``checkpoint`` is ``None`` steps 3–5 are skipped and the model is
         left at its default initialization (used for skeleton ONNX export).
@@ -286,6 +312,16 @@ class DeimDetectionAdapter(DetectionAdapter):
         # 6. Deploy.
         self._model = cfg.model.deploy()
         self._postprocessor = cfg.postprocessor.deploy()
+
+        # 7. Move deployed modules to the configured inference device. Runs
+        #    AFTER deploy() because deploy() returns self — the move must act
+        #    on the deployed module identity. Mirrors
+        #    tools/inference/torch_inf.py placing ``model.to(device)`` once the
+        #    model is built; without this a CUDA-configured app silently runs
+        #    on CPU (the engine default).
+        inference_device = self.loaded.app.inference.device
+        self._model.to(inference_device)
+        self._postprocessor.to(inference_device)
 
         # Keep public metadata attributes fresh from the resolved config.
         self.box_mode = self.resolved.metadata.box_mode
