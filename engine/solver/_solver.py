@@ -3,7 +3,7 @@ import torch.nn as nn
 
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
+from collections.abc import Mapping
 import atexit
 
 from ..misc import dist_utils
@@ -36,19 +36,51 @@ class CheckpointIncompatibleError(RuntimeError):
     """Raised when a checkpoint cannot load under the current OBB contract."""
 
 
-def classify_checkpoint_kind(state: Dict) -> str:
+#: State-dict key of the encoder box-head final bias. Real DEIM wrapper
+#: checkpoints prefix it with ``decoder.`` (the encoder box-head lives inside
+#: the ``decoder`` submodule); bare helper fixtures use the flat name. Both are
+#: probed so real shipped checkpoints classify correctly without weakening the
+#: bare-decoder helper contract.
+_BOX_HEAD_BIAS_KEYS = (
+    "decoder.enc_bbox_head.layers.2.bias",
+    "enc_bbox_head.layers.2.bias",
+)
+
+
+def _resolve_head_state(state: Mapping[str, object]) -> dict[str, torch.Tensor]:
+    """Pick the parameter sub-dict a checkpoint actually loads from.
+
+    Mirrors ``load_tuning_state`` / ``load_resume_state``: EMA weights are
+    preferred for tuning, otherwise the plain ``model`` entry, otherwise the
+    state itself (bare-decoder helper fixtures). A leading ``module.`` wrapper
+    (DDP / DataParallel) is unwrapped so the head key resolves either way.
+    """
+    ema = state.get("ema")
+    if isinstance(ema, dict) and "module" in ema:
+        model_state = ema["module"]
+    else:
+        model_state = state.get("model", state)
+    if isinstance(model_state, dict) and "module" in model_state:
+        model_state = model_state["module"]
+    return model_state if isinstance(model_state, dict) else {}
+
+
+def classify_checkpoint_kind(state: Mapping[str, object]) -> str:
     """Classify a checkpoint as ``"hbb"`` / ``"obb"`` / ``"unknown"``.
 
-    The encoder box-head final bias length equals ``_num_box_dof``:
+    The encoder box-head final bias length equals the box degree of freedom:
     HBB=4, rep0/rep3=5, rep2=6. A 4-D head identifies HBB pretraining, which
     remains valid for OBB tuning; 5/6-D heads are OBB and require the marker.
     """
     try:
-        model_state = state.get("model", state)
-        if isinstance(model_state, dict) and "module" in model_state:
-            model_state = model_state["module"]
-        dof = model_state["enc_bbox_head.layers.2.bias"].shape[0]
-    except (KeyError, AttributeError, TypeError):
+        model_state = _resolve_head_state(state)
+        bias = next(
+            model_state[k]
+            for k in _BOX_HEAD_BIAS_KEYS
+            if k in model_state
+        )
+        dof = bias.shape[0]
+    except (KeyError, AttributeError, TypeError, StopIteration):
         return "unknown"
     if dof == 4:
         return "hbb"
@@ -57,9 +89,10 @@ def classify_checkpoint_kind(state: Dict) -> str:
     return "unknown"
 
 
-def assert_checkpoint_compat(state: Dict, expected: str = OBB_ANGLE_CONTRACT) -> None:
+def assert_checkpoint_compat(state: Mapping[str, object], expected: str = OBB_ANGLE_CONTRACT) -> None:
     """OBB checkpoints must carry a matching ``meta.obb_angle_contract`` marker."""
-    marker = (state.get("meta") or {}).get("obb_angle_contract")
+    meta = state.get("meta")
+    marker = meta.get("obb_angle_contract") if isinstance(meta, dict) else None
     if marker != expected:
         raise CheckpointIncompatibleError(
             "OBB checkpoint is incompatible with the current decoder: "
@@ -67,6 +100,19 @@ def assert_checkpoint_compat(state: Dict, expected: str = OBB_ANGLE_CONTRACT) ->
             "Pre-cleanup OBB checkpoints (proportional encoding or gate-fusion "
             "state) must be retrained under the shifted-only contract."
         )
+
+
+def model_is_obb(model: nn.Module) -> bool:
+    """Detect OBB mode through the real DEIM wrapper boundary.
+
+    The DEIM wrapper exposes ``box_mode`` on its ``decoder`` submodule, not at
+    the top level. A bare decoder passed directly also carries ``box_mode``.
+    """
+    box_mode = getattr(model, "box_mode", None)
+    if box_mode is None:
+        decoder = getattr(model, "decoder", None)
+        box_mode = getattr(decoder, "box_mode", None)
+    return box_mode == "obb"
 
 
 class BaseSolver(object):
@@ -255,7 +301,7 @@ class BaseSolver(object):
                 v = dist_utils.de_parallel(v)
                 state[k] = v.state_dict()
 
-        if getattr(self.model, "box_mode", None) == "obb":
+        if model_is_obb(self.model):
             state["meta"] = {"obb_angle_contract": OBB_ANGLE_CONTRACT}
 
         return state
@@ -290,7 +336,7 @@ class BaseSolver(object):
         else:
             state = torch.load(path, map_location="cpu", weights_only=False)
 
-        if getattr(self.model, "box_mode", None) == "obb":
+        if model_is_obb(self.model):
             assert_checkpoint_compat(state)
         # state['model'] = remove_module_prefix(state['model'])
         self.load_state_dict(state)
@@ -304,7 +350,7 @@ class BaseSolver(object):
 
         module = dist_utils.de_parallel(self.model)
 
-        if getattr(self.model, "box_mode", None) == "obb":
+        if model_is_obb(self.model):
             # Accept marked shifted OBB or identifiable 4D HBB pretraining;
             # reject ambiguous old OBB checkpoints before the non-strict load.
             if classify_checkpoint_kind(state) != "hbb":
@@ -329,7 +375,7 @@ class BaseSolver(object):
         print(f"Load model.state_dict, {infos}")
 
     @staticmethod
-    def _matched_state(state: Dict[str, torch.Tensor], params: Dict[str, torch.Tensor]):
+    def _matched_state(state: dict[str, torch.Tensor], params: dict[str, torch.Tensor]):
         missed_list = []
         unmatched_list = []
         matched_state = {}
