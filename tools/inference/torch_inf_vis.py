@@ -124,6 +124,9 @@ def main(args):
         raise AttributeError('Only support resume to load model.state_dict by now.')
 
     # Load train mode state and convert to deploy mode
+    if getattr(cfg.model, "box_mode", None) == "obb":
+        from engine.solver._solver import assert_checkpoint_compat
+        assert_checkpoint_compat(checkpoint)
     cfg.model.load_state_dict(state)
 
     class Model(nn.Module):

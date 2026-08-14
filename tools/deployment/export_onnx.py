@@ -36,6 +36,9 @@ def main(args, ):
             state = checkpoint['model']
 
         # NOTE load train mode state -> convert to deploy mode
+        if getattr(cfg.model, "box_mode", None) == "obb":
+            from engine.solver._solver import assert_checkpoint_compat
+            assert_checkpoint_compat(checkpoint)
         cfg.model.load_state_dict(state)
 
     else:

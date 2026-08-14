@@ -26,6 +26,49 @@ def remove_module_prefix(state_dict):
     return new_state_dict
 
 
+# OBB checkpoints written under the shifted-only decoder carry this marker in
+# ``meta``. Old proportional / pre-cleanup rep3 checkpoints lack it and are
+# rejected by ``assert_checkpoint_compat`` at every load path.
+OBB_ANGLE_CONTRACT = "shifted_v1"
+
+
+class CheckpointIncompatibleError(RuntimeError):
+    """Raised when a checkpoint cannot load under the current OBB contract."""
+
+
+def classify_checkpoint_kind(state: Dict) -> str:
+    """Classify a checkpoint as ``"hbb"`` / ``"obb"`` / ``"unknown"``.
+
+    The encoder box-head final bias length equals ``_num_box_dof``:
+    HBB=4, rep0/rep3=5, rep2=6. A 4-D head identifies HBB pretraining, which
+    remains valid for OBB tuning; 5/6-D heads are OBB and require the marker.
+    """
+    try:
+        model_state = state.get("model", state)
+        if isinstance(model_state, dict) and "module" in model_state:
+            model_state = model_state["module"]
+        dof = model_state["enc_bbox_head.layers.2.bias"].shape[0]
+    except (KeyError, AttributeError, TypeError):
+        return "unknown"
+    if dof == 4:
+        return "hbb"
+    if dof in (5, 6):
+        return "obb"
+    return "unknown"
+
+
+def assert_checkpoint_compat(state: Dict, expected: str = OBB_ANGLE_CONTRACT) -> None:
+    """OBB checkpoints must carry a matching ``meta.obb_angle_contract`` marker."""
+    marker = (state.get("meta") or {}).get("obb_angle_contract")
+    if marker != expected:
+        raise CheckpointIncompatibleError(
+            "OBB checkpoint is incompatible with the current decoder: "
+            f"expected meta.obb_angle_contract={expected!r}, got {marker!r}. "
+            "Pre-cleanup OBB checkpoints (proportional encoding or gate-fusion "
+            "state) must be retrained under the shifted-only contract."
+        )
+
+
 class BaseSolver(object):
     def __init__(self, cfg: BaseConfig) -> None:
         self.cfg = cfg
@@ -212,6 +255,9 @@ class BaseSolver(object):
                 v = dist_utils.de_parallel(v)
                 state[k] = v.state_dict()
 
+        if getattr(self.model, "box_mode", None) == "obb":
+            state["meta"] = {"obb_angle_contract": OBB_ANGLE_CONTRACT}
+
         return state
 
     def load_state_dict(self, state):
@@ -244,6 +290,8 @@ class BaseSolver(object):
         else:
             state = torch.load(path, map_location="cpu", weights_only=False)
 
+        if getattr(self.model, "box_mode", None) == "obb":
+            assert_checkpoint_compat(state)
         # state['model'] = remove_module_prefix(state['model'])
         self.load_state_dict(state)
 
@@ -255,6 +303,12 @@ class BaseSolver(object):
             state = torch.load(path, map_location="cpu")
 
         module = dist_utils.de_parallel(self.model)
+
+        if getattr(self.model, "box_mode", None) == "obb":
+            # Accept marked shifted OBB or identifiable 4D HBB pretraining;
+            # reject ambiguous old OBB checkpoints before the non-strict load.
+            if classify_checkpoint_kind(state) != "hbb":
+                assert_checkpoint_compat(state)
 
         # Load the appropriate state dict
         if "ema" in state:
