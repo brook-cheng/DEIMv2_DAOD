@@ -20,6 +20,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from engine.core import YAMLConfig
+from engine.solver._solver import model_is_obb
 
 label_map = {
     1: 'person', 2: 'bicycle', 3: 'car', 4: 'motorbike', 5: 'aeroplane',
@@ -124,7 +125,7 @@ def main(args):
         raise AttributeError('Only support resume to load model.state_dict by now.')
 
     # Load train mode state and convert to deploy mode
-    if getattr(cfg.model, "box_mode", None) == "obb":
+    if model_is_obb(cfg.model):
         from engine.solver._solver import assert_checkpoint_compat
         assert_checkpoint_compat(checkpoint)
     cfg.model.load_state_dict(state)

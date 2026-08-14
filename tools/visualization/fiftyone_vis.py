@@ -21,6 +21,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
 from engine.core import YAMLConfig
+from engine.solver._solver import model_is_obb
 
 
 def kill_existing_mongod():
@@ -245,7 +246,7 @@ def main(args):
                 raise AttributeError('only support resume to load model.state_dict by now.')
 
             # NOTE load train mode state -> convert to deploy mode
-            if getattr(cfg.model, "box_mode", None) == "obb":
+            if model_is_obb(cfg.model):
                 from engine.solver._solver import assert_checkpoint_compat
                 assert_checkpoint_compat(checkpoint)
             cfg.model.load_state_dict(state)
