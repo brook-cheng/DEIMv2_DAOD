@@ -28,6 +28,10 @@ import torch
 
 from engine.core import YAMLConfig
 from engine.solver import TASKS
+from engine.solver._solver import (
+    assert_checkpoint_compat,
+    classify_checkpoint_kind,
+)
 
 from deim_app.adapters.base import DetectionAdapter
 from deim_app.adapters.checkpoint import select_model_state
@@ -273,14 +277,22 @@ class DeimDetectionAdapter(DetectionAdapter):
              when present) so it cannot race the checkpoint load.
           3. If ``checkpoint`` is not ``None``: ``torch.load`` →
              :func:`select_model_state` (EMA preference + module-prefix strip).
-          4. Verify class-count compatibility against the model's state_dict().
-          5. ``model.load_state_dict(state, strict=False)`` — non-strict so a
+          4. OBB shifted_v1 contract gate (OBB app configs only): when
+             ``resolved.metadata.box_mode == 'obb'``, classify the RAW
+             checkpoint and — unless it is identifiable 4-D HBB pretraining —
+             require ``meta.obb_angle_contract = "shifted_v1"``. Runs on the
+             raw checkpoint (before :func:`select_model_state` strips ``meta``)
+             and reuses the engine solver's helpers so marker semantics are
+             defined in exactly one place. ``CheckpointIncompatibleError``
+             propagates explicitly; HBB app configs skip the gate entirely.
+          5. Verify class-count compatibility against the model's state_dict().
+          6. ``model.load_state_dict(state, strict=False)`` — non-strict so a
              partial match (e.g. a tuning checkpoint) still loads cleanly.
-          6. ``model.deploy()`` and ``postprocessor.deploy()``.
-          7. ``model.to(inference.device)`` and ``postprocessor.to(inference.device)``
+          7. ``model.deploy()`` and ``postprocessor.deploy()``.
+          8. ``model.to(inference.device)`` and ``postprocessor.to(inference.device)``
              — moves both deployed modules to the configured inference device.
 
-        When ``checkpoint`` is ``None`` steps 3–5 are skipped and the model is
+        When ``checkpoint`` is ``None`` steps 3–6 are skipped and the model is
         left at its default initialization (used for skeleton ONNX export).
         """
         # 1. Build engine objects.
@@ -297,16 +309,25 @@ class DeimDetectionAdapter(DetectionAdapter):
             if isinstance(hgnet, dict):
                 hgnet["pretrained"] = False
 
-        # 3-5. Checkpoint load (only when a path is provided).
+        # 3-6. Checkpoint load (only when a path is provided).
         if checkpoint is not None:
             raw_ckpt = torch.load(checkpoint, map_location="cpu")
+
+            # 4. OBB shifted_v1 contract gate — only for OBB app configs, on the
+            #    RAW checkpoint so ``meta`` is retained. 4-D HBB pretraining is
+            #    always an acceptable OBB tuning source; any other head needs
+            #    the marker. HBB app configs never enforce the OBB marker.
+            if self.resolved.metadata.box_mode == "obb":
+                if classify_checkpoint_kind(raw_ckpt) != "hbb":
+                    assert_checkpoint_compat(raw_ckpt)
+
             state = select_model_state(raw_ckpt, prefer_ema=prefer_ema)
 
-            # 4. Class-count compatibility check (before load_state_dict).
+            # 5. Class-count compatibility check (before load_state_dict).
             model_state = cfg.model.state_dict()
             _verify_class_count_compatibility(model_state, state)
 
-            # 5. Load (non-strict — partial matches are acceptable).
+            # 6. Load (non-strict — partial matches are acceptable).
             cfg.model.load_state_dict(state, strict=False)
 
         # 6. Deploy.
