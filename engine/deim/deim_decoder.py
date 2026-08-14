@@ -37,6 +37,28 @@ from .obb_angle_contract import (
 __all__ = ["DEIMTransformer"]
 
 
+_VALID_ANGLE_REPS = (0, 3)
+
+
+def _assert_obb_angle_rep(angle_rep) -> None:
+    """Assert ``angle_rep`` is exactly ``int`` ``0`` or ``3``.
+
+    Python numeric equality lets ``False == 0``, ``0.0 == 0``, etc., so a
+    plain ``angle_rep not in (0, 3)`` check accepts booleans and floats
+    that are semantically invalid.  This guard rejects them at the
+    boundary so the error surfaces at construction, not deep in forward.
+    """
+    if isinstance(angle_rep, bool) or type(angle_rep) is not int:
+        raise TypeError(
+            f"angle_rep must be int (0 or 3), "
+            f"got {type(angle_rep).__name__}: {angle_rep!r}"
+        )
+    if angle_rep not in _VALID_ANGLE_REPS:
+        raise ValueError(
+            f"angle_rep must be 0 or 3, got {angle_rep}"
+        )
+
+
 class TransformerDecoderLayer(nn.Module):
 
     def __init__(
@@ -164,6 +186,8 @@ class TransformerDecoder(nn.Module):
         self.up, self.reg_scale, self.reg_max = up, reg_scale, reg_max
         self.box_mode = box_mode
         self.angle_rep = angle_rep
+        if self.box_mode == "obb":
+            _assert_obb_angle_rep(self.angle_rep)
         self.num_decouple_layers = num_layers
 
         self.layers = nn.ModuleList(
@@ -477,11 +501,8 @@ class DEIMTransformer(nn.Module):
 
         # num_reg_dist: vertex bias for refienment, used in LQE
         # _num_box_dof: bbox representation, used to define headers
-        if self.box_mode == "obb" and self.angle_rep not in (0, 3):
-            raise ValueError(
-                f"angle_rep must be 0 or 3 for box_mode='obb', got {self.angle_rep!r}"
-            )
         if self.box_mode == "obb":
+            _assert_obb_angle_rep(self.angle_rep)
             if self.angle_rep == 0:
                 self._num_box_dof = 5  # (cx,cy,w,h,θ)
                 self.num_reg_dist = 6  # (α,β,γ,δ,ε,η)
