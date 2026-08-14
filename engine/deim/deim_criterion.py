@@ -64,7 +64,6 @@ class DEIMCriterion(nn.Module):
         mal_iou_type=None,
         local_iou_type=None,
         box_mode="hbb",
-        offset_scale_source="pre",
         lambda_angle=1.0,
         obbox_rep_dim=6,
         periodic_angle_flag=True,
@@ -102,7 +101,6 @@ class DEIMCriterion(nn.Module):
         self.local_iou_type = local_iou_type
         self.box_mode = box_mode
         self.num_reg_dist = 4 if self.box_mode == "hbb" else obbox_rep_dim
-        self.offset_scale_source = offset_scale_source
         self.lambda_angle = lambda_angle
         self.obbox_rep_dim = obbox_rep_dim
         self.periodic_angle_flag = periodic_angle_flag
@@ -429,7 +427,6 @@ class DEIMCriterion(nn.Module):
                             self.reg_max,
                             outputs["reg_scale"],
                             outputs["up"],
-                            offset_scale_source=self.offset_scale_source,
                             obbox_rep_dim=self.obbox_rep_dim,
                         )
                 if self.fgl_targets is None and "is_dn" not in outputs:
@@ -448,7 +445,6 @@ class DEIMCriterion(nn.Module):
                             self.reg_max,
                             outputs["reg_scale"],
                             outputs["up"],
-                            offset_scale_source=self.offset_scale_source,
                             obbox_rep_dim=self.obbox_rep_dim,
                         )
 

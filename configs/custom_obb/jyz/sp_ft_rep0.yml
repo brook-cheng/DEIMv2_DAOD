@@ -94,7 +94,6 @@ DEIMTransformer:
   hidden_dim: 256 #hidden_dim
   dim_feedforward: 2048 # hidden_dim*8
   box_mode: obb
-  decouple_angle: True
 
 PostProcessor:
   box_mode: obb

@@ -34,7 +34,7 @@ DETR 的训练流程是：
 输入
 ----
   - 模型权重: outputs/synthetic_exp_020/last.pth
-  - 配置文件: configs/custom_obb/synthetic_exp_020.yml
+  - 配置文件: configs/custom_obb/synthetic_configs/synthetic_exp_020_anrep0_offset_per.yml
   - 验证集: density_020 的 100 张合成椭圆图（每图 20 GT）
 
 输出 (test/outputs/matching_diag/)
@@ -233,7 +233,7 @@ def collect_matching_data(model, postprocessor, val_loader, matcher, max_images)
             # 匈牙利匹配器的代价矩阵由 4 个分量加权求和得到：
             #   total_cost = 2*cost_class + 5*cost_bbox + 5*cost_chamfer + 2*cost_probiou
             #
-            # 权重来自 synthetic_exp_020.yml 的 matcher.weight_dict 配置。
+            # 权重来自 synthetic_exp_020_anrep0_offset_per.yml 的 matcher.weight_dict 配置。
             # ================================================================
 
             # 将当前图像的预测展平为 (300, dim) 格式
@@ -777,7 +777,8 @@ def main():
     parser.add_argument(
         "--config",
         default=os.path.join(
-            ROOT, "configs/custom_obb/synthetic_configs/synthetic_exp_020.yml"
+            ROOT,
+            "configs/custom_obb/synthetic_configs/synthetic_exp_020_anrep0_offset_per.yml"
         ),
         help="YAML 配置文件路径",
     )

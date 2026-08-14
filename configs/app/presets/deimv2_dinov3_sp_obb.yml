@@ -14,8 +14,8 @@ __include__: [
 # Preserved: DINOv3 ViT-S/16 STA adapter, HybridEncoder/DEIMTransformer dims,
 #            optimizer param groups, loss/matcher weights, EMA, augmentation,
 #            scheduler defaults, and the approved OBB angle contract:
-#              angle_rep: 0, offset_scale_source: "pre", gate fusion disabled,
-#              angle_step: 0, angle-first disabled, proportional encoding.
+#              angle_rep: 0,  gate fusion disabled,
+#              angle-first disabled, proportional encoding.
 # ============================================================================
 
 eval_spatial_size: [640, 640]
@@ -61,11 +61,6 @@ DEIMTransformer:
   box_mode: obb
 
   angle_rep: 0
-  offset_scale_source: "pre"
-  use_gate_fusion: false
-  angle_step: 0.0
-  use_angle_first: false
-  decoder_angle_encoding: "proportional"
 
 PostProcessor:
   box_mode: obb
@@ -101,7 +96,6 @@ DEIMCriterion:
   reg_max: 32
   box_mode: obb
   obbox_rep_dim: 6
-  offset_scale_source: "pre"
   matcher:
     type: HungarianMatcher
     weight_dict: {cost_class: 2, cost_bbox: 5, cost_probiou: 5, cost_angle: 3, cost_chamfer: 2, late_cost_bbox: 0.25}

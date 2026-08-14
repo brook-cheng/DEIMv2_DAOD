@@ -246,7 +246,7 @@ algorithm preset and survive unchanged across user/base/CLI inputs:
 | Category                | Representative keys                                                                                          |
 |-------------------------|--------------------------------------------------------------------------------------------------------------|
 | Backbone / encoder / decoder structure | `DEIM.backbone`, `DINOv3STAs.*`, `DINOv3STAsResAtten.*`, `HybridEncoder.{in_channels,hidden_dim,dim_feedforward}`, `DEIMTransformer.{feat_channels,hidden_dim,num_layers,dim_feedforward,eval_idx}` |
-| OBB angle contract      | `DEIMTransformer.{angle_rep,offset_scale_source,use_gate_fusion,angle_step,use_angle_first,decoder_angle_encoding}`, `PostProcessor.box_mode`, `DEIMCriterion.{box_mode,obbox_rep_dim,offset_scale_source}` |
+| OBB angle contract      | `DEIMTransformer.{angle_rep,box_mode}`, `PostProcessor.box_mode`, `DEIMCriterion.{box_mode,obbox_rep_dim}` — `angle_rep` accepts only integer `0` or `3` (booleans/floats are rejected at decoder construction) |
 | Optimizer structure     | `optimizer.type`, `optimizer.betas`, `optimizer.weight_decay`, every `optimizer.params[*]` group (regex + per-group `lr`/`weight_decay`) |
 | Scheduler / training stages | `lrsheduler`, `lr_gamma`, `warmup_iter`, `flat_epoch`, `no_aug_epoch`, `epoches` (mirrors `train.epochs`), `clip_max_norm`, `use_ema`, `ema.*` |
 | Augmentation            | Mosaic / Mixup / CopyBlend ops + probabilities + policy epochs, `collate_fn.{base_size_repeat,mixup_epochs,copyblend_epochs,…}` |

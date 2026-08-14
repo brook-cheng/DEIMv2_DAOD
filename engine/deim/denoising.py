@@ -6,7 +6,7 @@ import torch
 
 from .utils import inverse_sigmoid
 from .box_ops import box_cxcywh_to_xyxy, box_xyxy_to_cxcywh
-from .obb_angle_contract import physical_rad_to_norm, physical_rad_to_shifted_norm
+from .obb_angle_contract import physical_rad_to_shifted_norm
 
 
 def get_contrastive_denoising_training_group(
@@ -18,7 +18,6 @@ def get_contrastive_denoising_training_group(
     label_noise_ratio=0.5,
     box_noise_scale=1.0,
     box_mode="hbb",
-    angle_encoding="proportional",
 ):
     """cnd"""
     if num_denoising <= 0:
@@ -111,13 +110,10 @@ def get_contrastive_denoising_training_group(
     if box_mode == "hbb":
         input_query_bbox = noise_spatial
     elif box_mode == "obb":
-        # [0,pi) → decoder 私有编码 [0,1)
-        if angle_encoding == "shifted":
-            input_query_bbox[..., 4] = physical_rad_to_shifted_norm(
-                input_query_bbox[..., 4]
-            )
-        else:
-            input_query_bbox[..., 4] = physical_rad_to_norm(input_query_bbox[..., 4])
+        # [0,pi) → decoder 私有 shifted 编码 [0,1)
+        input_query_bbox[..., 4] = physical_rad_to_shifted_norm(
+            input_query_bbox[..., 4]
+        )
         input_query_bbox = torch.cat([noise_spatial, input_query_bbox[..., 4:]], dim=-1)
 
     input_query_bbox_unact = inverse_sigmoid(input_query_bbox)

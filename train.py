@@ -240,12 +240,9 @@ if __name__ == "__main__":
     parser.add_argument("--local-rank", type=int, help="local rank id")
     args = parser.parse_args()
 
-    # args.config = "./configs/custom_obb/deimv2_obb_sp.yml"  # commented for synthetic experiments
-    # args.config = "configs/custom_obb/synthetic_configs/ablation/syn_ablation_afp.yml"
     # args.use_amp = False
     # model test part
     # args.test_only = False
-    # args.resume = "./outputs/syn_ablation_afp/last.pth"
     # args.device = "cuda:0"
 
     main(args)

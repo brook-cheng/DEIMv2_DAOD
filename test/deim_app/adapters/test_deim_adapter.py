@@ -201,7 +201,13 @@ def patched_adapter(monkeypatch, canned_resolved, canned_loaded, call_log):
 
     def fake_torch_load(path, map_location=None):
         call_log.append("torch.load")
-        return {"ema": {"module": {"backbone.w": torch.zeros(2)}}}
+        # Canned checkpoint represents a valid marked OBB checkpoint: the
+        # contract gate requires meta.obb_angle_contract for any non-4D-HBB
+        # OBB load, so the success-path fixture carries the marker.
+        return {
+            "ema": {"module": {"backbone.w": torch.zeros(2)}},
+            "meta": {"obb_angle_contract": OBB_ANGLE_CONTRACT},
+        }
 
     def fake_select(ckpt, prefer_ema=True):
         call_log.append("select_model_state")
@@ -325,7 +331,16 @@ def test_load_disables_pretrained_only_when_section_present(
         call_log, yaml_cfg={"num_classes": 15, "eval_spatial_size": [576, 1024]}
     )
     monkeypatch.setattr(deim_mod, "YAMLConfig", lambda *a, **kw: stub)
-    monkeypatch.setattr(deim_mod, "torch", _FakeTorch(lambda p, map_location=None: {"model": {}}))
+    monkeypatch.setattr(
+        deim_mod,
+        "torch",
+        _FakeTorch(
+            lambda p, map_location=None: {
+                "model": {},
+                "meta": {"obb_angle_contract": OBB_ANGLE_CONTRACT},
+            }
+        ),
+    )
     monkeypatch.setattr(deim_mod, "select_model_state", lambda c, prefer_ema=True: {})
 
     adapter = DeimDetectionAdapter(resolved=canned_resolved, loaded=canned_loaded)
@@ -341,7 +356,16 @@ def test_load_propagates_prefer_ema_to_select_state(
 
     stub = _build_stub_yaml(call_log)
     monkeypatch.setattr(deim_mod, "YAMLConfig", lambda *a, **kw: stub)
-    monkeypatch.setattr(deim_mod, "torch", _FakeTorch(lambda p, map_location=None: {"model": {}}))
+    monkeypatch.setattr(
+        deim_mod,
+        "torch",
+        _FakeTorch(
+            lambda p, map_location=None: {
+                "model": {},
+                "meta": {"obb_angle_contract": OBB_ANGLE_CONTRACT},
+            }
+        ),
+    )
     seen: dict[str, bool] = {}
 
     def capture(c, prefer_ema=True):
@@ -510,7 +534,12 @@ def test_load_raises_on_class_count_mismatch(
     monkeypatch.setattr(
         deim_mod,
         "torch",
-        _FakeTorch(lambda p, map_location=None: {"ema": {"module": ckpt_state}}),
+        _FakeTorch(
+            lambda p, map_location=None: {
+                "ema": {"module": ckpt_state},
+                "meta": {"obb_angle_contract": OBB_ANGLE_CONTRACT},
+            }
+        ),
     )
     # select_model_state returns the ckpt_state verbatim.
     monkeypatch.setattr(
@@ -555,7 +584,12 @@ def test_load_class_count_check_passes_on_matching_heads(
     monkeypatch.setattr(
         deim_mod,
         "torch",
-        _FakeTorch(lambda p, map_location=None: {"ema": {"module": matching_state}}),
+        _FakeTorch(
+            lambda p, map_location=None: {
+                "ema": {"module": matching_state},
+                "meta": {"obb_angle_contract": OBB_ANGLE_CONTRACT},
+            }
+        ),
     )
     monkeypatch.setattr(
         deim_mod, "select_model_state", lambda c, prefer_ema=True: matching_state
@@ -593,7 +627,12 @@ def test_load_class_count_check_flags_missing_model_head_keys(
     monkeypatch.setattr(
         deim_mod,
         "torch",
-        _FakeTorch(lambda p, map_location=None: {"ema": {"module": ckpt_state}}),
+        _FakeTorch(
+            lambda p, map_location=None: {
+                "ema": {"module": ckpt_state},
+                "meta": {"obb_angle_contract": OBB_ANGLE_CONTRACT},
+            }
+        ),
     )
     monkeypatch.setattr(
         deim_mod, "select_model_state", lambda c, prefer_ema=True: ckpt_state
@@ -633,7 +672,12 @@ def test_load_class_count_check_ignores_keys_only_in_checkpoint(
     monkeypatch.setattr(
         deim_mod,
         "torch",
-        _FakeTorch(lambda p, map_location=None: {"ema": {"module": ckpt_state}}),
+        _FakeTorch(
+            lambda p, map_location=None: {
+                "ema": {"module": ckpt_state},
+                "meta": {"obb_angle_contract": OBB_ANGLE_CONTRACT},
+            }
+        ),
     )
     monkeypatch.setattr(
         deim_mod, "select_model_state", lambda c, prefer_ema=True: ckpt_state
@@ -642,6 +686,218 @@ def test_load_class_count_check_ignores_keys_only_in_checkpoint(
     adapter = DeimDetectionAdapter(resolved=canned_resolved, loaded=canned_loaded)
     adapter.load(checkpoint="/ckpt.pth")  # must NOT raise — key is checkpoint-only
     assert stub.model.load_state_dict_calls == 1
+
+
+# ---- OBB shifted_v1 checkpoint contract (adapter enforcement) ------------------
+#
+# DeimDetectionAdapter.load enforces the engine's OBB angle contract BEFORE
+# select_model_state / load_state_dict, so an unmarked (or wrongly marked) OBB
+# checkpoint is rejected explicitly instead of silently loading via
+# strict=False. The check fires only for box_mode == 'obb' (HBB app configs
+# never need the marker) and uses the RAW checkpoint so ``meta`` is retained.
+# It reuses engine.solver._solver.classify_checkpoint_kind +
+# assert_checkpoint_compat — marker semantics are not duplicated here.
+
+from pathlib import Path
+
+from engine.solver._solver import (  # noqa: E402
+    OBB_ANGLE_CONTRACT,
+    CheckpointIncompatibleError,
+)
+from deim_app.config.loader import LoadedAppConfig  # noqa: E402
+from deim_app.config.mapping import ResolvedAlgorithmConfig  # noqa: E402
+from deim_app.config.metadata import DatasetMetadata  # noqa: E402
+from deim_app.config.schema import AppConfig  # noqa: E402
+
+
+def _bias(dof: int) -> torch.Tensor:
+    return torch.zeros(dof)
+
+
+def _resolved_with_box_mode(box_mode: str) -> ResolvedAlgorithmConfig:
+    num_classes = 15
+    names: dict[int, str] = {i: f"cls{i}" for i in range(num_classes)}
+    metadata = DatasetMetadata(
+        box_mode=box_mode,
+        num_classes=num_classes,
+        class_names_by_label=names,
+        output_names_by_id=dict(names),
+    )
+    return ResolvedAlgorithmConfig(
+        config_path=Path("/synthetic/app.yml"),
+        overrides={
+            "HGNetv2": {"pretrained": True},
+            "eval_spatial_size": [576, 1024],
+            "num_classes": num_classes,
+        },
+        metadata=metadata,
+        app=AppConfig(),
+    )
+
+
+def _loaded_for(resolved: ResolvedAlgorithmConfig) -> LoadedAppConfig:
+    return LoadedAppConfig(
+        app=resolved.app,
+        engine_base=dict(resolved.overrides),
+        source=resolved.config_path,
+        app_base=Path("/synthetic/base.yml"),
+    )
+
+
+def _wire_stubs(
+    monkeypatch, call_log, *, raw_ckpt, selected_state=None
+):
+    """Patch the adapter's engine seams to call-log stubs returning ``raw_ckpt``.
+
+    ``select_model_state`` returns ``selected_state`` (default: the raw
+    checkpoint's ema.module / model sub-dict) so the class-count check sees a
+    normalized state. Returns a list recording every select_model_state call so
+    tests can prove the contract check fires BEFORE selection.
+    """
+    import deim_app.adapters.deim as deim_mod
+    from _stubs import StubModel, StubPostprocessor, StubYAMLConfig
+
+    select_calls: list[Any] = []
+    model = StubModel(call_log)
+    postprocessor = StubPostprocessor(call_log)
+    stub = StubYAMLConfig(
+        "/synthetic/app.yml",
+        call_log=call_log,
+        yaml_cfg={"HGNetv2": {"pretrained": True}},
+        model=model,
+        postprocessor=postprocessor,
+    )
+
+    monkeypatch.setattr(deim_mod, "YAMLConfig", lambda *a, **kw: stub)
+
+    def fake_torch_load(path, map_location=None):
+        call_log.append("torch.load")
+        return raw_ckpt
+
+    monkeypatch.setattr(deim_mod, "torch", _FakeTorch(fake_torch_load))
+
+    def fake_select(ckpt, prefer_ema=True):
+        call_log.append("select_model_state")
+        select_calls.append(ckpt)
+        if selected_state is not None:
+            return dict(selected_state)
+        if "ema" in ckpt and "module" in ckpt["ema"]:
+            return dict(ckpt["ema"]["module"])
+        return dict(ckpt.get("model", {}))
+
+    monkeypatch.setattr(deim_mod, "select_model_state", fake_select)
+    return stub, select_calls
+
+
+def test_obb_adapter_rejects_unmarked_wrapper_5d_obb_before_load(
+    monkeypatch, call_log
+):
+    """An OBB app config + unmarked real wrapper 5D OBB checkpoint must raise
+    the engine's CheckpointIncompatibleError BEFORE select_model_state and
+    load_state_dict run (strict=False would otherwise load it silently)."""
+    resolved = _resolved_with_box_mode("obb")
+    loaded = _loaded_for(resolved)
+    # Real wrapper-prefixed 5D OBB head, NO meta marker.
+    raw_ckpt = {"model": {"decoder.enc_bbox_head.layers.2.bias": _bias(5)}}
+    stub, select_calls = _wire_stubs(monkeypatch, call_log, raw_ckpt=raw_ckpt)
+
+    adapter = DeimDetectionAdapter(resolved=resolved, loaded=loaded)
+    with pytest.raises(CheckpointIncompatibleError, match="obb_angle_contract"):
+        adapter.load(checkpoint="/ckpt.pth")
+
+    assert stub.model.load_state_dict_calls == 0
+    assert select_calls == []
+
+
+def test_obb_adapter_rejects_wrong_marker_wrapper_5d_obb(
+    monkeypatch, call_log
+):
+    """An OBB app config + wrongly-marked 5D OBB checkpoint is rejected too."""
+    resolved = _resolved_with_box_mode("obb")
+    loaded = _loaded_for(resolved)
+    raw_ckpt = {
+        "model": {"decoder.enc_bbox_head.layers.2.bias": _bias(5)},
+        "meta": {"obb_angle_contract": "proportional"},
+    }
+    stub, select_calls = _wire_stubs(monkeypatch, call_log, raw_ckpt=raw_ckpt)
+
+    adapter = DeimDetectionAdapter(resolved=resolved, loaded=loaded)
+    with pytest.raises(CheckpointIncompatibleError, match="obb_angle_contract"):
+        adapter.load(checkpoint="/ckpt.pth")
+
+    assert stub.model.load_state_dict_calls == 0
+    assert select_calls == []
+
+
+def test_obb_adapter_accepts_marked_wrapper_5d_obb(
+    monkeypatch, call_log
+):
+    """An OBB app config + marked shifted_v1 5D OBB checkpoint loads: the
+    contract check passes and load_state_dict runs exactly once."""
+    resolved = _resolved_with_box_mode("obb")
+    loaded = _loaded_for(resolved)
+    raw_ckpt = {
+        "model": {"decoder.enc_bbox_head.layers.2.bias": _bias(5)},
+        "meta": {"obb_angle_contract": OBB_ANGLE_CONTRACT},
+    }
+    stub, _ = _wire_stubs(monkeypatch, call_log, raw_ckpt=raw_ckpt)
+
+    adapter = DeimDetectionAdapter(resolved=resolved, loaded=loaded)
+    adapter.load(checkpoint="/ckpt.pth")  # must NOT raise
+
+    assert stub.model.load_state_dict_calls == 1
+    assert stub.model.deploy_calls == 1
+
+
+def test_obb_adapter_accepts_wrapper_4d_hbb_without_marker(
+    monkeypatch, call_log
+):
+    """An OBB app config + real 4D HBB pretraining checkpoint loads without a
+    marker: 4D HBB is always valid OBB tuning source (no marker required)."""
+    resolved = _resolved_with_box_mode("obb")
+    loaded = _loaded_for(resolved)
+    raw_ckpt = {"model": {"decoder.enc_bbox_head.layers.2.bias": _bias(4)}}
+    stub, _ = _wire_stubs(monkeypatch, call_log, raw_ckpt=raw_ckpt)
+
+    adapter = DeimDetectionAdapter(resolved=resolved, loaded=loaded)
+    adapter.load(checkpoint="/ckpt.pth")  # must NOT raise
+
+    assert stub.model.load_state_dict_calls == 1
+
+
+def test_hbb_adapter_does_not_require_marker(monkeypatch, call_log):
+    """An HBB app config never enforces the OBB marker: a checkpoint with no
+    head key and no marker loads cleanly (the contract is OBB-only)."""
+    resolved = _resolved_with_box_mode("hbb")
+    loaded = _loaded_for(resolved)
+    raw_ckpt = {"model": {"backbone.w": torch.zeros(2)}}
+    stub, _ = _wire_stubs(monkeypatch, call_log, raw_ckpt=raw_ckpt)
+
+    adapter = DeimDetectionAdapter(resolved=resolved, loaded=loaded)
+    adapter.load(checkpoint="/ckpt.pth")  # must NOT raise
+
+    assert stub.model.load_state_dict_calls == 1
+
+
+def test_obb_adapter_contract_check_runs_after_torch_load_before_select(
+    monkeypatch, call_log
+):
+    """The contract check sits between torch.load and select_model_state: the
+    raw checkpoint is loaded, classified on the RAW dict (meta retained), and
+    only a passing checkpoint reaches select_model_state."""
+    resolved = _resolved_with_box_mode("obb")
+    loaded = _loaded_for(resolved)
+    raw_ckpt = {
+        "model": {"decoder.enc_bbox_head.layers.2.bias": _bias(5)},
+        "meta": {"obb_angle_contract": OBB_ANGLE_CONTRACT},
+    }
+    _, select_calls = _wire_stubs(monkeypatch, call_log, raw_ckpt=raw_ckpt)
+
+    adapter = DeimDetectionAdapter(resolved=resolved, loaded=loaded)
+    adapter.load(checkpoint="/ckpt.pth")
+
+    assert call_log.index("torch.load") < call_log.index("select_model_state")
+    assert len(select_calls) == 1
 
 
 # ---- stubs (predict/export) --------------------------------------------------

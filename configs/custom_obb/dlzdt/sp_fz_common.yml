@@ -1,18 +1,11 @@
 # ============================================================================
 # sp_fz 公共消融基线配置
 # ============================================================================
-# 本文件是 OBB decoder 6 变量消融实验的公共基线。
-# 所有消融配置（ablation/*.yml）通过 __include__ 继承本文件，仅覆盖单个变量。
-#
-# 基线参数（全部 6 个消融变量取代码默认值）:
-#   angle_rep=0, offset_scale_source="pre", use_gate_fusion=false,
-#   angle_step=0.0, use_angle_first=false, decoder_angle_encoding="proportional"
-#
-# 消融变量兼容性约束（代码强制，见 deim_decoder.py）:
-#   - angle_step > 0     仅对 rep0/1/3 有效（rep2 anchor 为 6D 外接矩形偏移，无 θ 通道）
-#   - use_angle_first    仅对 rep3 有效（rep2 会触发构造期 ValueError）
-#   - use_gate_fusion    仅对 rep2/3 有效（rep0/1 无 decouple_angle 分支）
-#   - decoder_angle_encoding="shifted"  仅对 rep0/1/3 有效（rep2 强制 proportional）
+# 本文件是 OBB decoder 训练基线配置（angle_rep=0）。
+# 清理后仅保留 rep0/rep3 两种表征，shifted 为唯一 decoder 角度编码；
+# rep3 配置见 ablation/abl_rep3.yml（仅覆盖 angle_rep=3）。
+# 历史 6 变量消融（offset_scale_source / use_gate_fusion / angle_step /
+# use_angle_first / decoder_angle_encoding）已移除，行为在代码中固定。
 #
 # 派生参数 obbox_rep_dim（DEIMCriterion）随 angle_rep 变化:
 #   rep0 → 6, rep1 → 5, rep2 → 6, rep3 → 5
@@ -181,38 +174,9 @@ DEIMTransformer:
   #
   # angle_rep: OBB 角度表示模式（deim_decoder.py DEIMTransformer.__init__）
   #   0 → (cx,cy,w,h,θ_norm) + 6D refinement (α,β,γ,δ,ε,η)
-  #   1 → (cx,cy,w,h,θ_norm) + 5D refinement (α,β,γ,δ,Δθ)  角度残差直接回归
-  #   2 → (cx,cy,w,h,ε,η)   外接矩形偏移表示，无显式 θ（rep2 强制 proportional）
   #   3 → (cx,cy,w,h,θ_norm) + 5D refinement + 解耦角度流（decouple_angle_layers）
+  #   仅接受 0/3，其余取值构造期 ValueError。
   angle_rep: 0
-
-  # offset_scale_source: vertex offset 缩放时机（obb_geometry.py distance2bbox_obb/bbox2distance_obb）
-  #   "pre"  → offset 在归一化空间缩放后映射到物理空间（默认）
-  #   "post" → offset 先映射到物理空间再缩放
-  #   注意: decoder 与 criterion 必须一致（DEIMCriterion.offset_scale_source 同步设置）
-  offset_scale_source: "pre"
-
-  # use_gate_fusion: box/angle 分支 GatedSoftmaxFusion（仅 rep2/3 有效）
-  #   false → 两路特征直接 concat
-  #   true  → 两路特征经门控权重融合（gated_fusion.py GatedSoftmaxFusion）
-  use_gate_fusion: false
-
-  # angle_step: 多角度锚点步长（仅 rep0/1/3 有效）
-  #   0.0 → 每个空间位置 1 个默认角度锚点（45°，θ_norm=0.25 或 shifted θ_shift=0.5）
-  #   >0  → 每位置生成 1/step 个角度候选（如 0.1 → 10 个），增加初始角度多样性
-  angle_step: 0.0
-
-  # use_angle_first: query 先预测角度再引导位置回归（仅 rep3 有效，rep2 禁止）
-  #   false → query_pos_head 接收 4D 位置，角度独立流
-  #   true  → query_pos_head 接收 5D (位置+角度)，角度引导位置注意力
-  use_angle_first: false
-
-  # decoder_angle_encoding: decoder 私有角度编码模式
-  #   "proportional" → θ_norm = θ_phys/π ∈ [0,1)，当前默认，checkpoint 兼容
-  #   "shifted"      → θ_shift = remainder(θ_phys/π + 0.25, 1) ∈ [0,1)
-  #                    seam 从 0/π 移至 3π/4，避免 sigmoid 边界梯度消失
-  #                    （仅 rep0/1/3 有效，rep2 强制 proportional）
-  decoder_angle_encoding: "proportional"
 
 PostProcessor:
   box_mode: obb
@@ -256,7 +220,6 @@ optimizer:
 # alpha=0.75: focal loss 的 α 参数
 # reg_max=32: FGL 分布的最大 bin 数
 # obbox_rep_dim=6: criterion 消费的 box 表示维度（rep0/2→6, rep1/3→5，随消融配置变化）
-# offset_scale_source: 必须与 DEIMTransformer 一致
 DEIMCriterion:
   weight_dict: {loss_mal: 1, loss_bbox: 5, loss_probiou: 5, loss_angle: 3, loss_kld: 2, loss_fgl: 0.15, loss_ddf: 1.5}
   losses: ['mal', 'boxes', 'local']
@@ -269,7 +232,6 @@ DEIMCriterion:
   reg_max: 32
   box_mode: obb
   obbox_rep_dim: 6              # 派生自 angle_rep: rep0/2→6, rep1/3→5
-  offset_scale_source: "pre"   # 必须与 DEIMTransformer 同步
 
   # ---- Hungarian Matcher ----
   # change_matcher=False: 不启用 matcher 策略切换（全程使用同一组 cost 权重）

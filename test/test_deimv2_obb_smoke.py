@@ -27,16 +27,7 @@ if ROOT not in sys.path:
 
 from engine.deim.dfine_decoder import MSDeformableAttention
 from engine.deim.deim_decoder import DEIMTransformer
-from engine.deim.obb_angle_contract import (
-    norm_to_physical_rad,
-    physical_rad_to_norm,
-    physical_rad_to_shifted_norm,
-    shifted_norm_to_physical_rad,
-)
-from engine.deim.obb_geometry import (
-    external_xywh_rect_to_oriented_box,
-    oriented_box_to_external_xywh_rect,
-)
+from engine.deim.obb_angle_contract import norm_to_physical_rad
 from engine.deim.denoising import get_contrastive_denoising_training_group
 from engine.deim.utils import inverse_sigmoid
 
@@ -59,10 +50,7 @@ def _make_msdeform_value(bs, num_head, head_dim, spatial_shapes):
 
 def _make_obb_model(
     angle_rep,
-    use_angle_first=False,
-    decoder_angle_encoding="proportional",
     num_denoising=0,
-    angle_step=0.0,
 ):
     torch.manual_seed(0)
     return DEIMTransformer(
@@ -95,10 +83,6 @@ def _make_obb_model(
         share_score_head=False,
         box_mode="obb",
         angle_rep=angle_rep,
-        offset_scale_source="pre",
-        angle_step=angle_step,
-        use_angle_first=use_angle_first,
-        decoder_angle_encoding=decoder_angle_encoding,
     )
 
 
@@ -160,37 +144,6 @@ def test_msdeform_attn_decouple_angle_reference_consumes_theta(seed):
     assert torch.isfinite(out_5d).all(), "5-dim ref produced non-finite output"
     assert out_5d.shape == (bs, n_queries, embed_dim)
 
-    # --- 6-dim reference: external-rectangle (ext_cx, ext_cy, w_ext, h_ext, eps, eta) ---
-    # Build valid physical OBBs and encode them to the external-rectangle
-    # representation the 6D reference actually carries (Stage 2 Task 2):
-    # theta_phys in [0, pi), centers in roughly [0.3, 0.7],
-    # widths/heights in [0.1, 0.3].
-    theta_phys = torch.rand(bs, n_queries, n_ref_levels, 1) * math.pi
-    centers = 0.3 + 0.4 * torch.rand(bs, n_queries, n_ref_levels, 2)
-    wh = 0.1 + 0.2 * torch.rand(bs, n_queries, n_ref_levels, 2)
-    obb_phys = torch.cat([centers, wh, theta_phys], dim=-1)  # (..., 5) physical OBB
-    ext_xywh, offsets = oriented_box_to_external_xywh_rect(obb_phys)
-    ref_6d = torch.cat([ext_xywh, offsets], dim=-1)
-    out_6d = attn(query, ref_6d, value, spatial_shapes)
-    assert torch.isfinite(out_6d).all(), "6-dim ref produced non-finite output"
-    assert out_6d.shape == (bs, n_queries, embed_dim)
-
-    # --- 5-dim and 6-dim converge when 6-dim converts to the same OBB ---
-    ref_6d_as_obb_phys = external_xywh_rect_to_oriented_box(
-        ref_6d[..., :4], ref_6d[..., 4:]
-    )
-    ref_6d_as_obb_norm = torch.cat(
-        [
-            ref_6d_as_obb_phys[..., :4],
-            physical_rad_to_norm(ref_6d_as_obb_phys[..., 4:]),
-        ],
-        dim=-1,
-    )
-    out_6d_as_5d = attn(query, ref_6d_as_obb_norm, value, spatial_shapes)
-    assert torch.allclose(
-        out_6d, out_6d_as_5d, atol=1e-6
-    ), "6-dim ADR path and equivalent 5-dim OBB path must converge"
-
     # --- theta is consumed: changing 5th dim changes output ---
     ref_5d_rotated = ref_5d.clone()
     ref_5d_rotated[..., 4] = (ref_5d[..., 4] + 0.5) % 1.0
@@ -212,60 +165,6 @@ def test_msdeform_attn_decouple_angle_reference_consumes_theta(seed):
 # ---------------------------------------------------------------------------
 
 
-def test_msdeform_attn_shifted_equiv_to_proportional_same_phys():
-    """spec §12.3: 同一物理角，shifted 与 proportional 编码的 5D reference
-    在注意力中必须产生相同输出（站点 5 的 shifted 分支经
-    shifted_norm_to_physical_rad 还原后与 ×π 等价的物理角一致）。
-
-    Given: 两个同权重 MSDeformableAttention（proportional / shifted）。
-    When:  对同一物理角 theta_phys，分别用 theta_norm 与 theta_shift 编码
-            5D reference 前向。
-    Then:  输出必须 allclose（shifted 分支不得忽略/错解 θ）。
-    """
-    torch.manual_seed(0)
-    embed_dim, num_heads, num_levels, num_points = 32, 4, 2, 2
-    spatial_shapes = [(4, 4), (2, 2)]
-    bs, n_queries, n_ref_levels = 1, 5, 1
-
-    attn_prop = MSDeformableAttention(
-        embed_dim=embed_dim,
-        num_heads=num_heads,
-        num_levels=num_levels,
-        num_points=num_points,
-        method="default",
-        angle_encoding="proportional",
-    )
-    attn_shift = MSDeformableAttention(
-        embed_dim=embed_dim,
-        num_heads=num_heads,
-        num_levels=num_levels,
-        num_points=num_points,
-        method="default",
-        angle_encoding="shifted",
-    )
-    attn_shift.load_state_dict(attn_prop.state_dict())
-    attn_prop.eval()
-    attn_shift.eval()
-
-    query = torch.randn(bs, n_queries, embed_dim)
-    value = _make_msdeform_value(bs, num_heads, embed_dim // num_heads, spatial_shapes)
-
-    centers = 0.3 + 0.4 * torch.rand(bs, n_queries, n_ref_levels, 2)
-    wh = 0.1 + 0.2 * torch.rand(bs, n_queries, n_ref_levels, 2)
-    theta_phys = torch.rand(bs, n_queries, n_ref_levels, 1) * math.pi
-
-    ref_prop = torch.cat([centers, wh, physical_rad_to_norm(theta_phys)], dim=-1)
-    ref_shift = torch.cat([centers, wh, physical_rad_to_shifted_norm(theta_phys)], dim=-1)
-
-    out_prop = attn_prop(query, ref_prop, value, spatial_shapes)
-    out_shift = attn_shift(query, ref_shift, value, spatial_shapes)
-    assert torch.isfinite(out_shift).all(), "shifted 5D ref 输出含 NaN"
-    assert torch.allclose(out_prop, out_shift, atol=1e-5), (
-        "同一物理角的 shifted 与 proportional 注意力输出必须一致；"
-        "站点 5 未正确还原 shifted 编码"
-    )
-
-
 def test_msdeform_attn_shifted_90deg_rotation_axis():
     """spec §12.3: 90° reference（theta_shift=0.75）在 shifted 模式下改变
     θ 会改变输出（θ 被消费，非忽略），且输出有限。
@@ -277,7 +176,7 @@ def test_msdeform_attn_shifted_90deg_rotation_axis():
 
     attn_shift = MSDeformableAttention(
         embed_dim=embed_dim, num_heads=num_heads, num_levels=num_levels,
-        num_points=num_points, method="default", angle_encoding="shifted",
+        num_points=num_points, method="default",
     )
     attn_shift.eval()
 
@@ -295,52 +194,6 @@ def test_msdeform_attn_shifted_90deg_rotation_axis():
     assert not torch.allclose(out_90, out_0, atol=1e-6), (
         "shifted 模式 θ 通道被忽略（90° 与 0° 输出相同）"
     )
-
-
-# ---------------------------------------------------------------------------
-# Test 3: decoder_angle_encoding 配置传播与校验（spec §6）
-# ---------------------------------------------------------------------------
-
-
-def test_decoder_angle_encoding_invalid_raises():
-    with pytest.raises(ValueError, match="decoder_angle_encoding"):
-        _make_obb_model(angle_rep=0, decoder_angle_encoding="bogus")
-    with pytest.raises(ValueError, match="decoder_angle_encoding"):
-        DEIMTransformer(
-            num_classes=5, hidden_dim=32, num_queries=4,
-            feat_channels=[32, 32], feat_strides=[4, 8], num_levels=2,
-            num_points=2, nhead=4, num_layers=3, dim_feedforward=64,
-            dropout=0.0, activation="relu", num_denoising=0,
-            learn_query_content=False, eval_spatial_size=(16, 16),
-            eval_idx=-1, eps=1e-2, aux_loss=False,
-            cross_attn_method="default", query_select_method="default",
-            reg_max=4, reg_scale=4.0, layer_scale=1, mlp_act="relu",
-            use_gateway=True, share_bbox_head=False, share_score_head=False,
-            box_mode="obb", angle_rep=2, offset_scale_source="pre",
-            use_angle_first=False, decoder_angle_encoding="bogus",
-        )
-
-
-def test_decoder_angle_encoding_default_proportional():
-    model = _make_obb_model(angle_rep=0)
-    assert model.decoder_angle_encoding == "proportional"
-    assert model.decoder.decoder_angle_encoding == "proportional"
-    assert model.decoder.layers[0].cross_attn.angle_encoding == "proportional"
-    assert model.decoder.layers[-1].cross_attn.angle_encoding == "proportional"
-
-
-def test_resolved_angle_encoding_rep0_shifted():
-    model = _make_obb_model(angle_rep=0, decoder_angle_encoding="shifted")
-    assert model.decoder_angle_encoding == "shifted"
-    assert model.decoder.decoder_angle_encoding == "shifted"
-    assert model.decoder.layers[0].cross_attn.angle_encoding == "shifted"
-
-
-def test_resolved_angle_encoding_rep2_forced_proportional():
-    model = _make_obb_model(angle_rep=2, decoder_angle_encoding="shifted")
-    assert model.decoder_angle_encoding == "proportional"
-    assert model.decoder.decoder_angle_encoding == "proportional"
-    assert model.decoder.layers[0].cross_attn.angle_encoding == "proportional"
 
 
 # ---------------------------------------------------------------------------
@@ -402,8 +255,7 @@ def test_decouple_angle_reference_dimensionality_consistent(seed):
         share_bbox_head=False,
         share_score_head=False,
         box_mode="obb",
-        angle_rep=True,
-        offset_scale_source="pre",
+        angle_rep=3,
     )
     # Use training mode so the output dict includes pred_corners and
     # ref_points (eval mode only returns pred_boxes/pred_logits, see
@@ -469,125 +321,35 @@ def test_decouple_angle_reference_dimensionality_consistent(seed):
 # ---------------------------------------------------------------------------
 
 
-def test_anchor_default_r_is_pi_over_4():
-    """_generate_anchors 单角度默认 r=0.25, sigmoid 后 *π = π/4。"""
-    torch.manual_seed(0)
-    model = DEIMTransformer(
-        num_classes=5,
-        hidden_dim=32,
-        num_queries=4,
-        feat_channels=[32, 32],
-        feat_strides=[4, 8],
-        num_levels=2,
-        num_points=2,
-        nhead=4,
-        num_layers=3,
-        dim_feedforward=64,
-        dropout=0.0,
-        activation="relu",
-        num_denoising=0,
-        learn_query_content=False,
-        eval_spatial_size=(16, 16),
-        eval_idx=-1,
-        eps=1e-2,
-        aux_loss=False,
-        cross_attn_method="default",
-        query_select_method="default",
-        reg_max=4,
-        reg_scale=4.0,
-        layer_scale=1,
-        mlp_act="relu",
-        use_gateway=True,
-        share_bbox_head=False,
-        share_score_head=False,
-        box_mode="obb",
-        angle_rep=0,
-        offset_scale_source="pre",
-    )
-    # model.anchors 是 init 时缓存的 logit 空间 buffer; sigmoid 还原到 [0,1] norm
-    r = torch.sigmoid(model.anchors[..., -1])
-    # angle_step=0 → 所有候选应为同一默认值 0.25 (物理 π/4)
-    assert torch.allclose(
-        r, torch.full_like(r, 0.25), atol=1e-6
-    ), f"anchor r 应为 0.25 (物理 π/4), got min={r.min():.6f} max={r.max():.6f}"
-
-
 # ---------------------------------------------------------------------------
 # Test 3c: anchor 站点 1/1b + encoder 辅助站点 6（spec §7）
 # ---------------------------------------------------------------------------
 
 
 def test_anchor_default_r_shifted_is_half():
-    """spec 站点 1: shifted 默认 anchor θ=0.5（45° 于 sigmoid 中心）；
-    proportional 保持 0.25。二者物理角一致（0.25π）。"""
-    model_shift = _make_obb_model(angle_rep=0, decoder_angle_encoding="shifted")
-    model_prop = _make_obb_model(angle_rep=0, decoder_angle_encoding="proportional")
-    for model, expected in [(model_shift, 0.5), (model_prop, 0.25)]:
-        anchors_unact, _ = model._generate_anchors([[4, 4], [2, 2]], device="cpu")
-        anchors = torch.sigmoid(anchors_unact)
-        assert torch.allclose(
-            anchors[..., 4], torch.full_like(anchors[..., 4], expected), atol=1e-6
-        ), f"anchor θ 应为 {expected}, got {anchors[0, 0, 4].item():.6f}"
-
-
-def test_anchor_angle_step_shifted_candidates():
-    """spec 站点 1b: shifted angle_step=0.2 → remainder(r+0.25,1)。
-
-    arange(5)*0.2={0,0.2,0.4,0.6,0.8} shifted → {0.25,0.45,0.65,0.85,0.05}。
-    """
-    model = _make_obb_model(
-        angle_rep=0, decoder_angle_encoding="shifted", angle_step=0.2
-    )
-    anchors_unact, valid_mask = model._generate_anchors([[4, 4]], device="cpu")
+    """shifted 默认 anchor θ=0.5（45° 于 sigmoid 中心）。"""
+    model = _make_obb_model(angle_rep=0)
+    anchors_unact, _ = model._generate_anchors([[4, 4], [2, 2]], device="cpu")
     anchors = torch.sigmoid(anchors_unact)
-    valid = valid_mask.squeeze(-1)
-    theta_vals = set(round(float(v), 2) for v in anchors[..., 4][valid].unique().tolist())
-    expected = {0.05, 0.25, 0.45, 0.65, 0.85}
-    assert theta_vals == expected, f"got {theta_vals}, want {expected}"
-
-
-def test_anchor_angle_step_proportional_unchanged():
-    """spec 站点 1b: proportional angle_step=0.2 → arange(5)*0.2，
-    θ=0.0 被 valid_mask(eps) 剔除。"""
-    model = _make_obb_model(
-        angle_rep=0, decoder_angle_encoding="proportional", angle_step=0.2
-    )
-    anchors_unact, valid_mask = model._generate_anchors([[4, 4]], device="cpu")
-    anchors = torch.sigmoid(anchors_unact)
-    valid = valid_mask.squeeze(-1)
-    theta_vals = set(round(float(v), 2) for v in anchors[..., 4][valid].unique().tolist())
-    assert theta_vals == {0.2, 0.4, 0.6, 0.8}, f"got {theta_vals}"
+    assert torch.allclose(
+        anchors[..., 4], torch.full_like(anchors[..., 4], 0.5), atol=1e-6
+    ), f"anchor θ 应为 0.5, got {anchors[0, 0, 4].item():.6f}"
 
 
 def test_encoder_aux_theta_known_answer_shifted():
-    """spec 站点 6 判别性 known-answer：零初始化下 encoder 辅助 θ 必为 π/4。
-
-    zero-init enc_bbox_head → enc_topk_bbox_unact == anchors 精确；shifted
-    anchor θ_shift=0.5 → 站点 6 还原为 π/4。若未还原（仍 norm_to_physical_rad），
-    shifted 会得 0.5π ≠ π/4。
-    """
+    """零初始化下 encoder 辅助 θ 必为 π/4（shifted anchor θ_shift=0.5 还原）。"""
     torch.manual_seed(0)
     feats = [torch.randn(1, 32, 8, 8), torch.randn(1, 32, 4, 4)]
-    model_prop = _make_obb_model(angle_rep=0, decoder_angle_encoding="proportional")
-    model_shift = _make_obb_model(angle_rep=0, decoder_angle_encoding="shifted")
-    model_prop.train()
-    model_shift.train()
-
-    results = {}
-    for enc, model in [("proportional", model_prop), ("shifted", model_shift)]:
-        memory, spatial_shapes = model._get_encoder_input(feats)
-        with torch.no_grad():
-            _, _, enc_list, _ = model._get_decoder_input(memory, spatial_shapes)
-        theta = enc_list[0][..., 4]
-        assert torch.isfinite(theta).all(), f"{enc} encoder 辅助 θ 含 NaN"
-        results[enc] = theta
-
+    model = _make_obb_model(angle_rep=0)
+    model.train()
+    memory, spatial_shapes = model._get_encoder_input(feats)
+    with torch.no_grad():
+        _, _, enc_list, _ = model._get_decoder_input(memory, spatial_shapes)
+    theta = enc_list[0][..., 4]
+    assert torch.isfinite(theta).all(), "encoder 辅助 θ 含 NaN"
     assert torch.allclose(
-        results["shifted"], torch.full_like(results["shifted"], math.pi / 4), atol=1e-4
-    ), f"shifted encoder 辅助 θ 应 ≈ π/4, got mean={results['shifted'].mean():.4f}"
-    assert torch.allclose(results["proportional"], results["shifted"], atol=1e-4), (
-        "两模式 encoder 辅助 θ 应一致（同为 π/4）"
-    )
+        theta, torch.full_like(theta, math.pi / 4), atol=1e-4
+    ), f"encoder 辅助 θ 应 ≈ π/4, got mean={theta.mean():.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -595,11 +357,8 @@ def test_encoder_aux_theta_known_answer_shifted():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("angle_rep", "use_angle_first"),
-    [(0, False), (1, False), (2, False), (3, True)],
-)
-def test_angle_rep_forward_theta_in_proportional_domain(angle_rep, use_angle_first):
+@pytest.mark.parametrize("angle_rep", [0, 3])
+def test_angle_rep_forward_theta_in_proportional_domain(angle_rep):
     torch.manual_seed(0)
     model = DEIMTransformer(
         num_classes=5,
@@ -631,8 +390,6 @@ def test_angle_rep_forward_theta_in_proportional_domain(angle_rep, use_angle_fir
         share_score_head=False,
         box_mode="obb",
         angle_rep=angle_rep,
-        offset_scale_source="pre",
-        use_angle_first=use_angle_first,
     )
     model.train()
     feats = [torch.randn(1, 32, 8, 8), torch.randn(1, 32, 4, 4)]
@@ -648,37 +405,18 @@ def test_angle_rep_forward_theta_in_proportional_domain(angle_rep, use_angle_fir
             f"got min={tensor.min():.4f} max={tensor.max():.4f}"
         )
 
-    # rep2 encoder auxiliary must emit finite 5D OBBs (Stage 2 Task 2 Step 6):
-    # enc_topk_bboxes_list is decoded through external_xyxy_rect_to_oriented_box.
-    if angle_rep == 2:
-        enc_aux = outputs["enc_aux_outputs"][0]["pred_boxes"]
-        assert enc_aux.shape[-1] == 5, (
-            f"rep2 enc_aux_outputs pred_boxes must be 5D, got {enc_aux.shape[-1]}"
-        )
-        assert torch.isfinite(enc_aux).all(), (
-            f"rep2 enc_aux_outputs pred_boxes must be finite, got non-finite values"
-        )
-
 
 # ---------------------------------------------------------------------------
-# Test 4b: 前向矩阵 4 表示 × 2 配置 + rep2 golden + shifted known-answer（spec §12.2）
+# Test 4b: 前向矩阵 4 表示 × 2 配置 + shifted known-answer（spec §12.2）
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("angle_rep", "use_angle_first"),
-    [(0, False), (1, False), (2, False), (3, True)],
-)
-@pytest.mark.parametrize("decoder_angle_encoding", ["proportional", "shifted"])
-def test_forward_matrix_public_theta_domain(
-    angle_rep, use_angle_first, decoder_angle_encoding
-):
-    """spec §12.2: 4 表示 × 2 配置，公开输出 θ ∈ [0, π)、无 NaN。"""
+@pytest.mark.parametrize("angle_rep", [0, 3])
+def test_forward_matrix_public_theta_domain(angle_rep):
+    """公开输出 θ ∈ [0, π)、无 NaN。"""
     torch.manual_seed(0)
     model = _make_obb_model(
         angle_rep=angle_rep,
-        use_angle_first=use_angle_first,
-        decoder_angle_encoding=decoder_angle_encoding,
     )
     model.train()
     feats = [torch.randn(1, 32, 8, 8), torch.randn(1, 32, 4, 4)]
@@ -691,75 +429,23 @@ def test_forward_matrix_public_theta_domain(
         ("pre_bboxes", outputs["pre_outputs"]["pred_boxes"][..., 4]),
     ]:
         assert torch.isfinite(tensor).all(), (
-            f"rep={angle_rep} enc={decoder_angle_encoding} {name} 含 NaN"
+            f"rep={angle_rep} {name} 含 NaN"
         )
         assert (tensor >= 0).all() and (tensor < math.pi).all(), (
-            f"rep={angle_rep} enc={decoder_angle_encoding} {name} θ 应 ∈ [0, π), "
+            f"rep={angle_rep} {name} θ 应 ∈ [0, π), "
             f"got min={tensor.min():.4f} max={tensor.max():.4f}"
         )
 
 
-def test_rep2_forward_bitwise_identical_across_modes():
-    """spec §12.2: rep2 在 proportional 与 shifted 配置下输出逐位一致（golden）。"""
-    torch.manual_seed(0)
-    feats = [torch.randn(1, 32, 8, 8), torch.randn(1, 32, 4, 4)]
-
-    model_prop = _make_obb_model(angle_rep=2, decoder_angle_encoding="proportional")
-    model_shift = _make_obb_model(angle_rep=2, decoder_angle_encoding="shifted")
-    model_prop.train()
-    model_shift.train()
-    with torch.no_grad():
-        out_prop = model_prop(feats)
-        out_shift = model_shift(feats)
-
-    for key in ["pred_boxes", "pred_logits", "pred_corners", "ref_points"]:
-        assert torch.equal(out_prop[key], out_shift[key]), (
-            f"rep2 {key} 在两种编码配置下必须逐位一致"
-        )
-
-
-def test_shifted_public_theta_matches_proportional_same_anchor():
-    """spec §12.2 判别性 known-answer：零初始化下 shifted 与 proportional 的
-    公开 θ 必须逐位接近（同为 anchor 物理角 45° → π/4）。
-
-    zero-init 使 pre_bboxes == anchor 值：prop θ_norm=0.25 ↔ shifted
-    θ_shift=0.5，二者物理角均为 π/4。若站点 3/4/7 任一未正确还原 shifted，
-    shifted 公开 θ 会偏离 ~π/4（0.785），与 proportional 不一致。
-    """
-    torch.manual_seed(0)
-    feats = [torch.randn(1, 32, 8, 8), torch.randn(1, 32, 4, 4)]
-
-    model_prop = _make_obb_model(angle_rep=0, decoder_angle_encoding="proportional")
-    model_shift = _make_obb_model(angle_rep=0, decoder_angle_encoding="shifted")
-    model_prop.train()
-    model_shift.train()
-    with torch.no_grad():
-        out_prop = model_prop(feats)
-        out_shift = model_shift(feats)
-
-    for name, tensor_of in [
-        ("pred_boxes", lambda o: o["pred_boxes"][..., 4]),
-        ("ref_points", lambda o: o["ref_points"][..., 4]),
-        ("pre_bboxes", lambda o: o["pre_outputs"]["pred_boxes"][..., 4]),
-    ]:
-        t_prop = tensor_of(out_prop)
-        t_shift = tensor_of(out_shift)
-        assert torch.allclose(t_prop, t_shift, atol=1e-4), (
-            f"shifted 与 proportional 的 {name} θ 必须一致（同为 π/4），"
-            f"got prop={t_prop.mean():.4f} shift={t_shift.mean():.4f}"
-        )
-
-
 # ---------------------------------------------------------------------------
-# Test 5: denoising 等比化 — GT θ ∈ [0,π) → θ_norm ∈ [0,1)，无 clip
+# Test 5: denoising — GT θ ∈ [0,π) → θ_shift ∈ [0,1)，无 clip
 # ---------------------------------------------------------------------------
 
 
 import torch.nn as nn
 
 
-def _run_denoising(gt_theta_rad, num_classes=5, hidden_dim=8):
-    """调用 denoising 函数，返回 sigmoid 还原后的 θ_norm。"""
+def _run_denoising_shifted(gt_theta_rad, num_classes=5, hidden_dim=8):
     target = {
         "labels": torch.tensor([0], dtype=torch.int64),
         "boxes": torch.tensor(
@@ -777,50 +463,11 @@ def _run_denoising(gt_theta_rad, num_classes=5, hidden_dim=8):
         box_noise_scale=1.0,
         box_mode="obb",
     )
-    # dn_bbox_unact 是 inverse_sigmoid 后的 logit; sigmoid 还原到 θ_norm
     return torch.sigmoid(dn_bbox_unact[..., 4])
 
 
-@pytest.mark.parametrize(
-    "gt_theta, expected_norm",
-    [
-        (3 * math.pi / 4, 0.75),  # 旧 shifted (θ+π/4)/π 会给 1.0 (clip), 等比给 0.75
-        (math.pi / 4, 0.25),
-        (0.0, 0.0),
-    ],
-)
-def test_denoising_theta_norm_proportional(gt_theta, expected_norm):
-    torch.manual_seed(0)
-    theta_norm = _run_denoising(gt_theta)
-    # 角度不加噪, 所有 dn query 共享同一 GT θ_norm; atol 放宽到 1e-4 以吸收
-    # θ=0 边界处 inverse_sigmoid(0)=-inf → sigmoid≈1e-5 的数值往返误差
-    assert torch.allclose(
-        theta_norm, torch.full_like(theta_norm, expected_norm), atol=1e-4
-    ), (
-        f"GT θ={gt_theta:.4f}: 期望 θ_norm={expected_norm}, "
-        f"got min={theta_norm.min():.6f} max={theta_norm.max():.6f}"
-    )
-
-
-def test_denoising_theta_near_pi_no_overflow():
-    """GT θ → π⁻ 时 θ_norm → 1⁻, 不越界 (旧 shifted (θ+π/4)/π 会 >1)。"""
-    torch.manual_seed(0)
-    theta_norm = _run_denoising(math.pi - 1e-4)
-    assert (theta_norm < 1.0).all(), f"θ_norm 应 < 1, got max={theta_norm.max():.6f}"
-    assert (
-        theta_norm > 0.999
-    ).all(), f"θ near π 时 θ_norm 应接近 1, got min={theta_norm.min():.6f}"
-
-
 def test_denoising_box_noise_scale_zero_preserves_original_obb():
-    """box_noise_scale=0 must return the original OBB unchanged (Stage 2 Task 5).
-
-    The denoising module currently only assigns input_query_bbox_unact
-    inside the `box_noise_scale > 0` branch; with box_noise_scale=0 the
-    variable is never bound and the return raises UnboundLocalError.
-    With zero noise the spatial part must equal the input GT box and the
-    angle must be the normalized physical angle.
-    """
+    """box_noise_scale=0 returns the original OBB unchanged (angle as shifted norm)."""
     torch.manual_seed(0)
     gt_theta = math.pi / 4
     target = {
@@ -841,37 +488,11 @@ def test_denoising_box_noise_scale_zero_preserves_original_obb():
         box_mode="obb",
     )
     boxes = torch.sigmoid(dn_bbox_unact)
-    expected = torch.tensor([0.5, 0.5, 0.3, 0.2, 0.25])
+    # pi/4 -> shifted_norm = remainder(0.25 + 0.25, 1) = 0.5
+    expected = torch.tensor([0.5, 0.5, 0.3, 0.2, 0.5])
     assert torch.allclose(
         boxes, expected.reshape(1, 1, 5).expand_as(boxes), atol=1e-4
     ), f"zero-noise must preserve GT OBB, got {boxes[0, 0].tolist()}"
-
-
-# ---------------------------------------------------------------------------
-# Test 5b: denoising 站点 2 — shifted 编码（spec §7 站点 2）
-# ---------------------------------------------------------------------------
-
-
-def _run_denoising_with_encoding(gt_theta_rad, angle_encoding="proportional", num_classes=5, hidden_dim=8):
-    target = {
-        "labels": torch.tensor([0], dtype=torch.int64),
-        "boxes": torch.tensor(
-            [[0.5, 0.5, 0.3, 0.2, gt_theta_rad]], dtype=torch.float32
-        ),
-    }
-    class_embed = nn.Embedding(num_classes + 1, hidden_dim)
-    _, dn_bbox_unact, _, _ = get_contrastive_denoising_training_group(
-        targets=[target],
-        num_classes=num_classes,
-        num_queries=4,
-        class_embed=class_embed,
-        num_denoising=10,
-        label_noise_ratio=0.0,
-        box_noise_scale=1.0,
-        box_mode="obb",
-        angle_encoding=angle_encoding,
-    )
-    return torch.sigmoid(dn_bbox_unact[..., 4])
 
 
 @pytest.mark.parametrize(
@@ -884,211 +505,12 @@ def _run_denoising_with_encoding(gt_theta_rad, angle_encoding="proportional", nu
     ],
 )
 def test_denoising_theta_shifted(gt_theta, expected_shift):
-    """spec 站点 2: shifted 模式 GT θ → θ_shift ∈ [0,1)，无 clip。"""
+    """shifted encoding: GT θ -> θ_shift in [0,1), no clip."""
     torch.manual_seed(0)
-    theta_shift = _run_denoising_with_encoding(gt_theta, angle_encoding="shifted")
+    theta_shift = _run_denoising_shifted(gt_theta)
     assert torch.allclose(
         theta_shift, torch.full_like(theta_shift, expected_shift), atol=1e-4
     ), (
-        f"GT θ={gt_theta:.4f}: 期望 θ_shift={expected_shift}, "
+        f"GT θ={gt_theta:.4f}: expected θ_shift={expected_shift}, "
         f"got min={theta_shift.min():.6f} max={theta_shift.max():.6f}"
     )
-
-
-def test_denoising_default_angle_encoding_proportional():
-    """站点 2: 未传 angle_encoding（默认 proportional）时 θ_norm 行为不变。"""
-    torch.manual_seed(0)
-    theta_norm = _run_denoising_with_encoding(math.pi / 4, angle_encoding="proportional")
-    assert torch.allclose(
-        theta_norm, torch.full_like(theta_norm, 0.25), atol=1e-4
-    ), f"默认 proportional 应得 θ_norm=0.25, got {theta_norm.min():.6f}"
-
-
-def _make_rep2_model_with_denoising(num_denoising=4):
-    torch.manual_seed(0)
-    return DEIMTransformer(
-        num_classes=5,
-        hidden_dim=32,
-        num_queries=4,
-        feat_channels=[32, 32],
-        feat_strides=[4, 8],
-        num_levels=2,
-        num_points=2,
-        nhead=4,
-        num_layers=3,
-        dim_feedforward=64,
-        dropout=0.0,
-        activation="relu",
-        num_denoising=num_denoising,
-        learn_query_content=False,
-        eval_spatial_size=(16, 16),
-        eval_idx=-1,
-        eps=1e-2,
-        aux_loss=True,
-        cross_attn_method="default",
-        query_select_method="default",
-        reg_max=4,
-        reg_scale=4.0,
-        layer_scale=1,
-        mlp_act="relu",
-        use_gateway=True,
-        share_bbox_head=False,
-        share_score_head=False,
-        box_mode="obb",
-        angle_rep=2,
-        offset_scale_source="pre",
-        use_angle_first=False,
-    )
-
-
-def test_rep2_denoising_forward_emits_finite_5d_obb():
-    """rep2 denoising boundary must convert GT OBB to external cxcywh+offset
-    via sigmoid -> OBB -> oriented_box_to_external_xywh_rect -> inverse_sigmoid
-    (Stage 2 Task 3). The dn / dn_pre outputs must be finite 5D OBBs with
-    theta in [0, pi).
-    """
-    model = _make_rep2_model_with_denoising(num_denoising=4)
-    model.train()
-    feats = [torch.randn(1, 32, 8, 8), torch.randn(1, 32, 4, 4)]
-    targets = [
-        {
-            "labels": torch.tensor([1], dtype=torch.int64),
-            "boxes": torch.tensor(
-                [[0.5, 0.5, 0.3, 0.1, math.pi / 4]], dtype=torch.float32
-            ),
-        }
-    ]
-    with torch.no_grad():
-        outputs = model(feats, targets)
-
-    for name, boxes in [
-        ("pred_boxes", outputs["pred_boxes"]),
-        ("dn_pre", outputs["dn_pre_outputs"]["pred_boxes"]),
-        ("dn_last", outputs["dn_outputs"][-1]["pred_boxes"]),
-    ]:
-        assert boxes.shape[-1] == 5, (
-            f"{name}: must be 5D OBB, got {boxes.shape[-1]}"
-        )
-        assert torch.isfinite(boxes).all(), (
-            f"{name}: must be finite — denoising boundary likely calls "
-            f"geometry on logit-space input without sigmoid/inverse_sigmoid"
-        )
-        theta = boxes[..., 4]
-        assert (theta >= 0).all() and (theta < math.pi).all(), (
-            f"{name}: theta must be in [0, pi), "
-            f"got min={theta.min():.4f} max={theta.max():.4f}"
-        )
-
-
-def test_rep2_denoising_decoder_boundary_emits_external_xywh_offset_logits():
-    """rep2 denoising boundary must convert 5D OBB logits into 6D
-    external-rectangle (cxcywh, epsilon, eta) logits (Stage 2 Task 3).
-
-    The decoder boundary ``_get_decoder_input`` must apply the geometry in
-    probability space: sigmoid(denoising_bbox_unact) -> normalized OBB,
-    rescale the angle to physical radians, then
-    ``oriented_box_to_external_xywh_rect`` -> external cxcywh + offsets,
-    which are what the 6D reference fed to the decoder must match after
-    sigmoid. Current production passes the logit-space input straight into
-    ``oriented_box_to_external_xyxy_rect`` (no sigmoid / inverse_sigmoid,
-    XYXY instead of XYWH), so this must FAIL until the boundary is fixed.
-    """
-    model = _make_rep2_model_with_denoising(num_denoising=4)
-    model.train()
-    torch.manual_seed(0)
-
-    # Known normalized OBB (cx, cy, w, h, theta_norm) -> logit-space 5D ref.
-    norm_obb = torch.tensor(
-        [[[0.5, 0.5, 0.3, 0.2, 0.25]]], dtype=torch.float32
-    )
-    denoising_bbox_unact = inverse_sigmoid(norm_obb)  # (1, 1, 5)
-    num_dn = denoising_bbox_unact.shape[1]
-    denoising_logits = torch.randn(1, num_dn, model.hidden_dim)
-
-    spatial_shapes = [[8, 8], [4, 4]]  # 64 + 16 = 80 memory tokens
-    memory = torch.randn(1, 80, model.hidden_dim)
-
-    _, enc_topk_bbox_unact, _, _ = model._get_decoder_input(
-        memory,
-        spatial_shapes,
-        denoising_logits=denoising_logits,
-        denoising_bbox_unact=denoising_bbox_unact,
-    )
-
-    dn_ref = torch.sigmoid(enc_topk_bbox_unact[:, :num_dn])
-    assert dn_ref.shape[-1] == 6, (
-        f"dn decoder ref must be 6D (external cxcywh, eps, eta), "
-        f"got {dn_ref.shape[-1]}"
-    )
-
-    # Expected: sigmoid -> normalized OBB -> physical angle ->
-    # oriented_box_to_external_xywh_rect -> (external cxcywh, offsets).
-    obb_norm = torch.sigmoid(denoising_bbox_unact)
-    obb_phys = torch.cat(
-        [obb_norm[..., :4], norm_to_physical_rad(obb_norm[..., 4:])], dim=-1
-    )
-    ext_xywh, offsets = oriented_box_to_external_xywh_rect(obb_phys)
-    expected = torch.cat([ext_xywh, offsets], dim=-1)
-
-    assert torch.allclose(dn_ref, expected, atol=1e-4), (
-        "dn decoder ref must equal [external_xywh, eps, eta] derived after "
-        "sigmoid with the angle in physical radians; "
-        f"got {dn_ref[0, 0].tolist()}, expected {expected[0, 0].tolist()}"
-    )
-
-
-def test_rep2_generated_anchors_are_valid_external_rect_offsets():
-    """rep2 anchors must be valid external-rectangle offsets: channels 4/5
-    (epsilon/eta) are vertex offsets of an oriented box around the grid cell
-    and can never exceed the external rectangle width/height w_ext/h_ext
-    (channels 2/3).
-    Current `grid_offset_wh` is unrelated to external rectangle width and
-    height, so this must FAIL until Step 3 replaces it (Stage 2 Task 4).
-    """
-    model = DEIMTransformer(
-        num_classes=5,
-        hidden_dim=32,
-        num_queries=4,
-        feat_channels=[32, 32],
-        feat_strides=[4, 8],
-        num_levels=2,
-        num_points=2,
-        nhead=4,
-        num_layers=3,
-        dim_feedforward=64,
-        dropout=0.0,
-        activation="relu",
-        num_denoising=0,
-        learn_query_content=False,
-        eval_spatial_size=(16, 16),
-        eval_idx=-1,
-        eps=1e-2,
-        aux_loss=False,
-        cross_attn_method="default",
-        query_select_method="default",
-        reg_max=4,
-        reg_scale=4.0,
-        layer_scale=1,
-        mlp_act="relu",
-        use_gateway=True,
-        share_bbox_head=False,
-        share_score_head=False,
-        box_mode="obb",
-        angle_rep=2,
-        offset_scale_source="pre",
-        use_angle_first=False,
-    )
-    anchors_unact, valid_mask = model._generate_anchors(
-        [[4, 4], [2, 2]], device="cpu"
-    )
-    anchors = torch.sigmoid(anchors_unact)
-    valid = valid_mask.squeeze(-1)
-    valid_anchors = anchors[valid]
-
-    assert valid_anchors.shape[-1] == 6
-    assert valid_anchors.numel() > 0
-    assert torch.isfinite(valid_anchors).all()
-    assert (valid_anchors > model.eps).all()
-    assert (valid_anchors < 1 - model.eps).all()
-    assert (valid_anchors[..., 4] <= valid_anchors[..., 2]).all()
-    assert (valid_anchors[..., 5] <= valid_anchors[..., 3]).all()

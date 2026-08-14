@@ -5,7 +5,7 @@ and per-threshold precision for a given checkpoint.
 
 Usage:
     python test/model_health_diag.py
-    python test/model_health_diag.py -c configs/custom_obb/dlzdt/sp_ft_rep1.yml -r outputs/sp_ft_rep1_0715.pth -d cuda:0
+    python test/model_health_diag.py -c configs/custom_obb/dlzdt/sp_fz_common.yml -r outputs/dlzdt_ablation/abl_rep0.pth -d cuda:0
 
 What it reports:
     Box IoU    — per-GT best IoU with any prediction, distribution and match rate
@@ -189,9 +189,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="OBB model health diagnostic — IoU, scores, precision, mAP")
     parser.add_argument("-c", "--config",
-        default="configs/custom_obb/dlzdt/sp_ft_rep1.yml")
+        default="configs/custom_obb/dlzdt/sp_fz_common.yml")
     parser.add_argument("-r", "--ckpt",
-        default="outputs/sp_ft_rep1_0715.pth")
+        default="outputs/dlzdt_ablation/abl_rep0.pth")
     parser.add_argument("-d", "--device", default=DEFAULT_DEVICE)
     parser.add_argument("--data-base",
         default="/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val")

@@ -254,7 +254,6 @@ DEIMTransformer:
   dim_feedforward: 2048
   box_mode: obb
   angle_rep: 0
-  offset_scale_source: "pre"
 
 
 PostProcessor:
@@ -299,7 +298,6 @@ DEIMCriterion:
   box_mode: obb
   mal_iou_type: giou
   local_iou_type: giou
-  offset_scale_source: "pre"
 comet_project_name: deimv2_obb_synthetic
 
 DINOv3STAs:

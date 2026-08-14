@@ -5,7 +5,7 @@ model loading, using the same checkpoint and val dataloader.
 
 Usage:
     python test/bisect_eval.py
-    python test/bisect_eval.py -c configs/custom_obb/dlzdt/sp_ft_rep1.yml -r outputs/sp_ft_rep1_0715.pth -d cuda:0
+    python test/bisect_eval.py -c configs/custom_obb/dlzdt/sp_fz_common.yml -r outputs/dlzdt_ablation/abl_rep0.pth -d cuda:0
 
 Paths compared:
     A  Training-style — YAMLConfig.model + EMA weights → obb_evaluate
@@ -213,8 +213,8 @@ def _print_result(label, results):
 # ─────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Bisect eval paths for OBB model loading")
-    parser.add_argument("-c", "--config", default="configs/custom_obb/dlzdt/sp_ft_rep1.yml")
-    parser.add_argument("-r", "--ckpt", default="outputs/sp_ft_rep1_0715.pth")
+    parser.add_argument("-c", "--config", default="configs/custom_obb/dlzdt/sp_fz_common.yml")
+    parser.add_argument("-r", "--ckpt", default="outputs/dlzdt_ablation/abl_rep0.pth")
     parser.add_argument("-d", "--device", default=DEFAULT_DEVICE)
     parser.add_argument("--data-base",
         default="/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val")

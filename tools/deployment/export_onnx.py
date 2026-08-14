@@ -18,6 +18,7 @@ import torch
 import torch.nn as nn
 
 from engine.core import YAMLConfig
+from engine.solver._solver import model_is_obb
 
 
 def main(args, ):
@@ -36,6 +37,9 @@ def main(args, ):
             state = checkpoint['model']
 
         # NOTE load train mode state -> convert to deploy mode
+        if model_is_obb(cfg.model):
+            from engine.solver._solver import assert_checkpoint_compat
+            assert_checkpoint_compat(checkpoint)
         cfg.model.load_state_dict(state)
 
     else:

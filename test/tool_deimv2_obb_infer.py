@@ -275,51 +275,9 @@ if __name__ == "__main__":
             "infer_flag": True,
         },
         {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_shifted.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep0_shifted.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_shifted",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_mangle.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep0_mangle.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_mangle",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_offset_post.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep0_offset_post.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_offset_post",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_rep1.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep1.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep1",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_rep2.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep2.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep2",
-            "infer_flag": True,
-        },
-        {
             "config": "configs/custom_obb/dlzdt/ablation/abl_rep3.yml",
             "ckpt": "outputs/dlzdt_ablation/abl_rep3.pth",
             "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_rep3_afp.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep3_afp.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_afp",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_rep3_fused.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep3_fused.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_fused",
             "infer_flag": True,
         },
     ]

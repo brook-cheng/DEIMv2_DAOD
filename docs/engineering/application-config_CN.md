@@ -228,7 +228,7 @@ train:
 | 类别                  | 代表性键                                                                                                      |
 |-----------------------|---------------------------------------------------------------------------------------------------------------|
 | 主干 / 编码器 / 解码器结构 | `DEIM.backbone`、`DINOv3STAs.*`、`DINOv3STAsResAtten.*`、`HybridEncoder.{in_channels,hidden_dim,dim_feedforward}`、`DEIMTransformer.{feat_channels,hidden_dim,num_layers,dim_feedforward,eval_idx}` |
-| OBB 角度契约          | `DEIMTransformer.{angle_rep,offset_scale_source,use_gate_fusion,angle_step,use_angle_first,decoder_angle_encoding}`、`PostProcessor.box_mode`、`DEIMCriterion.{box_mode,obbox_rep_dim,offset_scale_source}` |
+| OBB 角度契约          | `DEIMTransformer.{angle_rep,box_mode}`、`PostProcessor.box_mode`、`DEIMCriterion.{box_mode,obbox_rep_dim}`——`angle_rep` 仅接受整数 `0` 或 `3`（布尔/浮点在解码器构造时被拒绝）|
 | 优化器结构            | `optimizer.type`、`optimizer.betas`、`optimizer.weight_decay`、每个 `optimizer.params[*]` 组（正则 + 每组 `lr`/`weight_decay`）|
 | 调度器 / 训练阶段     | `lrsheduler`、`lr_gamma`、`warmup_iter`、`flat_epoch`、`no_aug_epoch`、`epoches`（镜像 `train.epochs`）、`clip_max_norm`、`use_ema`、`ema.*` |
 | 数据增强              | Mosaic / Mixup / CopyBlend 算子 + 概率 + 策略轮数、`collate_fn.{base_size_repeat,mixup_epochs,copyblend_epochs,…}` |

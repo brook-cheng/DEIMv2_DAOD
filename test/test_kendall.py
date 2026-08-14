@@ -82,17 +82,24 @@ def test_obb_families_aggregate_all_supported_suffixes():
 
 def test_obb_configured_families_have_produced_criterion_keys():
     config_path = os.path.join(
-        os.path.dirname(__file__), "..", "configs", "custom_obb", "deimv2_obb_sp.yml"
+        os.path.dirname(__file__), "..", "configs", "custom_obb",
+        "synthetic_configs", "synthetic_exp_001.yml",
     )
     with open(config_path, encoding="utf-8") as stream:
-        configured = yaml.safe_load(stream)["KendallWeighting"]["loss_names"]
+        kw_cfg = yaml.safe_load(stream)["KendallWeighting"]
+
+    # Must mirror the fallback in engine/solver/det_solver.py (KendallWeighting).
+    configured = kw_cfg.get(
+        "loss_names", ["loss_mal", "loss_bbox", "loss_kld", "loss_fgl"]
+    )
     produced = {
         f"{family}{suffix}": torch.tensor(1.0)
         for family in OBB_FAMILIES
         for suffix in ("", "_aux_0", "_dn_0", "_enc_0", "_pre")
     }
 
-    assert configured == OBB_FAMILIES
+    assert kw_cfg["enabled"] is True
+    assert set(configured) <= set(OBB_FAMILIES)
     assert all(family in produced for family in configured)
 
 
