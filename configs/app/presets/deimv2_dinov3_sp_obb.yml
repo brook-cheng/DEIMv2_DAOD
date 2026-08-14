@@ -61,7 +61,6 @@ DEIMTransformer:
   box_mode: obb
 
   angle_rep: 0
-  decoder_angle_encoding: "proportional"
 
 PostProcessor:
   box_mode: obb

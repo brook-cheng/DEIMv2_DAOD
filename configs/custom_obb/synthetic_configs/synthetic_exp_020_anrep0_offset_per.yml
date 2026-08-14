@@ -256,7 +256,6 @@ DEIMTransformer:
   dim_feedforward: 2048
   box_mode: obb
   angle_rep: 0
-  decoder_angle_encoding: shifted
 
 
 PostProcessor:

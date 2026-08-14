@@ -394,7 +394,6 @@ def test_obb_dota_algorithm_fields_survive_unchanged(
     decoder = ov["DEIMTransformer"]
     assert decoder["box_mode"] == "obb"
     assert decoder["angle_rep"] == 0
-    assert decoder["decoder_angle_encoding"] == "proportional"
 
     # Backbone DINOv3STAsResAtten with STA adapter.
     bb = ov["DINOv3STAsResAtten"]

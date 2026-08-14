@@ -186,13 +186,6 @@ DEIMTransformer:
   #   3 → (cx,cy,w,h,θ_norm) + 5D refinement + 解耦角度流（decouple_angle_layers）
   angle_rep: 0
 
-  # decoder_angle_encoding: decoder 私有角度编码模式
-  #   "proportional" → θ_norm = θ_phys/π ∈ [0,1)，当前默认，checkpoint 兼容
-  #   "shifted"      → θ_shift = remainder(θ_phys/π + 0.25, 1) ∈ [0,1)
-  #                    seam 从 0/π 移至 3π/4，避免 sigmoid 边界梯度消失
-  #                    （仅 rep0/1/3 有效，rep2 强制 proportional）
-  decoder_angle_encoding: "proportional"
-
 PostProcessor:
   box_mode: obb
 

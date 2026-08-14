@@ -44,7 +44,7 @@ FEAT_STRIDES = [4, 8]
 EVAL_H, EVAL_W = 16, 16
 
 
-def _make_obb_model(angle_rep, decoder_angle_encoding="shifted"):
+def _make_obb_model(angle_rep):
     torch.manual_seed(0)
     return DEIMTransformer(
         num_classes=NUM_CLASSES,
@@ -76,7 +76,6 @@ def _make_obb_model(angle_rep, decoder_angle_encoding="shifted"):
         share_score_head=False,
         box_mode="obb",
         angle_rep=angle_rep,
-        decoder_angle_encoding=decoder_angle_encoding,
     )
 
 
@@ -117,7 +116,7 @@ def test_rep0_shifted_forward_contract(seed):
     behavior on the CURRENT code and must stay green through the cleanup.
     """
     torch.manual_seed(seed)
-    model = _make_obb_model(angle_rep=0, decoder_angle_encoding="shifted")
+    model = _make_obb_model(angle_rep=0)
     # train() so the output dict includes pred_corners and ref_points
     # (eval mode returns only pred_boxes/pred_logits). dropout=0,
     # num_denoising=0, aux_loss=False -> deterministic under no_grad.
@@ -154,7 +153,6 @@ def test_rep3_shifted_forward_contract(seed):
     torch.manual_seed(seed)
     model = _make_obb_model(
         angle_rep=3,
-        decoder_angle_encoding="shifted",
     )
     model.train()
 

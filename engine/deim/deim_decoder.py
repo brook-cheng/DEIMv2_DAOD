@@ -30,13 +30,11 @@ from .dfine_decoder import MSDeformableAttention, LQE, Integral
 from .dfine_utils import weighting_function, distance2bbox, distance2bbox_obb
 from .deim_utils import RMSNorm, SwiGLUFFN, Gate, MLP
 from .obb_angle_contract import (
-    norm_to_physical_rad,
     shifted_norm_to_physical_rad,
     physical_rad_to_shifted_norm,
 )
 
 __all__ = ["DEIMTransformer"]
-_VALID_DECODER_ANGLE_ENCODINGS = ("proportional", "shifted")
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -53,7 +51,6 @@ class TransformerDecoderLayer(nn.Module):
         cross_attn_method="default",
         layer_scale=None,
         use_gateway=False,
-        angle_encoding="proportional",
     ):
         super(TransformerDecoderLayer, self).__init__()
 
@@ -76,7 +73,6 @@ class TransformerDecoderLayer(nn.Module):
             n_levels,
             n_points,
             method=cross_attn_method,
-            angle_encoding=angle_encoding,
         )
         self.dropout2 = nn.Dropout(dropout)
 
@@ -158,7 +154,6 @@ class TransformerDecoder(nn.Module):
         act="relu",
         box_mode="hbb",
         angle_rep=0,
-        angle_encoding="proportional",
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -170,7 +165,6 @@ class TransformerDecoder(nn.Module):
         self.box_mode = box_mode
         self.angle_rep = angle_rep
         self.num_decouple_layers = num_layers
-        self.decoder_angle_encoding = angle_encoding
 
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
@@ -370,44 +364,28 @@ class TransformerDecoder(nn.Module):
                     ref_points_initial, integral(pred_corners, project), reg_scale
                 )
             elif self.box_mode == "obb":
-                if self.decoder_angle_encoding == "shifted":
-                    # [0,1)→[-pi/4,3*pi/4)
-                    ref_phys = torch.cat(
-                        [
-                            ref_points_initial[..., :4],
-                            shifted_norm_to_physical_rad(ref_points_initial[..., 4:5]),
-                        ],
-                        dim=-1,
-                    )
-                    distance = integral(pred_corners, project)
-                    inter_ref_bbox = distance2bbox_obb(
-                        ref_phys,
-                        distance,
-                        reg_scale,
-                    )
-                    # [-pi/4,3*pi/4)→[0,1)
-                    inter_ref_bbox = torch.cat(
-                        [
-                            inter_ref_bbox[..., :4],
-                            physical_rad_to_shifted_norm(inter_ref_bbox[..., 4:]),
-                        ],
-                        dim=-1,
-                    )
-                else:
-                    theta_scale = torch.ones_like(ref_points_initial)
-                    # theta:[0,1]→[0,pi]
-                    theta_scale[..., 4] *= torch.pi
-                    ref_points_initial_scaled = ref_points_initial * theta_scale
-                    distance = integral(pred_corners, project)
-                    inter_ref_bbox = distance2bbox_obb(
-                        ref_points_initial_scaled,
-                        distance,
-                        reg_scale,
-                    )
-                    inter_ref_bbox = torch.cat(
-                        [inter_ref_bbox[..., :4], inter_ref_bbox[..., 4:] / torch.pi],
-                        dim=-1,
-                    )
+                # [0,1)→[-pi/4,3*pi/4)
+                ref_phys = torch.cat(
+                    [
+                        ref_points_initial[..., :4],
+                        shifted_norm_to_physical_rad(ref_points_initial[..., 4:5]),
+                    ],
+                    dim=-1,
+                )
+                distance = integral(pred_corners, project)
+                inter_ref_bbox = distance2bbox_obb(
+                    ref_phys,
+                    distance,
+                    reg_scale,
+                )
+                # [-pi/4,3*pi/4)→[0,1)
+                inter_ref_bbox = torch.cat(
+                    [
+                        inter_ref_bbox[..., :4],
+                        physical_rad_to_shifted_norm(inter_ref_bbox[..., 4:]),
+                    ],
+                    dim=-1,
+                )
 
             if self.training or layer_idx == self.eval_idx:
                 scores = score_head[layer_idx](output)
@@ -472,7 +450,6 @@ class DEIMTransformer(nn.Module):
         share_score_head=False,
         box_mode="hbb",
         angle_rep=0,
-        decoder_angle_encoding="proportional",
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -496,12 +473,6 @@ class DEIMTransformer(nn.Module):
 
         self.box_mode = box_mode
         self.angle_rep = angle_rep
-        if decoder_angle_encoding not in _VALID_DECODER_ANGLE_ENCODINGS:
-            raise ValueError(
-                "decoder_angle_encoding must be 'proportional' or 'shifted', "
-                f"got {decoder_angle_encoding!r}"
-            )
-        self.decoder_angle_encoding = decoder_angle_encoding
         self.num_r_layers = num_layers
 
         # num_reg_dist: vertex bias for refienment, used in LQE
@@ -546,7 +517,6 @@ class DEIMTransformer(nn.Module):
             num_points,
             cross_attn_method=cross_attn_method,
             use_gateway=use_gateway,
-            angle_encoding=self.decoder_angle_encoding,
         )
 
         decoder_layer_wide = TransformerDecoderLayer(
@@ -560,7 +530,6 @@ class DEIMTransformer(nn.Module):
             cross_attn_method=cross_attn_method,
             layer_scale=layer_scale,
             use_gateway=use_gateway,
-            angle_encoding=self.decoder_angle_encoding,
         )
 
         self.decoder = TransformerDecoder(
@@ -578,7 +547,6 @@ class DEIMTransformer(nn.Module):
             act=activation,
             box_mode=self.box_mode,
             angle_rep=self.angle_rep,
-            angle_encoding=self.decoder_angle_encoding,
         )
         # denoising
         self.num_denoising = num_denoising
@@ -888,9 +856,7 @@ class DEIMTransformer(nn.Module):
                 )
                 wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
 
-                default_r = (
-                    0.5 if self.decoder_angle_encoding == "shifted" else 0.25
-                )
+                default_r = 0.5
                 r = default_r * torch.ones(
                     *grid_xy.shape[:-1],
                     1,
@@ -985,24 +951,14 @@ class DEIMTransformer(nn.Module):
         if self.training:
             enc_topk_bboxes = F.sigmoid(enc_topk_bbox_unact)
             if self.box_mode == "obb":
-                if self.decoder_angle_encoding == "shifted":
-                    # 内部 θ_shift 还原为物理角 [0, π)
-                    enc_topk_bboxes = torch.cat(
-                        [
-                            enc_topk_bboxes[..., :4],
-                            shifted_norm_to_physical_rad(enc_topk_bboxes[..., 4:]),
-                        ],
-                        dim=-1,
-                    )
-                else:
-                    # 角度量纲 [0,1]->[0, pi)
-                    enc_topk_bboxes = torch.cat(
-                        [
-                            enc_topk_bboxes[..., :4],
-                            norm_to_physical_rad(enc_topk_bboxes[..., 4:]),
-                        ],
-                        dim=-1,
-                    )
+                # 内部 θ_shift 还原为物理角 [0, π)
+                enc_topk_bboxes = torch.cat(
+                    [
+                        enc_topk_bboxes[..., :4],
+                        shifted_norm_to_physical_rad(enc_topk_bboxes[..., 4:]),
+                    ],
+                    dim=-1,
+                )
 
             enc_topk_bboxes_list.append(enc_topk_bboxes)
             enc_topk_logits_list.append(enc_topk_logits)
@@ -1077,7 +1033,6 @@ class DEIMTransformer(nn.Module):
                     label_noise_ratio=self.label_noise_ratio,
                     box_noise_scale=self.box_noise_scale,
                     box_mode=self.box_mode,
-                    angle_encoding=self.decoder_angle_encoding,
                 )
             )
         else:
@@ -1123,10 +1078,7 @@ class DEIMTransformer(nn.Module):
         # criterion/matcher/postprocessor 中 theta 量纲为 [0, pi)
         # decoder 内部 [0,1) → 外部 [0, pi)
         if self.box_mode == "obb":
-            if self.decoder_angle_encoding == "shifted":
-                theta_decode = shifted_norm_to_physical_rad
-            else:
-                theta_decode = norm_to_physical_rad
+            theta_decode = shifted_norm_to_physical_rad
             out_bboxes = torch.cat(
                 [
                     out_bboxes[..., :4],
