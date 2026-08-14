@@ -542,13 +542,15 @@ class DEIMTransformer(nn.Module):
 
         # num_reg_dist: vertex bias for refienment, used in LQE
         # _num_box_dof: bbox representation, used to define headers
+        if self.box_mode == "obb" and self.angle_rep == 1:
+            raise ValueError(
+                "angle_rep=1 has been removed; use angle_rep=0 or angle_rep=3 "
+                "for box_mode='obb'."
+            )
         if self.box_mode == "obb":
             if self.angle_rep == 0:
                 self._num_box_dof = 5  # (cx,cy,w,h,θ)
                 self.num_reg_dist = 6  # (α,β,γ,δ,ε,η)
-            elif self.angle_rep == 1:
-                self._num_box_dof = 5  # (cx,cy,w,h,θ)
-                self.num_reg_dist = 5  # (α,β,γ,δ,deta_θ)
             elif self.angle_rep == 2:
                 self._num_box_dof = 6  # (cx,cy,w,h,ε,η)
                 self.num_reg_dist = 6  # (α,β,γ,δ,ε,η)
@@ -665,10 +667,6 @@ class DEIMTransformer(nn.Module):
                 pre_bbox_head_out_dim = 5  # (cx,cy,w,h,θ)
                 num_query_pos_in = 5
                 num_reg_dist_xywh = 6  # (α,β,γ,δ,ε,η)
-            elif self.angle_rep == 1:
-                pre_bbox_head_out_dim = 5  # (cx,cy,w,h,θ)
-                num_query_pos_in = 5
-                num_reg_dist_xywh = 5  # (α,β,γ,δ,deta_theta)
             elif self.angle_rep == 2:
                 pre_bbox_head_out_dim = 4
                 num_query_pos_in = 4

@@ -396,7 +396,7 @@ def test_decouple_angle_reference_dimensionality_consistent(seed):
         share_bbox_head=False,
         share_score_head=False,
         box_mode="obb",
-        angle_rep=True,
+        angle_rep=3,
     )
     # Use training mode so the output dict includes pred_corners and
     # ref_points (eval mode only returns pred_boxes/pred_logits, see
@@ -558,7 +558,7 @@ def test_encoder_aux_theta_known_answer_shifted():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("angle_rep", [0, 1, 2, 3])
+@pytest.mark.parametrize("angle_rep", [0, 2, 3])
 def test_angle_rep_forward_theta_in_proportional_domain(angle_rep):
     torch.manual_seed(0)
     model = DEIMTransformer(
@@ -623,7 +623,7 @@ def test_angle_rep_forward_theta_in_proportional_domain(angle_rep):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("angle_rep", [0, 1, 2, 3])
+@pytest.mark.parametrize("angle_rep", [0, 2, 3])
 @pytest.mark.parametrize("decoder_angle_encoding", ["proportional", "shifted"])
 def test_forward_matrix_public_theta_domain(
     angle_rep, decoder_angle_encoding
