@@ -181,7 +181,6 @@ class TransformerDecoder(nn.Module):
         act="relu",
         box_mode="hbb",
         angle_rep=0,
-        offset_scale_source="pre",
         use_gate_fusion=False,
         use_angle_first=False,
         angle_encoding="proportional",
@@ -195,7 +194,7 @@ class TransformerDecoder(nn.Module):
         self.up, self.reg_scale, self.reg_max = up, reg_scale, reg_max
         self.box_mode = box_mode
         self.angle_rep = angle_rep
-        self.offset_scale_source = offset_scale_source
+
         self.use_gate_fusion = use_gate_fusion
         self.use_angle_first = use_angle_first
         self.num_decouple_layers = num_layers
@@ -510,7 +509,6 @@ class TransformerDecoder(nn.Module):
                         ref_phys,
                         distance,
                         reg_scale,
-                        offset_scale_source=self.offset_scale_source,
                     )
                     # [-pi/4,3*pi/4)→[0,1)
                     inter_ref_bbox = torch.cat(
@@ -530,7 +528,6 @@ class TransformerDecoder(nn.Module):
                         ref_points_initial_scaled,
                         distance,
                         reg_scale,
-                        offset_scale_source=self.offset_scale_source,
                     )
                     inter_ref_bbox = torch.cat(
                         [inter_ref_bbox[..., :4], inter_ref_bbox[..., 4:] / torch.pi],
@@ -600,9 +597,7 @@ class DEIMTransformer(nn.Module):
         share_score_head=False,
         box_mode="hbb",
         angle_rep=0,
-        offset_scale_source="pre",
         use_gate_fusion=False,
-        angle_step=0.0,
         use_angle_first=False,
         decoder_angle_encoding="proportional",
     ):
@@ -628,9 +623,8 @@ class DEIMTransformer(nn.Module):
 
         self.box_mode = box_mode
         self.angle_rep = angle_rep
-        self.offset_scale_source = offset_scale_source
+
         self.use_gate_fusion = use_gate_fusion
-        self.angle_step = angle_step
         self.use_angle_first = use_angle_first
         if decoder_angle_encoding not in _VALID_DECODER_ANGLE_ENCODINGS:
             raise ValueError(
@@ -725,7 +719,6 @@ class DEIMTransformer(nn.Module):
             act=activation,
             box_mode=self.box_mode,
             angle_rep=self.angle_rep,
-            offset_scale_source=self.offset_scale_source,
             use_gate_fusion=self.use_gate_fusion,
             use_angle_first=self.use_angle_first,
             angle_encoding=self.decoder_angle_encoding,
@@ -1072,36 +1065,18 @@ class DEIMTransformer(nn.Module):
                     )
                     wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
 
-                    if self.angle_step > 0:
-                        n_angles = int(1.0 / self.angle_step)
-                        angle_candidates = (
-                            torch.arange(n_angles, dtype=dtype) * self.angle_step
-                        )
-                        if self.decoder_angle_encoding == "shifted":
-                            angle_candidates = torch.remainder(
-                                angle_candidates + 0.25, 1.0
-                            )
-                        grid_xy_exp = grid_xy.unsqueeze(-2).expand(1, h, w, n_angles, 2)
-                        wh_exp = wh.unsqueeze(-2).expand(1, h, w, n_angles, 2)
-                        r_exp = angle_candidates.reshape(1, 1, 1, n_angles, 1).expand(
-                            1, h, w, n_angles, 1
-                        )
-                        lvl_anchors = torch.concat(
-                            [grid_xy_exp, wh_exp, r_exp], dim=-1
-                        ).reshape(1, h * w * n_angles, self._num_box_dof)
-                    else:
-                        default_r = (
-                            0.5 if self.decoder_angle_encoding == "shifted" else 0.25
-                        )
-                        r = default_r * torch.ones(
-                            *grid_xy.shape[:-1],
-                            1,
-                            dtype=grid_xy.dtype,
-                            device=grid_xy.device,
-                        )
-                        lvl_anchors = torch.concat([grid_xy, wh, r], dim=-1).reshape(
-                            -1, h * w, self._num_box_dof
-                        )
+                    default_r = (
+                        0.5 if self.decoder_angle_encoding == "shifted" else 0.25
+                    )
+                    r = default_r * torch.ones(
+                        *grid_xy.shape[:-1],
+                        1,
+                        dtype=grid_xy.dtype,
+                        device=grid_xy.device,
+                    )
+                    lvl_anchors = torch.concat([grid_xy, wh, r], dim=-1).reshape(
+                        -1, h * w, self._num_box_dof
+                    )
                     anchors.append(lvl_anchors)
 
         anchors = torch.concat(anchors, dim=1).to(device)
@@ -1169,15 +1144,6 @@ class DEIMTransformer(nn.Module):
             valid_mask = self.valid_mask
         if memory.shape[0] > 1:
             anchors = anchors.repeat(memory.shape[0], 1, 1)
-
-        # Multi-angle anchors (angle_step > 0) expand the candidate pool to
-        # (num_spatial_positions * n_angles). Replicate each spatial memory
-        # token n_angles times so it aligns with the anchor layout
-        # (position-major, angle-minor within each level). This only affects
-        # query selection; the decoder still receives the original memory.
-        if self.box_mode == "obb" and self.angle_rep != 2 and self.angle_step > 0:
-            n_angles = int(1.0 / self.angle_step)
-            memory = memory.repeat_interleave(n_angles, dim=1)
 
         memory = valid_mask.to(memory.dtype) * memory
 

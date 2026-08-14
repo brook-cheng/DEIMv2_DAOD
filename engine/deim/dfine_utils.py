@@ -191,9 +191,7 @@ def bbox2distance(points, bbox, reg_max, reg_scale, up, eps=0.1):
     return four_lens.reshape(-1).detach(), weight_right.detach(), weight_left.detach()
 
 
-def distance2bbox_obb(
-    points, distance, reg_scale, offset_scale_source: str = "pre", layer_idx=0
-):
+def distance2bbox_obb(points, distance, reg_scale, layer_idx=0):
     """
     refine ref obbox points to new obbox points
 
@@ -201,21 +199,11 @@ def distance2bbox_obb(
         points: (B,N,5) or (N,5) — ref obb (cx,cy,w,h,θ), θ in [0,π].
         distance: (B,N,6) or (B,N,5) — (α,β,γ,δ,ε,η) or (α,β,γ,δ,deta_theta) deta_theta in [0,π] from Integral.
         reg_scale: curvature of Weighting Function.
-        offset_scale_source: which external-rectangle size scales the (ε,η)
-            offset residuals. ``"pre"`` uses the pre-adjustment external rect
-            (current default, spec 7.1 — keeps residuals in the reference
-            coordinate frame, avoids same-layer coupling). ``"post"`` uses the
-            post-adjustment external rect (ablation mode, spec 7.1).
 
     Returns:
         (B,N,5) or (N,5) — (cx,cy,w,h,θ),θ belongs to [0,π].
     """
 
-    if offset_scale_source not in ("pre", "post"):
-        raise ValueError(
-            f"offset_scale_source must be 'pre' or 'post', "
-            f"got {offset_scale_source!r}"
-        )
     n_obboxes = None
     if distance.shape[-1] == 6:
         ext_rect_xyxy, vertex_offsets = oriented_box_to_external_xyxy_rect(points)
@@ -228,11 +216,8 @@ def distance2bbox_obb(
         # (ε,η): scale offset residuals by external-rect (w,h).
         # 'pre'  -> pre-adjustment ext rect (default, spec 7.1).
         # 'post' -> post-adjustment ext rect (ablation, spec 7.1).
-        offset_scale_wh = (
-            ext_rect_cxcywh[..., 2:]
-            if offset_scale_source == "pre"
-            else ext_adj_cxcywh[..., 2:]
-        )
+        offset_scale_wh = ext_rect_cxcywh[..., 2:]
+
         vertex_offsets_adj = (
             vertex_offsets + distance[..., 4:] * offset_scale_wh / reg_scale
         )
@@ -257,7 +242,6 @@ def bbox2distance_obb(
     reg_scale,
     up,
     eps=0.1,
-    offset_scale_source: str = "pre",
     obbox_rep_dim=6,
 ):
     """
@@ -270,22 +254,13 @@ def bbox2distance_obb(
         reg_scale (float): Controlling curvature of W(n).
         up (Tensor): Controlling upper bounds of W(n).
         eps (float): Small value to ensure target < reg_max.
-        offset_scale_source: which external-rectangle size scales the (ε,η)
-            offset residuals. Must match ``distance2bbox_obb`` to keep
-            encode/decode inverses. ``"pre"`` (default) uses the
-            pre-adjustment pred ext rect; ``"post"`` is an ablation mode
-            that uses the GT ext rect (the post-adjustment target).
+
         obbox_rep_dim: number of dimensions in the obbox representation, 6-(cx,cy,w,h,ε,η), 5-(cx,cy,w,h,θ)
 
     Returns:
         six_lens, weight_right, weight_left
     """
 
-    if offset_scale_source not in ("pre", "post"):
-        raise ValueError(
-            f"offset_scale_source must be 'pre' or 'post', "
-            f"got {offset_scale_source!r}"
-        )
     reg_scale = abs(reg_scale)
     half_reg_scale = 0.5 * reg_scale
 
@@ -297,11 +272,7 @@ def bbox2distance_obb(
         # (ε,η): inverse of distance2bbox_obb's offset scaling.
         # 'pre'  -> pre-adjustment pred ext rect (default, matches decode 'pre').
         # 'post' -> GT ext rect = post-adjustment target (matches decode 'post').
-        offset_scale_wh = (
-            rect_cxcywh_pred[..., 2:]
-            if offset_scale_source == "pre"
-            else rect_cxcywh_gt[..., 2:]
-        )
+        offset_scale_wh = rect_cxcywh_pred[..., 2:]
         angle_lens = (vertex_offsets_gt - vertex_offsets_pred) / (
             offset_scale_wh / reg_scale + 1e-16
         )

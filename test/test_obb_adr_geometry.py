@@ -336,7 +336,8 @@ def test_imports_on_disk_repo_module():
 
 
 # ---------------------------------------------------------------------------
-# Offset scale source tests (Todo 5: ADR offset residual scale source)
+# ADR encode/decode inversion (retained geometry: distance2bbox_obb /
+# bbox2distance_obb with pre-offset scaling)
 # ---------------------------------------------------------------------------
 
 OFFSET_SCALE_CASES = [
@@ -357,14 +358,8 @@ _REG_MAX = 32
 INVERSION_TOL = 1e-4
 
 
-def _raw_encode_distances(ref_obb, gt_obb, reg_scale, offset_scale_source):
-    """Compute raw 6-distances (α,β,γ,δ,ε,η) without translate_gt quantization.
-
-    Mirrors the encode logic of ``bbox2distance_obb`` up to (but excluding)
-    ``translate_gt``, so decode inversion can be tested without bin
-    quantization loss. This is the test helper referenced in the Todo 5
-    acceptance criteria for the mismatch demonstration.
-    """
+def _raw_encode_distances(ref_obb, gt_obb, reg_scale):
+    """Raw 6-distances without translate_gt quantization (decode-inversion probe)."""
     ext_xyxy_pred, vo_pred = oriented_box_to_external_xyxy_rect(ref_obb)
     ext_xyxy_gt, vo_gt = oriented_box_to_external_xyxy_rect(gt_obb)
     ext_cxcywh_pred = box_xyxy_to_cxcywh(ext_xyxy_pred)
@@ -377,11 +372,7 @@ def _raw_encode_distances(ref_obb, gt_obb, reg_scale, offset_scale_source):
     et = (ext_cxcywh_pred[..., 1] - ext_xyxy_gt[..., 1]) / ph - hr + 1e-16
     er = (ext_xyxy_gt[..., 2] - ext_cxcywh_pred[..., 0]) / pw - hr + 1e-16
     eb = (ext_xyxy_gt[..., 3] - ext_cxcywh_pred[..., 1]) / ph - hr + 1e-16
-    osc = (
-        ext_cxcywh_pred[..., 2:]
-        if offset_scale_source == "pre"
-        else ext_cxcywh_gt[..., 2:]
-    )
+    osc = ext_cxcywh_pred[..., 2:]
     tl = (vo_gt - vo_pred) / (osc / rs + 1e-16)
     return torch.stack([el, et, er, eb, tl[..., 0], tl[..., 1]], dim=-1)
 
@@ -389,224 +380,17 @@ def _raw_encode_distances(ref_obb, gt_obb, reg_scale, offset_scale_source):
 @pytest.mark.parametrize(
     "name, ref, target", OFFSET_SCALE_CASES, ids=[c[0] for c in OFFSET_SCALE_CASES]
 )
-def test_offset_scale_pre_decode_preserves_current_behavior(name, ref, target):
-    """offset_scale_source='pre' (default) must match calling without the
-    parameter — i.e. the default path is unchanged.
-    """
+def test_obb_adr_inversion_roundtrip(name, ref, target):
+    """encode + decode reconstructs the target OBB within float32 precision.
+    Locks the retained ADR geometry (pre-offset scaling)."""
     ref_t = torch.tensor([ref], dtype=torch.float32)
     target_t = torch.tensor([target], dtype=torch.float32)
-    dist = _raw_encode_distances(ref_t, target_t, _REG_SCALE_T, "pre")
-    out_default = distance2bbox_obb(ref_t, dist, _REG_SCALE_T)
-    out_pre = distance2bbox_obb(ref_t, dist, _REG_SCALE_T, offset_scale_source="pre")
-    assert torch.equal(
-        out_default, out_pre
-    ), f"{name}: decode with explicit 'pre' differs from default path"
-
-
-@pytest.mark.parametrize(
-    "name, ref, target", OFFSET_SCALE_CASES, ids=[c[0] for c in OFFSET_SCALE_CASES]
-)
-def test_offset_scale_pre_encode_preserves_current_behavior(name, ref, target):
-    """offset_scale_source='pre' (default) encode must match calling without
-    the parameter.
-    """
-    ref_t = torch.tensor([ref], dtype=torch.float32)
-    target_t = torch.tensor([target], dtype=torch.float32)
-    six_default, _, _ = bbox2distance_obb(
-        ref_t, target_t, _REG_MAX, _REG_SCALE_T, _UP_T
-    )
-    six_pre, _, _ = bbox2distance_obb(
-        ref_t, target_t, _REG_MAX, _REG_SCALE_T, _UP_T, offset_scale_source="pre"
-    )
-    assert torch.equal(
-        six_default, six_pre
-    ), f"{name}: encode with explicit 'pre' differs from default path"
-
-
-@pytest.mark.parametrize(
-    "name, ref, target", OFFSET_SCALE_CASES, ids=[c[0] for c in OFFSET_SCALE_CASES]
-)
-def test_offset_scale_post_decode_produces_finite_obb(name, ref, target):
-    """offset_scale_source='post' must be accepted and produce finite OBBs."""
-    ref_t = torch.tensor([ref], dtype=torch.float32)
-    target_t = torch.tensor([target], dtype=torch.float32)
-    dist = _raw_encode_distances(ref_t, target_t, _REG_SCALE_T, "pre")
-    out_post = distance2bbox_obb(ref_t, dist, _REG_SCALE_T, offset_scale_source="post")
-    assert torch.isfinite(
-        out_post
-    ).all(), f"{name}: post decode produced non-finite OBB: {out_post}"
-
-
-@pytest.mark.parametrize(
-    "name, ref, target", OFFSET_SCALE_CASES, ids=[c[0] for c in OFFSET_SCALE_CASES]
-)
-def test_offset_scale_post_encode_produces_finite_distances(name, ref, target):
-    """offset_scale_source='post' encode must be accepted and produce finite
-    FGL targets.
-    """
-    ref_t = torch.tensor([ref], dtype=torch.float32)
-    target_t = torch.tensor([target], dtype=torch.float32)
-    six_post, wr, wl = bbox2distance_obb(
-        ref_t, target_t, _REG_MAX, _REG_SCALE_T, _UP_T, offset_scale_source="post"
-    )
-    assert torch.isfinite(
-        six_post
-    ).all(), f"{name}: post encode produced non-finite distances: {six_post}"
-    assert torch.isfinite(wr).all() and torch.isfinite(wl).all()
-
-
-def test_offset_scale_invalid_raises_valueerror_decode():
-    """Invalid offset_scale_source must raise ValueError on decode."""
-    ref = torch.tensor([[0.5, 0.5, 0.3, 0.2, 0.5]], dtype=torch.float32)
-    dist = torch.zeros(1, 6, dtype=torch.float32)
-    with pytest.raises(ValueError, match="offset_scale_source"):
-        distance2bbox_obb(ref, dist, _REG_SCALE_T, offset_scale_source="invalid")
-
-
-def test_offset_scale_invalid_raises_valueerror_encode():
-    """Invalid offset_scale_source must raise ValueError on encode."""
-    ref = torch.tensor([[0.5, 0.5, 0.3, 0.2, 0.5]], dtype=torch.float32)
-    target = torch.tensor([[0.55, 0.45, 0.25, 0.15, 0.6]], dtype=torch.float32)
-    with pytest.raises(ValueError, match="offset_scale_source"):
-        bbox2distance_obb(
-            ref, target, _REG_MAX, _REG_SCALE_T, _UP_T, offset_scale_source="invalid"
-        )
-
-
-@pytest.mark.parametrize(
-    "name, ref, target", OFFSET_SCALE_CASES, ids=[c[0] for c in OFFSET_SCALE_CASES]
-)
-def test_offset_scale_pre_inversion_roundtrip(name, ref, target):
-    """encode('pre') + decode('pre') must reconstruct the target OBB within
-    float32 precision (no translate_gt quantization in the test helper).
-    """
-    ref_t = torch.tensor([ref], dtype=torch.float32)
-    target_t = torch.tensor([target], dtype=torch.float32)
-    dist = _raw_encode_distances(ref_t, target_t, _REG_SCALE_T, "pre")
-    recon = distance2bbox_obb(ref_t, dist, _REG_SCALE_T, offset_scale_source="pre")
+    dist = _raw_encode_distances(ref_t, target_t, _REG_SCALE_T)
+    recon = distance2bbox_obb(ref_t, dist, _REG_SCALE_T)
     err = obb_vertex_error(target_t, recon)
     assert (
         err.item() < INVERSION_TOL
-    ), f"{name}: pre/pre inversion error {err.item():.2e} >= {INVERSION_TOL:.0e}"
-
-
-@pytest.mark.parametrize(
-    "name, ref, target", OFFSET_SCALE_CASES, ids=[c[0] for c in OFFSET_SCALE_CASES]
-)
-def test_offset_scale_post_inversion_roundtrip(name, ref, target):
-    """encode('post') + decode('post') must reconstruct the target OBB within
-    float32 precision. Proves 'post' is a consistent (not mixed) scale source.
-    """
-    ref_t = torch.tensor([ref], dtype=torch.float32)
-    target_t = torch.tensor([target], dtype=torch.float32)
-    dist = _raw_encode_distances(ref_t, target_t, _REG_SCALE_T, "post")
-    recon = distance2bbox_obb(ref_t, dist, _REG_SCALE_T, offset_scale_source="post")
-    err = obb_vertex_error(target_t, recon)
-    assert (
-        err.item() < INVERSION_TOL
-    ), f"{name}: post/post inversion error {err.item():.2e} >= {INVERSION_TOL:.0e}"
-
-
-@pytest.mark.parametrize(
-    "name, ref, target", OFFSET_SCALE_CASES, ids=[c[0] for c in OFFSET_SCALE_CASES]
-)
-def test_offset_scale_mismatch_increases_inversion_error(name, ref, target):
-    """Mismatched encode/decode scale (pre-encode + post-decode, or vice
-    versa) must produce strictly larger inversion error than the matched
-    pair. This is the failure-mode demonstration required by the Todo 5
-    acceptance criteria, proving a shared setting matters.
-    """
-    ref_t = torch.tensor([ref], dtype=torch.float32)
-    target_t = torch.tensor([target], dtype=torch.float32)
-
-    dist_pre = _raw_encode_distances(ref_t, target_t, _REG_SCALE_T, "pre")
-    dist_post = _raw_encode_distances(ref_t, target_t, _REG_SCALE_T, "post")
-
-    recon_matched_pre = distance2bbox_obb(
-        ref_t, dist_pre, _REG_SCALE_T, offset_scale_source="pre"
-    )
-    recon_matched_post = distance2bbox_obb(
-        ref_t, dist_post, _REG_SCALE_T, offset_scale_source="post"
-    )
-    recon_mismatch_1 = distance2bbox_obb(
-        ref_t, dist_pre, _REG_SCALE_T, offset_scale_source="post"
-    )
-    recon_mismatch_2 = distance2bbox_obb(
-        ref_t, dist_post, _REG_SCALE_T, offset_scale_source="pre"
-    )
-
-    err_matched = min(
-        obb_vertex_error(target_t, recon_matched_pre).item(),
-        obb_vertex_error(target_t, recon_matched_post).item(),
-    )
-    err_mismatch = min(
-        obb_vertex_error(target_t, recon_mismatch_1).item(),
-        obb_vertex_error(target_t, recon_mismatch_2).item(),
-    )
-
-    assert (
-        err_matched < INVERSION_TOL
-    ), f"{name}: matched inversion error {err_matched:.2e} >= {INVERSION_TOL:.0e}"
-    assert err_mismatch > err_matched, (
-        f"{name}: mismatch error {err_mismatch:.2e} must exceed matched "
-        f"{err_matched:.2e} — if not, the case does not exercise the "
-        "pre/post scale difference (ext rect sizes too similar)."
-    )
-
-
-def test_offset_scale_random_mismatch_increases_error():
-    """Randomized mismatch demonstration (deterministic seed, flaky guard).
-
-    Theta is clamped away from the exact 0/pi boundary to avoid a
-    pre-existing ADR degeneracy: at theta=0 or theta=pi the vertex offsets
-    hit extremes (epsilon=full width, eta=0) and external_xyxy_rect_to_oriented_box
-    degenerates. This is a geometric property of the ADR representation,
-    not a defect of the offset_scale_source change under test.
-    """
-    torch.manual_seed(20260707)
-    n = 200
-    ref = torch.cat(
-        [
-            torch.rand(n, 1),
-            torch.rand(n, 1),
-            torch.rand(n, 1) * 0.4 + 0.1,
-            torch.rand(n, 1) * 0.4 + 0.05,
-            torch.rand(n, 1) * (math.pi - 0.02) + 0.01,
-        ],
-        dim=-1,
-    )
-    target = ref + torch.cat(
-        [
-            (torch.rand(n, 1) - 0.5) * 0.2,
-            (torch.rand(n, 1) - 0.5) * 0.2,
-            (torch.rand(n, 1) - 0.5) * 0.15,
-            (torch.rand(n, 1) - 0.5) * 0.15,
-            (torch.rand(n, 1) - 0.5) * 0.3,
-        ],
-        dim=-1,
-    )
-    target[..., 4] = target[..., 4].clamp(0.01, math.pi - 0.01)
-
-    dist_pre = _raw_encode_distances(ref, target, _REG_SCALE_T, "pre")
-    dist_post = _raw_encode_distances(ref, target, _REG_SCALE_T, "post")
-
-    recon_matched = distance2bbox_obb(
-        ref, dist_pre, _REG_SCALE_T, offset_scale_source="pre"
-    )
-    recon_mismatch = distance2bbox_obb(
-        ref, dist_pre, _REG_SCALE_T, offset_scale_source="post"
-    )
-
-    err_matched = obb_vertex_error(target, recon_matched).item()
-    err_mismatch = obb_vertex_error(target, recon_mismatch).item()
-
-    assert (
-        err_matched < INVERSION_TOL
-    ), f"random: matched inversion error {err_matched:.2e} >= {INVERSION_TOL:.0e}"
-    assert err_mismatch > err_matched, (
-        f"random: mismatch error {err_mismatch:.2e} must exceed matched "
-        f"{err_matched:.2e}"
-    )
+    ), f"{name}: inversion error {err.item():.2e} >= {INVERSION_TOL:.0e}"
 
 
 # ---------------------------------------------------------------------------

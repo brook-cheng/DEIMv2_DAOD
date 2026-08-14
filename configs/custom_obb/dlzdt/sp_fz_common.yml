@@ -186,21 +186,10 @@ DEIMTransformer:
   #   3 → (cx,cy,w,h,θ_norm) + 5D refinement + 解耦角度流（decouple_angle_layers）
   angle_rep: 0
 
-  # offset_scale_source: vertex offset 缩放时机（obb_geometry.py distance2bbox_obb/bbox2distance_obb）
-  #   "pre"  → offset 在归一化空间缩放后映射到物理空间（默认）
-  #   "post" → offset 先映射到物理空间再缩放
-  #   注意: decoder 与 criterion 必须一致（DEIMCriterion.offset_scale_source 同步设置）
-  offset_scale_source: "pre"
-
   # use_gate_fusion: box/angle 分支 GatedSoftmaxFusion（仅 rep2/3 有效）
   #   false → 两路特征直接 concat
   #   true  → 两路特征经门控权重融合（gated_fusion.py GatedSoftmaxFusion）
   use_gate_fusion: false
-
-  # angle_step: 多角度锚点步长（仅 rep0/1/3 有效）
-  #   0.0 → 每个空间位置 1 个默认角度锚点（45°，θ_norm=0.25 或 shifted θ_shift=0.5）
-  #   >0  → 每位置生成 1/step 个角度候选（如 0.1 → 10 个），增加初始角度多样性
-  angle_step: 0.0
 
   # use_angle_first: query 先预测角度再引导位置回归（仅 rep3 有效，rep2 禁止）
   #   false → query_pos_head 接收 4D 位置，角度独立流
@@ -256,7 +245,6 @@ optimizer:
 # alpha=0.75: focal loss 的 α 参数
 # reg_max=32: FGL 分布的最大 bin 数
 # obbox_rep_dim=6: criterion 消费的 box 表示维度（rep0/2→6, rep1/3→5，随消融配置变化）
-# offset_scale_source: 必须与 DEIMTransformer 一致
 DEIMCriterion:
   weight_dict: {loss_mal: 1, loss_bbox: 5, loss_probiou: 5, loss_angle: 3, loss_kld: 2, loss_fgl: 0.15, loss_ddf: 1.5}
   losses: ['mal', 'boxes', 'local']
@@ -269,7 +257,6 @@ DEIMCriterion:
   reg_max: 32
   box_mode: obb
   obbox_rep_dim: 6              # 派生自 angle_rep: rep0/2→6, rep1/3→5
-  offset_scale_source: "pre"   # 必须与 DEIMTransformer 同步
 
   # ---- Hungarian Matcher ----
   # change_matcher=False: 不启用 matcher 策略切换（全程使用同一组 cost 权重）

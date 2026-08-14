@@ -44,7 +44,6 @@ def test_angle_rep2_eval_forward_returns_public_physical_obb() -> None:
         share_score_head=False,
         box_mode="obb",
         angle_rep=2,
-        offset_scale_source="pre",
         use_angle_first=False,
     )
     model.eval()
@@ -102,7 +101,6 @@ def test_angle_rep2_eval_shifted_config_returns_public_physical_obb() -> None:
             share_score_head=False,
             box_mode="obb",
             angle_rep=2,
-            offset_scale_source="pre",
             use_angle_first=False,
             decoder_angle_encoding=encoding,
         )

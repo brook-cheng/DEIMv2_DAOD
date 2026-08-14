@@ -77,7 +77,6 @@ def _make_obb_model(angle_rep, decoder_angle_encoding="shifted",
         share_score_head=False,
         box_mode="obb",
         angle_rep=angle_rep,
-        offset_scale_source="pre",
         use_angle_first=use_angle_first,
         decoder_angle_encoding=decoder_angle_encoding,
     )

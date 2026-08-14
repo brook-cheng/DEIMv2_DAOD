@@ -62,7 +62,6 @@ def _make_obb_model(
     use_angle_first=False,
     decoder_angle_encoding="proportional",
     num_denoising=0,
-    angle_step=0.0,
 ):
     torch.manual_seed(0)
     return DEIMTransformer(
@@ -95,8 +94,6 @@ def _make_obb_model(
         share_score_head=False,
         box_mode="obb",
         angle_rep=angle_rep,
-        offset_scale_source="pre",
-        angle_step=angle_step,
         use_angle_first=use_angle_first,
         decoder_angle_encoding=decoder_angle_encoding,
     )
@@ -316,7 +313,7 @@ def test_decoder_angle_encoding_invalid_raises():
             cross_attn_method="default", query_select_method="default",
             reg_max=4, reg_scale=4.0, layer_scale=1, mlp_act="relu",
             use_gateway=True, share_bbox_head=False, share_score_head=False,
-            box_mode="obb", angle_rep=2, offset_scale_source="pre",
+            box_mode="obb", angle_rep=2,
             use_angle_first=False, decoder_angle_encoding="bogus",
         )
 
@@ -403,7 +400,6 @@ def test_decouple_angle_reference_dimensionality_consistent(seed):
         share_score_head=False,
         box_mode="obb",
         angle_rep=True,
-        offset_scale_source="pre",
     )
     # Use training mode so the output dict includes pred_corners and
     # ref_points (eval mode only returns pred_boxes/pred_logits, see
@@ -502,11 +498,10 @@ def test_anchor_default_r_is_pi_over_4():
         share_score_head=False,
         box_mode="obb",
         angle_rep=0,
-        offset_scale_source="pre",
     )
     # model.anchors 是 init 时缓存的 logit 空间 buffer; sigmoid 还原到 [0,1] norm
     r = torch.sigmoid(model.anchors[..., -1])
-    # angle_step=0 → 所有候选应为同一默认值 0.25 (物理 π/4)
+    # 默认 anchor r=0.25（物理 π/4）
     assert torch.allclose(
         r, torch.full_like(r, 0.25), atol=1e-6
     ), f"anchor r 应为 0.25 (物理 π/4), got min={r.min():.6f} max={r.max():.6f}"
@@ -528,35 +523,6 @@ def test_anchor_default_r_shifted_is_half():
         assert torch.allclose(
             anchors[..., 4], torch.full_like(anchors[..., 4], expected), atol=1e-6
         ), f"anchor θ 应为 {expected}, got {anchors[0, 0, 4].item():.6f}"
-
-
-def test_anchor_angle_step_shifted_candidates():
-    """spec 站点 1b: shifted angle_step=0.2 → remainder(r+0.25,1)。
-
-    arange(5)*0.2={0,0.2,0.4,0.6,0.8} shifted → {0.25,0.45,0.65,0.85,0.05}。
-    """
-    model = _make_obb_model(
-        angle_rep=0, decoder_angle_encoding="shifted", angle_step=0.2
-    )
-    anchors_unact, valid_mask = model._generate_anchors([[4, 4]], device="cpu")
-    anchors = torch.sigmoid(anchors_unact)
-    valid = valid_mask.squeeze(-1)
-    theta_vals = set(round(float(v), 2) for v in anchors[..., 4][valid].unique().tolist())
-    expected = {0.05, 0.25, 0.45, 0.65, 0.85}
-    assert theta_vals == expected, f"got {theta_vals}, want {expected}"
-
-
-def test_anchor_angle_step_proportional_unchanged():
-    """spec 站点 1b: proportional angle_step=0.2 → arange(5)*0.2，
-    θ=0.0 被 valid_mask(eps) 剔除。"""
-    model = _make_obb_model(
-        angle_rep=0, decoder_angle_encoding="proportional", angle_step=0.2
-    )
-    anchors_unact, valid_mask = model._generate_anchors([[4, 4]], device="cpu")
-    anchors = torch.sigmoid(anchors_unact)
-    valid = valid_mask.squeeze(-1)
-    theta_vals = set(round(float(v), 2) for v in anchors[..., 4][valid].unique().tolist())
-    assert theta_vals == {0.2, 0.4, 0.6, 0.8}, f"got {theta_vals}"
 
 
 def test_encoder_aux_theta_known_answer_shifted():
@@ -631,7 +597,6 @@ def test_angle_rep_forward_theta_in_proportional_domain(angle_rep, use_angle_fir
         share_score_head=False,
         box_mode="obb",
         angle_rep=angle_rep,
-        offset_scale_source="pre",
         use_angle_first=use_angle_first,
     )
     model.train()
@@ -936,7 +901,6 @@ def _make_rep2_model_with_denoising(num_denoising=4):
         share_score_head=False,
         box_mode="obb",
         angle_rep=2,
-        offset_scale_source="pre",
         use_angle_first=False,
     )
 
@@ -1075,7 +1039,6 @@ def test_rep2_generated_anchors_are_valid_external_rect_offsets():
         share_score_head=False,
         box_mode="obb",
         angle_rep=2,
-        offset_scale_source="pre",
         use_angle_first=False,
     )
     anchors_unact, valid_mask = model._generate_anchors(

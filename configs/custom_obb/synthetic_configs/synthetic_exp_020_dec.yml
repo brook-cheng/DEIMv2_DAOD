@@ -249,7 +249,6 @@ DEIMTransformer:
   # ADR offset residual scale source (spec 7.1). 'pre' = pre-adjustment
   # external rect (default); 'post' = post-adjustment ext rect (ablation).
   # Must match DEIMCriterion.offset_scale_source to keep encode/decode inverse.
-  offset_scale_source: pre
 
 PostProcessor:
   num_top_queries: 300
@@ -295,7 +294,6 @@ DEIMCriterion:
   local_iou_type: giou
   # ADR offset residual scale source (spec 7.1). Must match
   # DEIMTransformer.offset_scale_source to keep encode/decode inverse.
-  offset_scale_source: pre
   # Periodic angle L1 weight (spec 8.2). 1.0 = normalize angle by pi and
   # weight it equally with spatial L1; 0.0 ablates the angle term.
   lambda_angle: 1.0

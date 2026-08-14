@@ -256,7 +256,6 @@ DEIMTransformer:
   dim_feedforward: 2048
   box_mode: obb
   angle_rep: 0
-  offset_scale_source: pre
   decoder_angle_encoding: shifted
 
 
@@ -302,7 +301,6 @@ DEIMCriterion:
   box_mode: obb
   mal_iou_type: giou
   local_iou_type: giou
-  offset_scale_source: "pre"
   obbox_rep_dim: 6
 
 DINOv3STAs:

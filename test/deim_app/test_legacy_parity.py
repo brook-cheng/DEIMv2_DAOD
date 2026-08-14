@@ -164,7 +164,6 @@ def test_preset_files_DO_carry_algorithm_keys() -> None:
     _collect_keys(raw, keys)
     expected_algorithm_markers = {
         "angle_rep",
-        "offset_scale_source",
         "DEIMTransformer",
         "DEIMCriterion",
         "optimizer",
@@ -395,9 +394,7 @@ def test_obb_dota_algorithm_fields_survive_unchanged(
     decoder = ov["DEIMTransformer"]
     assert decoder["box_mode"] == "obb"
     assert decoder["angle_rep"] == 0
-    assert decoder["offset_scale_source"] == "pre"
     assert decoder["use_gate_fusion"] is False
-    assert decoder["angle_step"] == 0.0
     assert decoder["use_angle_first"] is False
     assert decoder["decoder_angle_encoding"] == "proportional"
 
@@ -457,7 +454,6 @@ def test_obb_dota_algorithm_fields_survive_unchanged(
     assert crit["reg_max"] == 32
     assert crit["box_mode"] == "obb"
     assert crit["obbox_rep_dim"] == 6
-    assert crit["offset_scale_source"] == "pre"
 
     # Matcher weights.
     matcher = crit["matcher"]
@@ -536,7 +532,6 @@ def test_obb_yolo_resolves_format_and_algorithm_parity(
     dec = ov["DEIMTransformer"]
     assert dec["box_mode"] == "obb"
     assert dec["angle_rep"] == 0
-    assert dec["offset_scale_source"] == "pre"
     assert dec["dim_feedforward"] == 2048
     assert ov["HybridEncoder"]["dim_feedforward"] == 1024
     assert ov["DEIMCriterion"]["obbox_rep_dim"] == 6
