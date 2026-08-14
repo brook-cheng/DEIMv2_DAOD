@@ -8,7 +8,7 @@ from engine.deim.deim_criterion import DEIMCriterion
 from engine.solver.kendall import KendallWeighting
 
 
-CONFIG = Path(__file__).resolve().parents[1] / "configs/custom_obb/deimv2_obb_sp.yml"
+CONFIG = Path(__file__).resolve().parents[1] / "configs/custom_obb/dlzdt/ablation/abl_rep3.yml"
 FAMILIES = ("loss_bbox", "loss_probiou", "loss_angle", "loss_kld")
 
 

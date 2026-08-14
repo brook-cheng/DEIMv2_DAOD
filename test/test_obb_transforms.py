@@ -603,7 +603,7 @@ def test_mixup():
     from engine.core import YAMLConfig
     from engine.solver import TASKS
 
-    cfg = YAMLConfig(os.path.join(ROOT, "configs/custom_obb/deimv2_obb_sp.yml"))
+    cfg = YAMLConfig(os.path.join(ROOT, "configs/custom_obb/dlzdt/ablation/abl_rep3.yml"))
     cfg.yaml_cfg["epoches"] = 2
     cfg.yaml_cfg["train_dataloader"]["total_batch_size"] = 4
     cfg.yaml_cfg["train_dataloader"]["num_workers"] = 0
@@ -666,7 +666,7 @@ def test_copyblend():
     from engine.core import YAMLConfig
     from engine.solver import TASKS
 
-    cfg = YAMLConfig(os.path.join(ROOT, "configs/custom_obb/deimv2_obb_sp.yml"))
+    cfg = YAMLConfig(os.path.join(ROOT, "configs/custom_obb/dlzdt/ablation/abl_rep3.yml"))
     cfg.yaml_cfg["epoches"] = 2
     cfg.yaml_cfg["train_dataloader"]["total_batch_size"] = 4
     cfg.yaml_cfg["train_dataloader"]["num_workers"] = 0
@@ -810,7 +810,7 @@ def test_dataloader_mosaic():
     from engine.core import YAMLConfig
     from engine.solver import TASKS
 
-    cfg = YAMLConfig(os.path.join(ROOT, "configs/custom_obb/deimv2_obb_sp.yml"))
+    cfg = YAMLConfig(os.path.join(ROOT, "configs/custom_obb/dlzdt/ablation/abl_rep3.yml"))
     cfg.yaml_cfg["train_dataloader"]["total_batch_size"] = 4
     cfg.yaml_cfg["train_dataloader"]["num_workers"] = 0
     cfg.yaml_cfg["val_dataloader"]["num_workers"] = 0
@@ -858,7 +858,7 @@ def test_dataloader_pipeline():
     from engine.core import YAMLConfig
     from engine.solver import TASKS
 
-    cfg = YAMLConfig(os.path.join(ROOT, "configs/custom_obb/deimv2_obb_sp.yml"))
+    cfg = YAMLConfig(os.path.join(ROOT, "configs/custom_obb/dlzdt/ablation/abl_rep3.yml"))
     cfg.yaml_cfg["train_dataloader"]["total_batch_size"] = 4
     cfg.yaml_cfg["train_dataloader"]["num_workers"] = 0
     cfg.yaml_cfg["val_dataloader"]["num_workers"] = 0
