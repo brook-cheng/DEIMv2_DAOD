@@ -183,7 +183,7 @@ class TransformerDecoder(nn.Module):
             ]
         )
 
-        if self.angle_rep != 0 and self.angle_rep != 1:
+        if self.angle_rep == 3:
             decouple_layer_template = self.layers[-1]
             self.decouple_angle_layers = nn.ModuleList(
                 [
@@ -256,12 +256,12 @@ class TransformerDecoder(nn.Module):
             project = self.project
 
         if self.box_mode == "obb":
-            if self.angle_rep == 0 or self.angle_rep == 1:
+            if self.angle_rep == 0:
                 ref_points_detach = F.sigmoid(ref_points_unact)
                 query_pos_embed = query_pos_head(ref_points_detach).clamp(
                     min=-10, max=10
                 )
-            elif self.angle_rep == 2 or self.angle_rep == 3:
+            elif self.angle_rep == 3:
                 dec_angle_output = target
                 dec_angle_output_detach = 0
                 dec_angle_pred_corners_undetach = 0
@@ -292,7 +292,7 @@ class TransformerDecoder(nn.Module):
                 output_detach = output.detach()
 
                 if self.box_mode == "obb":
-                    if self.angle_rep == 2 or self.angle_rep == 3:
+                    if self.angle_rep == 3:
                         query_dec_angle_embed = F.interpolate(
                             query_dec_angle_embed, scale_factor=self.layer_scale
                         )
@@ -323,7 +323,7 @@ class TransformerDecoder(nn.Module):
             pred_corners_undetach = pred_corners
 
             if self.box_mode == "obb":
-                if self.angle_rep == 2 or self.angle_rep == 3:
+                if self.angle_rep == 3:
                     # ref_dec_angle_input 首次为(x,y,w,h,offset_w,offset_h)，后续为(x,y,w,h,r)
                     ref_dec_angle_input = ref_dec_angle_detach.unsqueeze(2)
                     dec_angle_output = self.decouple_angle_layers[layer_idx](
@@ -398,7 +398,7 @@ class TransformerDecoder(nn.Module):
                 if not self.training:
                     break
 
-            if self.angle_rep != 0 and self.angle_rep != 1:
+            if self.angle_rep == 3:
                 ref_points_detach = inter_ref_bbox[..., :4].detach()
                 ref_dec_angle_detach = inter_ref_bbox.detach()
             else:
@@ -638,7 +638,7 @@ class DEIMTransformer(nn.Module):
             )
 
             ## angle head
-            if self.angle_rep != 0 and self.angle_rep != 1:
+            if self.angle_rep == 3:
                 self.pre_angle_head = MLP(
                     hidden_dim, hidden_dim, num_angle_describer, 3, act=mlp_act
                 )
@@ -731,7 +731,7 @@ class DEIMTransformer(nn.Module):
             if in_channels != self.hidden_dim:
                 init.xavier_uniform_(m[0].weight)
 
-        if self.angle_rep != 0 and self.angle_rep != 1:
+        if self.angle_rep == 3:
             init.constant_(self.pre_angle_head.layers[-1].weight, 0)
             init.constant_(self.pre_angle_head.layers[-1].bias, 0)
             for dec_angle_h in self.dec_angle_head:
