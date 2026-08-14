@@ -168,7 +168,7 @@ def _cdn_gpu_setup():
 
     from engine.core import YAMLConfig
 
-    cfg = YAMLConfig("configs/custom_obb/synthetic_exp_050.yml")
+    cfg = YAMLConfig("configs/custom_obb/synthetic_configs/synthetic_exp_050.yml")
 
     ckpt = torch.load(
         "outputs/synthetic_exp_050/last.pth",

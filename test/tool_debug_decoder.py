@@ -34,8 +34,8 @@ API:
 
 Parameters
 ----------
-config_path   : str  — training YAML (e.g. ``configs/custom_obb/dlzdt/sp_ft_rep0.yml``)
-ckpt_path     : str  — model checkpoint (e.g. ``outputs/sp_ft_rep0_0714.pth``)
+config_path   : str  — training YAML (e.g. ``configs/custom_obb/dlzdt/sp_fz_common.yml``)
+ckpt_path     : str  — model checkpoint (e.g. ``outputs/dlzdt_ablation/abl_rep0.pth``)
 img_dir       : str  — directory of input images (.jpg, .png, .bmp)
 gt_dota_dir   : str  — directory of GT labels in DOTA format (per-image .txt)
 output_root   : str  — output directory (creates pre/, layer_0/…layer_5/, reports/)
@@ -746,8 +746,8 @@ def run_debug(
 def main():
     """Single-model debug entry point."""
     run_debug(
-        config_path="configs/custom_obb/dlzdt/deimv2_obb_sp_dlzdt_anglerep0_p[15,45,75].yml",
-        ckpt_path="outputs/last_rep0.pth",
+        config_path="configs/custom_obb/dlzdt/sp_fz_common.yml",
+        ckpt_path="outputs/dlzdt_ablation/abl_rep0_last.pth",
         img_dir="/mnt/d/project_data/model_test/deimv2_obb_train_data/dlzdt_obb_val/images/train",
         gt_dota_dir="./test/data/outputs/dlzdt_obb_compare_train/gt_dota",
         output_root="./test/data/outputs/debug_decoder/sp_fz_rep0_train",
@@ -779,45 +779,9 @@ def main_multi():
             "infer_flag": True,
         },
         {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_shifted.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep0_shifted.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_shifted_debug",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_mangle.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep0_mangle.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_mangle_debug",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_offset_post.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep0_offset_post.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep0_offset_post_debug",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_rep1.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep1.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep1_debug",
-            "infer_flag": True,
-        },
-        {
             "config": "configs/custom_obb/dlzdt/ablation/abl_rep3.yml",
             "ckpt": "outputs/dlzdt_ablation/abl_rep3.pth",
             "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_debug",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_rep3_afp.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep3_afp.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_afp_debug",
-            "infer_flag": True,
-        },
-        {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_rep3_fused.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep3_fused.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_fused_debug",
             "infer_flag": True,
         },
     ]
