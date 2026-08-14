@@ -29,37 +29,14 @@ from .utils import (
 from .dfine_decoder import MSDeformableAttention, LQE, Integral
 from .dfine_utils import weighting_function, distance2bbox, distance2bbox_obb
 from .deim_utils import RMSNorm, SwiGLUFFN, Gate, MLP
-from .obb_geometry import (
-    external_xywh_rect_to_oriented_box,
-    oriented_box_to_external_xywh_rect,
-)
 from .obb_angle_contract import (
     norm_to_physical_rad,
-    physical_rad_to_norm,
     shifted_norm_to_physical_rad,
     physical_rad_to_shifted_norm,
 )
 
 __all__ = ["DEIMTransformer"]
 _VALID_DECODER_ANGLE_ENCODINGS = ("proportional", "shifted")
-
-
-def _obb_denoising_unact_to_rep2_unact(
-    denoising_bbox_unact: torch.Tensor,
-) -> torch.Tensor:
-    denoising_bbox_act = torch.sigmoid(denoising_bbox_unact)
-    denoising_obb_phys = torch.cat(
-        [
-            denoising_bbox_act[..., :4],
-            norm_to_physical_rad(denoising_bbox_act[..., 4:]),
-        ],
-        dim=-1,
-    )
-    external_cxcywh, vertex_offsets = oriented_box_to_external_xywh_rect(
-        denoising_obb_phys
-    )
-    rep2_bbox_act = torch.cat([external_cxcywh, vertex_offsets], dim=-1)
-    return inverse_sigmoid(rep2_bbox_act)
 
 
 class TransformerDecoderLayer(nn.Module):
@@ -368,18 +345,7 @@ class TransformerDecoder(nn.Module):
                             pre_angle_head(dec_angle_output)
                             + inverse_sigmoid(ref_dec_angle_detach)[..., 4:]
                         )
-                        if self.angle_rep == 2:
-                            pre_bboxes = external_xywh_rect_to_oriented_box(
-                                ref_points_initial, dec_angle_initial
-                            )
-                            pre_bboxes = torch.concat(
-                                [
-                                    pre_bboxes[..., :4],
-                                    physical_rad_to_norm(pre_bboxes[..., 4:]),
-                                ],
-                                dim=-1,
-                            )
-                        elif self.angle_rep == 3:
+                        if self.angle_rep == 3:
                             pre_bboxes = torch.concat(
                                 [pre_bboxes, dec_angle_initial], dim=-1
                             )
@@ -535,24 +501,18 @@ class DEIMTransformer(nn.Module):
                 "decoder_angle_encoding must be 'proportional' or 'shifted', "
                 f"got {decoder_angle_encoding!r}"
             )
-        self.decoder_angle_encoding = (
-            decoder_angle_encoding if angle_rep != 2 else "proportional"
-        )
+        self.decoder_angle_encoding = decoder_angle_encoding
         self.num_r_layers = num_layers
 
         # num_reg_dist: vertex bias for refienment, used in LQE
         # _num_box_dof: bbox representation, used to define headers
-        if self.box_mode == "obb" and self.angle_rep == 1:
+        if self.box_mode == "obb" and self.angle_rep not in (0, 3):
             raise ValueError(
-                "angle_rep=1 has been removed; use angle_rep=0 or angle_rep=3 "
-                "for box_mode='obb'."
+                f"angle_rep must be 0 or 3 for box_mode='obb', got {self.angle_rep!r}"
             )
         if self.box_mode == "obb":
             if self.angle_rep == 0:
                 self._num_box_dof = 5  # (cx,cy,w,h,θ)
-                self.num_reg_dist = 6  # (α,β,γ,δ,ε,η)
-            elif self.angle_rep == 2:
-                self._num_box_dof = 6  # (cx,cy,w,h,ε,η)
                 self.num_reg_dist = 6  # (α,β,γ,δ,ε,η)
             elif self.angle_rep == 3:
                 self._num_box_dof = 5  # (cx,cy,w,h,θ)
@@ -667,11 +627,6 @@ class DEIMTransformer(nn.Module):
                 pre_bbox_head_out_dim = 5  # (cx,cy,w,h,θ)
                 num_query_pos_in = 5
                 num_reg_dist_xywh = 6  # (α,β,γ,δ,ε,η)
-            elif self.angle_rep == 2:
-                pre_bbox_head_out_dim = 4
-                num_query_pos_in = 4
-                num_reg_dist_xywh = 4
-                num_angle_describer = 2
             elif self.angle_rep == 3:
                 pre_bbox_head_out_dim = 4
                 num_query_pos_in = 4
@@ -923,54 +878,29 @@ class DEIMTransformer(nn.Module):
                 )
                 anchors.append(lvl_anchors)
         elif self.box_mode == "obb":
-            if self.angle_rep == 2:
-                for lvl, (h, w) in enumerate(spatial_shapes):
-                    grid_y, grid_x = torch.meshgrid(
-                        torch.arange(h), torch.arange(w), indexing="ij"
-                    )
-                    grid_xy = torch.stack([grid_x, grid_y], dim=-1)
-                    grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor(
-                        [w, h], dtype=dtype
-                    )
-                    wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
-                    theta = torch.full(
-                        (*grid_xy.shape[:-1], 1),
-                        torch.pi / 4,
-                        dtype=grid_xy.dtype,
-                        device=grid_xy.device,
-                    )
-                    initial_obb = torch.cat([grid_xy, wh, theta], dim=-1)
-                    external_cxcywh, vertex_offsets = (
-                        oriented_box_to_external_xywh_rect(initial_obb)
-                    )
-                    lvl_anchors = torch.cat(
-                        [external_cxcywh, vertex_offsets], dim=-1
-                    ).reshape(-1, h * w, self._num_box_dof)
-                    anchors.append(lvl_anchors)
-            else:
-                for lvl, (h, w) in enumerate(spatial_shapes):
-                    grid_y, grid_x = torch.meshgrid(
-                        torch.arange(h), torch.arange(w), indexing="ij"
-                    )
-                    grid_xy = torch.stack([grid_x, grid_y], dim=-1)
-                    grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor(
-                        [w, h], dtype=dtype
-                    )
-                    wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
+            for lvl, (h, w) in enumerate(spatial_shapes):
+                grid_y, grid_x = torch.meshgrid(
+                    torch.arange(h), torch.arange(w), indexing="ij"
+                )
+                grid_xy = torch.stack([grid_x, grid_y], dim=-1)
+                grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor(
+                    [w, h], dtype=dtype
+                )
+                wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
 
-                    default_r = (
-                        0.5 if self.decoder_angle_encoding == "shifted" else 0.25
-                    )
-                    r = default_r * torch.ones(
-                        *grid_xy.shape[:-1],
-                        1,
-                        dtype=grid_xy.dtype,
-                        device=grid_xy.device,
-                    )
-                    lvl_anchors = torch.concat([grid_xy, wh, r], dim=-1).reshape(
-                        -1, h * w, self._num_box_dof
-                    )
-                    anchors.append(lvl_anchors)
+                default_r = (
+                    0.5 if self.decoder_angle_encoding == "shifted" else 0.25
+                )
+                r = default_r * torch.ones(
+                    *grid_xy.shape[:-1],
+                    1,
+                    dtype=grid_xy.dtype,
+                    device=grid_xy.device,
+                )
+                lvl_anchors = torch.concat([grid_xy, wh, r], dim=-1).reshape(
+                    -1, h * w, self._num_box_dof
+                )
+                anchors.append(lvl_anchors)
 
         anchors = torch.concat(anchors, dim=1).to(device)
         valid_mask = ((anchors > self.eps) * (anchors < 1 - self.eps)).all(
@@ -1055,28 +985,24 @@ class DEIMTransformer(nn.Module):
         if self.training:
             enc_topk_bboxes = F.sigmoid(enc_topk_bbox_unact)
             if self.box_mode == "obb":
-                if self.angle_rep != 2:
-                    if self.decoder_angle_encoding == "shifted":
-                        # 内部 θ_shift 还原为物理角 [0, π)
-                        enc_topk_bboxes = torch.cat(
-                            [
-                                enc_topk_bboxes[..., :4],
-                                shifted_norm_to_physical_rad(enc_topk_bboxes[..., 4:]),
-                            ],
-                            dim=-1,
-                        )
-                    else:
-                        # 角度量纲 [0,1]->[0, pi)
-                        enc_topk_bboxes = torch.cat(
-                            [
-                                enc_topk_bboxes[..., :4],
-                                norm_to_physical_rad(enc_topk_bboxes[..., 4:]),
-                            ],
-                            dim=-1,
-                        )
+                if self.decoder_angle_encoding == "shifted":
+                    # 内部 θ_shift 还原为物理角 [0, π)
+                    enc_topk_bboxes = torch.cat(
+                        [
+                            enc_topk_bboxes[..., :4],
+                            shifted_norm_to_physical_rad(enc_topk_bboxes[..., 4:]),
+                        ],
+                        dim=-1,
+                    )
                 else:
-                    # 使用偏移量替代角度表示
-                    enc_topk_bboxes = enc_topk_bboxes
+                    # 角度量纲 [0,1]->[0, pi)
+                    enc_topk_bboxes = torch.cat(
+                        [
+                            enc_topk_bboxes[..., :4],
+                            norm_to_physical_rad(enc_topk_bboxes[..., 4:]),
+                        ],
+                        dim=-1,
+                    )
 
             enc_topk_bboxes_list.append(enc_topk_bboxes)
             enc_topk_logits_list.append(enc_topk_logits)
@@ -1089,15 +1015,9 @@ class DEIMTransformer(nn.Module):
         enc_topk_bbox_unact = enc_topk_bbox_unact.detach()
 
         if denoising_bbox_unact is not None:
-            if self.angle_rep != 2:
-                enc_topk_bbox_unact = torch.concat(
-                    [denoising_bbox_unact, enc_topk_bbox_unact], dim=1
-                )
-            else:
-                dn_bbox_unact = _obb_denoising_unact_to_rep2_unact(denoising_bbox_unact)
-                enc_topk_bbox_unact = torch.concat(
-                    [dn_bbox_unact, enc_topk_bbox_unact], dim=1
-                )
+            enc_topk_bbox_unact = torch.concat(
+                [denoising_bbox_unact, enc_topk_bbox_unact], dim=1
+            )
             content = torch.concat([denoising_logits, content], dim=1)
 
         return content, enc_topk_bbox_unact, enc_topk_bboxes_list, enc_topk_logits_list
@@ -1270,15 +1190,6 @@ class DEIMTransformer(nn.Module):
                 out_corners[-1],
                 out_logits[-1],
             )
-
-            if self.angle_rep == 2:
-                enc_topk_bboxes_list = [
-                    external_xywh_rect_to_oriented_box(
-                        enc_topk_bboxes[..., :4],
-                        enc_topk_bboxes[..., 4:],
-                    )
-                    for enc_topk_bboxes in enc_topk_bboxes_list
-                ]
 
             out["enc_aux_outputs"] = self._set_aux_loss(
                 enc_topk_logits_list, enc_topk_bboxes_list

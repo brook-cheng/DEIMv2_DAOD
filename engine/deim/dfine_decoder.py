@@ -23,7 +23,6 @@ from .denoising import get_contrastive_denoising_training_group
 from .utils import deformable_attention_core_func_v2, get_activation, inverse_sigmoid
 from .utils import bias_init_with_prob
 from ..core import register
-from .obb_geometry import external_xywh_rect_to_oriented_box
 from .obb_angle_contract import shifted_norm_to_physical_rad
 
 __all__ = ["DFINETransformer"]
@@ -170,21 +169,14 @@ class MSDeformableAttention(nn.Module):
                 * self.offset_scale
             )
             sampling_locations = reference_points[:, :, None, :, :2] + offset
-        elif reference_points.shape[-1] == 5 or reference_points.shape[-1] == 6:
+        elif reference_points.shape[-1] == 5:
             # reference_points: (bs, Len_q, n_levels, 5) — (cx, cy, w, h, θ）
-            # reference_points: (bs, Len_q, n_levels, 6) — (cx, cy, w, h, offset_w,offset_h))
-            if reference_points.shape[-1] == 6:
-                reference_points = external_xywh_rect_to_oriented_box(
-                    reference_points[..., :4], reference_points[..., 4:]
-                )
-                angle = reference_points[..., 4:5]
+            # 站点 5: 5D OBB 分支的 θ 通道按编码解码为物理角。
+            # proportional: theta_norm * π; shifted: shifted_norm_to_physical_rad。
+            if self.angle_encoding == "shifted":
+                angle = shifted_norm_to_physical_rad(reference_points[..., 4:5])
             else:
-                # 站点 5: 5D OBB 分支的 θ 通道按编码解码为物理角。
-                # proportional: theta_norm * π; shifted: shifted_norm_to_physical_rad。
-                if self.angle_encoding == "shifted":
-                    angle = shifted_norm_to_physical_rad(reference_points[..., 4:5])
-                else:
-                    angle = reference_points[..., 4:5] * torch.pi
+                angle = reference_points[..., 4:5] * torch.pi
             n_heads = sampling_offsets.shape[2]
             half_heads = n_heads // 2
             angle_expanded = angle.expand(-1, -1, -1, n_heads)

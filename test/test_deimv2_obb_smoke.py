@@ -155,37 +155,6 @@ def test_msdeform_attn_decouple_angle_reference_consumes_theta(seed):
     assert torch.isfinite(out_5d).all(), "5-dim ref produced non-finite output"
     assert out_5d.shape == (bs, n_queries, embed_dim)
 
-    # --- 6-dim reference: external-rectangle (ext_cx, ext_cy, w_ext, h_ext, eps, eta) ---
-    # Build valid physical OBBs and encode them to the external-rectangle
-    # representation the 6D reference actually carries (Stage 2 Task 2):
-    # theta_phys in [0, pi), centers in roughly [0.3, 0.7],
-    # widths/heights in [0.1, 0.3].
-    theta_phys = torch.rand(bs, n_queries, n_ref_levels, 1) * math.pi
-    centers = 0.3 + 0.4 * torch.rand(bs, n_queries, n_ref_levels, 2)
-    wh = 0.1 + 0.2 * torch.rand(bs, n_queries, n_ref_levels, 2)
-    obb_phys = torch.cat([centers, wh, theta_phys], dim=-1)  # (..., 5) physical OBB
-    ext_xywh, offsets = oriented_box_to_external_xywh_rect(obb_phys)
-    ref_6d = torch.cat([ext_xywh, offsets], dim=-1)
-    out_6d = attn(query, ref_6d, value, spatial_shapes)
-    assert torch.isfinite(out_6d).all(), "6-dim ref produced non-finite output"
-    assert out_6d.shape == (bs, n_queries, embed_dim)
-
-    # --- 5-dim and 6-dim converge when 6-dim converts to the same OBB ---
-    ref_6d_as_obb_phys = external_xywh_rect_to_oriented_box(
-        ref_6d[..., :4], ref_6d[..., 4:]
-    )
-    ref_6d_as_obb_norm = torch.cat(
-        [
-            ref_6d_as_obb_phys[..., :4],
-            physical_rad_to_norm(ref_6d_as_obb_phys[..., 4:]),
-        ],
-        dim=-1,
-    )
-    out_6d_as_5d = attn(query, ref_6d_as_obb_norm, value, spatial_shapes)
-    assert torch.allclose(
-        out_6d, out_6d_as_5d, atol=1e-6
-    ), "6-dim ADR path and equivalent 5-dim OBB path must converge"
-
     # --- theta is consumed: changing 5th dim changes output ---
     ref_5d_rotated = ref_5d.clone()
     ref_5d_rotated[..., 4] = (ref_5d[..., 4] + 0.5) % 1.0
@@ -311,7 +280,7 @@ def test_decoder_angle_encoding_invalid_raises():
             cross_attn_method="default", query_select_method="default",
             reg_max=4, reg_scale=4.0, layer_scale=1, mlp_act="relu",
             use_gateway=True, share_bbox_head=False, share_score_head=False,
-            box_mode="obb", angle_rep=2, decoder_angle_encoding="bogus",
+            box_mode="obb", angle_rep=3, decoder_angle_encoding="bogus",
         )
 
 
@@ -328,13 +297,6 @@ def test_resolved_angle_encoding_rep0_shifted():
     assert model.decoder_angle_encoding == "shifted"
     assert model.decoder.decoder_angle_encoding == "shifted"
     assert model.decoder.layers[0].cross_attn.angle_encoding == "shifted"
-
-
-def test_resolved_angle_encoding_rep2_forced_proportional():
-    model = _make_obb_model(angle_rep=2, decoder_angle_encoding="shifted")
-    assert model.decoder_angle_encoding == "proportional"
-    assert model.decoder.decoder_angle_encoding == "proportional"
-    assert model.decoder.layers[0].cross_attn.angle_encoding == "proportional"
 
 
 # ---------------------------------------------------------------------------
@@ -558,7 +520,7 @@ def test_encoder_aux_theta_known_answer_shifted():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("angle_rep", [0, 2, 3])
+@pytest.mark.parametrize("angle_rep", [0, 3])
 def test_angle_rep_forward_theta_in_proportional_domain(angle_rep):
     torch.manual_seed(0)
     model = DEIMTransformer(
@@ -606,24 +568,13 @@ def test_angle_rep_forward_theta_in_proportional_domain(angle_rep):
             f"got min={tensor.min():.4f} max={tensor.max():.4f}"
         )
 
-    # rep2 encoder auxiliary must emit finite 5D OBBs (Stage 2 Task 2 Step 6):
-    # enc_topk_bboxes_list is decoded through external_xyxy_rect_to_oriented_box.
-    if angle_rep == 2:
-        enc_aux = outputs["enc_aux_outputs"][0]["pred_boxes"]
-        assert enc_aux.shape[-1] == 5, (
-            f"rep2 enc_aux_outputs pred_boxes must be 5D, got {enc_aux.shape[-1]}"
-        )
-        assert torch.isfinite(enc_aux).all(), (
-            f"rep2 enc_aux_outputs pred_boxes must be finite, got non-finite values"
-        )
-
 
 # ---------------------------------------------------------------------------
-# Test 4b: 前向矩阵 4 表示 × 2 配置 + rep2 golden + shifted known-answer（spec §12.2）
+# Test 4b: 前向矩阵 4 表示 × 2 配置 + shifted known-answer（spec §12.2）
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("angle_rep", [0, 2, 3])
+@pytest.mark.parametrize("angle_rep", [0, 3])
 @pytest.mark.parametrize("decoder_angle_encoding", ["proportional", "shifted"])
 def test_forward_matrix_public_theta_domain(
     angle_rep, decoder_angle_encoding
@@ -650,25 +601,6 @@ def test_forward_matrix_public_theta_domain(
         assert (tensor >= 0).all() and (tensor < math.pi).all(), (
             f"rep={angle_rep} enc={decoder_angle_encoding} {name} θ 应 ∈ [0, π), "
             f"got min={tensor.min():.4f} max={tensor.max():.4f}"
-        )
-
-
-def test_rep2_forward_bitwise_identical_across_modes():
-    """spec §12.2: rep2 在 proportional 与 shifted 配置下输出逐位一致（golden）。"""
-    torch.manual_seed(0)
-    feats = [torch.randn(1, 32, 8, 8), torch.randn(1, 32, 4, 4)]
-
-    model_prop = _make_obb_model(angle_rep=2, decoder_angle_encoding="proportional")
-    model_shift = _make_obb_model(angle_rep=2, decoder_angle_encoding="shifted")
-    model_prop.train()
-    model_shift.train()
-    with torch.no_grad():
-        out_prop = model_prop(feats)
-        out_shift = model_shift(feats)
-
-    for key in ["pred_boxes", "pred_logits", "pred_corners", "ref_points"]:
-        assert torch.equal(out_prop[key], out_shift[key]), (
-            f"rep2 {key} 在两种编码配置下必须逐位一致"
         )
 
 
@@ -856,189 +788,3 @@ def test_denoising_default_angle_encoding_proportional():
     assert torch.allclose(
         theta_norm, torch.full_like(theta_norm, 0.25), atol=1e-4
     ), f"默认 proportional 应得 θ_norm=0.25, got {theta_norm.min():.6f}"
-
-
-def _make_rep2_model_with_denoising(num_denoising=4):
-    torch.manual_seed(0)
-    return DEIMTransformer(
-        num_classes=5,
-        hidden_dim=32,
-        num_queries=4,
-        feat_channels=[32, 32],
-        feat_strides=[4, 8],
-        num_levels=2,
-        num_points=2,
-        nhead=4,
-        num_layers=3,
-        dim_feedforward=64,
-        dropout=0.0,
-        activation="relu",
-        num_denoising=num_denoising,
-        learn_query_content=False,
-        eval_spatial_size=(16, 16),
-        eval_idx=-1,
-        eps=1e-2,
-        aux_loss=True,
-        cross_attn_method="default",
-        query_select_method="default",
-        reg_max=4,
-        reg_scale=4.0,
-        layer_scale=1,
-        mlp_act="relu",
-        use_gateway=True,
-        share_bbox_head=False,
-        share_score_head=False,
-        box_mode="obb",
-        angle_rep=2,
-    )
-
-
-def test_rep2_denoising_forward_emits_finite_5d_obb():
-    """rep2 denoising boundary must convert GT OBB to external cxcywh+offset
-    via sigmoid -> OBB -> oriented_box_to_external_xywh_rect -> inverse_sigmoid
-    (Stage 2 Task 3). The dn / dn_pre outputs must be finite 5D OBBs with
-    theta in [0, pi).
-    """
-    model = _make_rep2_model_with_denoising(num_denoising=4)
-    model.train()
-    feats = [torch.randn(1, 32, 8, 8), torch.randn(1, 32, 4, 4)]
-    targets = [
-        {
-            "labels": torch.tensor([1], dtype=torch.int64),
-            "boxes": torch.tensor(
-                [[0.5, 0.5, 0.3, 0.1, math.pi / 4]], dtype=torch.float32
-            ),
-        }
-    ]
-    with torch.no_grad():
-        outputs = model(feats, targets)
-
-    for name, boxes in [
-        ("pred_boxes", outputs["pred_boxes"]),
-        ("dn_pre", outputs["dn_pre_outputs"]["pred_boxes"]),
-        ("dn_last", outputs["dn_outputs"][-1]["pred_boxes"]),
-    ]:
-        assert boxes.shape[-1] == 5, (
-            f"{name}: must be 5D OBB, got {boxes.shape[-1]}"
-        )
-        assert torch.isfinite(boxes).all(), (
-            f"{name}: must be finite — denoising boundary likely calls "
-            f"geometry on logit-space input without sigmoid/inverse_sigmoid"
-        )
-        theta = boxes[..., 4]
-        assert (theta >= 0).all() and (theta < math.pi).all(), (
-            f"{name}: theta must be in [0, pi), "
-            f"got min={theta.min():.4f} max={theta.max():.4f}"
-        )
-
-
-def test_rep2_denoising_decoder_boundary_emits_external_xywh_offset_logits():
-    """rep2 denoising boundary must convert 5D OBB logits into 6D
-    external-rectangle (cxcywh, epsilon, eta) logits (Stage 2 Task 3).
-
-    The decoder boundary ``_get_decoder_input`` must apply the geometry in
-    probability space: sigmoid(denoising_bbox_unact) -> normalized OBB,
-    rescale the angle to physical radians, then
-    ``oriented_box_to_external_xywh_rect`` -> external cxcywh + offsets,
-    which are what the 6D reference fed to the decoder must match after
-    sigmoid. Current production passes the logit-space input straight into
-    ``oriented_box_to_external_xyxy_rect`` (no sigmoid / inverse_sigmoid,
-    XYXY instead of XYWH), so this must FAIL until the boundary is fixed.
-    """
-    model = _make_rep2_model_with_denoising(num_denoising=4)
-    model.train()
-    torch.manual_seed(0)
-
-    # Known normalized OBB (cx, cy, w, h, theta_norm) -> logit-space 5D ref.
-    norm_obb = torch.tensor(
-        [[[0.5, 0.5, 0.3, 0.2, 0.25]]], dtype=torch.float32
-    )
-    denoising_bbox_unact = inverse_sigmoid(norm_obb)  # (1, 1, 5)
-    num_dn = denoising_bbox_unact.shape[1]
-    denoising_logits = torch.randn(1, num_dn, model.hidden_dim)
-
-    spatial_shapes = [[8, 8], [4, 4]]  # 64 + 16 = 80 memory tokens
-    memory = torch.randn(1, 80, model.hidden_dim)
-
-    _, enc_topk_bbox_unact, _, _ = model._get_decoder_input(
-        memory,
-        spatial_shapes,
-        denoising_logits=denoising_logits,
-        denoising_bbox_unact=denoising_bbox_unact,
-    )
-
-    dn_ref = torch.sigmoid(enc_topk_bbox_unact[:, :num_dn])
-    assert dn_ref.shape[-1] == 6, (
-        f"dn decoder ref must be 6D (external cxcywh, eps, eta), "
-        f"got {dn_ref.shape[-1]}"
-    )
-
-    # Expected: sigmoid -> normalized OBB -> physical angle ->
-    # oriented_box_to_external_xywh_rect -> (external cxcywh, offsets).
-    obb_norm = torch.sigmoid(denoising_bbox_unact)
-    obb_phys = torch.cat(
-        [obb_norm[..., :4], norm_to_physical_rad(obb_norm[..., 4:])], dim=-1
-    )
-    ext_xywh, offsets = oriented_box_to_external_xywh_rect(obb_phys)
-    expected = torch.cat([ext_xywh, offsets], dim=-1)
-
-    assert torch.allclose(dn_ref, expected, atol=1e-4), (
-        "dn decoder ref must equal [external_xywh, eps, eta] derived after "
-        "sigmoid with the angle in physical radians; "
-        f"got {dn_ref[0, 0].tolist()}, expected {expected[0, 0].tolist()}"
-    )
-
-
-def test_rep2_generated_anchors_are_valid_external_rect_offsets():
-    """rep2 anchors must be valid external-rectangle offsets: channels 4/5
-    (epsilon/eta) are vertex offsets of an oriented box around the grid cell
-    and can never exceed the external rectangle width/height w_ext/h_ext
-    (channels 2/3).
-    Current `grid_offset_wh` is unrelated to external rectangle width and
-    height, so this must FAIL until Step 3 replaces it (Stage 2 Task 4).
-    """
-    model = DEIMTransformer(
-        num_classes=5,
-        hidden_dim=32,
-        num_queries=4,
-        feat_channels=[32, 32],
-        feat_strides=[4, 8],
-        num_levels=2,
-        num_points=2,
-        nhead=4,
-        num_layers=3,
-        dim_feedforward=64,
-        dropout=0.0,
-        activation="relu",
-        num_denoising=0,
-        learn_query_content=False,
-        eval_spatial_size=(16, 16),
-        eval_idx=-1,
-        eps=1e-2,
-        aux_loss=False,
-        cross_attn_method="default",
-        query_select_method="default",
-        reg_max=4,
-        reg_scale=4.0,
-        layer_scale=1,
-        mlp_act="relu",
-        use_gateway=True,
-        share_bbox_head=False,
-        share_score_head=False,
-        box_mode="obb",
-        angle_rep=2,
-    )
-    anchors_unact, valid_mask = model._generate_anchors(
-        [[4, 4], [2, 2]], device="cpu"
-    )
-    anchors = torch.sigmoid(anchors_unact)
-    valid = valid_mask.squeeze(-1)
-    valid_anchors = anchors[valid]
-
-    assert valid_anchors.shape[-1] == 6
-    assert valid_anchors.numel() > 0
-    assert torch.isfinite(valid_anchors).all()
-    assert (valid_anchors > model.eps).all()
-    assert (valid_anchors < 1 - model.eps).all()
-    assert (valid_anchors[..., 4] <= valid_anchors[..., 2]).all()
-    assert (valid_anchors[..., 5] <= valid_anchors[..., 3]).all()

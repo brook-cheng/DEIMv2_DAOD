@@ -803,12 +803,6 @@ def main_multi():
             "infer_flag": True,
         },
         {
-            "config": "configs/custom_obb/dlzdt/ablation/abl_rep2.yml",
-            "ckpt": "outputs/dlzdt_ablation/abl_rep2.pth",
-            "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep2_debug",
-            "infer_flag": True,
-        },
-        {
             "config": "configs/custom_obb/dlzdt/ablation/abl_rep3.yml",
             "ckpt": "outputs/dlzdt_ablation/abl_rep3.pth",
             "output_dir": "./test/data/outputs/dlzdt_res/dlzdt_ablation/abl_rep3_debug",
