@@ -186,16 +186,6 @@ DEIMTransformer:
   #   3 → (cx,cy,w,h,θ_norm) + 5D refinement + 解耦角度流（decouple_angle_layers）
   angle_rep: 0
 
-  # use_gate_fusion: box/angle 分支 GatedSoftmaxFusion（仅 rep2/3 有效）
-  #   false → 两路特征直接 concat
-  #   true  → 两路特征经门控权重融合（gated_fusion.py GatedSoftmaxFusion）
-  use_gate_fusion: false
-
-  # use_angle_first: query 先预测角度再引导位置回归（仅 rep3 有效，rep2 禁止）
-  #   false → query_pos_head 接收 4D 位置，角度独立流
-  #   true  → query_pos_head 接收 5D (位置+角度)，角度引导位置注意力
-  use_angle_first: false
-
   # decoder_angle_encoding: decoder 私有角度编码模式
   #   "proportional" → θ_norm = θ_phys/π ∈ [0,1)，当前默认，checkpoint 兼容
   #   "shifted"      → θ_shift = remainder(θ_phys/π + 0.25, 1) ∈ [0,1)

@@ -61,8 +61,6 @@ DEIMTransformer:
   box_mode: obb
 
   angle_rep: 0
-  use_gate_fusion: false
-  use_angle_first: false
   decoder_angle_encoding: "proportional"
 
 PostProcessor:

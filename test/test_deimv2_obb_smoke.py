@@ -59,7 +59,6 @@ def _make_msdeform_value(bs, num_head, head_dim, spatial_shapes):
 
 def _make_obb_model(
     angle_rep,
-    use_angle_first=False,
     decoder_angle_encoding="proportional",
     num_denoising=0,
 ):
@@ -94,7 +93,6 @@ def _make_obb_model(
         share_score_head=False,
         box_mode="obb",
         angle_rep=angle_rep,
-        use_angle_first=use_angle_first,
         decoder_angle_encoding=decoder_angle_encoding,
     )
 
@@ -313,8 +311,7 @@ def test_decoder_angle_encoding_invalid_raises():
             cross_attn_method="default", query_select_method="default",
             reg_max=4, reg_scale=4.0, layer_scale=1, mlp_act="relu",
             use_gateway=True, share_bbox_head=False, share_score_head=False,
-            box_mode="obb", angle_rep=2,
-            use_angle_first=False, decoder_angle_encoding="bogus",
+            box_mode="obb", angle_rep=2, decoder_angle_encoding="bogus",
         )
 
 
@@ -561,11 +558,8 @@ def test_encoder_aux_theta_known_answer_shifted():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("angle_rep", "use_angle_first"),
-    [(0, False), (1, False), (2, False), (3, True)],
-)
-def test_angle_rep_forward_theta_in_proportional_domain(angle_rep, use_angle_first):
+@pytest.mark.parametrize("angle_rep", [0, 1, 2, 3])
+def test_angle_rep_forward_theta_in_proportional_domain(angle_rep):
     torch.manual_seed(0)
     model = DEIMTransformer(
         num_classes=5,
@@ -597,7 +591,6 @@ def test_angle_rep_forward_theta_in_proportional_domain(angle_rep, use_angle_fir
         share_score_head=False,
         box_mode="obb",
         angle_rep=angle_rep,
-        use_angle_first=use_angle_first,
     )
     model.train()
     feats = [torch.randn(1, 32, 8, 8), torch.randn(1, 32, 4, 4)]
@@ -630,19 +623,15 @@ def test_angle_rep_forward_theta_in_proportional_domain(angle_rep, use_angle_fir
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("angle_rep", "use_angle_first"),
-    [(0, False), (1, False), (2, False), (3, True)],
-)
+@pytest.mark.parametrize("angle_rep", [0, 1, 2, 3])
 @pytest.mark.parametrize("decoder_angle_encoding", ["proportional", "shifted"])
 def test_forward_matrix_public_theta_domain(
-    angle_rep, use_angle_first, decoder_angle_encoding
+    angle_rep, decoder_angle_encoding
 ):
     """spec §12.2: 4 表示 × 2 配置，公开输出 θ ∈ [0, π)、无 NaN。"""
     torch.manual_seed(0)
     model = _make_obb_model(
         angle_rep=angle_rep,
-        use_angle_first=use_angle_first,
         decoder_angle_encoding=decoder_angle_encoding,
     )
     model.train()
@@ -901,7 +890,6 @@ def _make_rep2_model_with_denoising(num_denoising=4):
         share_score_head=False,
         box_mode="obb",
         angle_rep=2,
-        use_angle_first=False,
     )
 
 
@@ -1039,7 +1027,6 @@ def test_rep2_generated_anchors_are_valid_external_rect_offsets():
         share_score_head=False,
         box_mode="obb",
         angle_rep=2,
-        use_angle_first=False,
     )
     anchors_unact, valid_mask = model._generate_anchors(
         [[4, 4], [2, 2]], device="cpu"

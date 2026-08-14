@@ -44,8 +44,7 @@ FEAT_STRIDES = [4, 8]
 EVAL_H, EVAL_W = 16, 16
 
 
-def _make_obb_model(angle_rep, decoder_angle_encoding="shifted",
-                    use_angle_first=False):
+def _make_obb_model(angle_rep, decoder_angle_encoding="shifted"):
     torch.manual_seed(0)
     return DEIMTransformer(
         num_classes=NUM_CLASSES,
@@ -77,7 +76,6 @@ def _make_obb_model(angle_rep, decoder_angle_encoding="shifted",
         share_score_head=False,
         box_mode="obb",
         angle_rep=angle_rep,
-        use_angle_first=use_angle_first,
         decoder_angle_encoding=decoder_angle_encoding,
     )
 
@@ -147,25 +145,16 @@ def test_rep0_shifted_forward_contract(seed):
 @pytest.mark.parametrize("seed", [0])
 def test_rep3_shifted_forward_contract(seed):
     """rep3 + shifted: finite 5D public OBBs, finite per-layer references,
-    5D direct-angle corners, with use_angle_first=False.
+    5D direct-angle corners.
 
-    rep3 is the 5D direct-angle residual representation
-    (num_reg_dist=5) with a decoupled angle stream. After the cleanup rep3
-    runs WITHOUT angle-first and WITHOUT gate fusion; this test constructs
-    rep3 exactly that way (the retained configuration) and locks its forward
-    contract on the CURRENT code.
-
-    Note: the current code still CONSTRUCTS ``gate_fusions`` modules for rep3
-    even when ``use_gate_fusion=False``; the state-dict key count therefore
-    drops to zero only after Task 5. That zero-key assertion lives in Task 5
-    (``test_rep3_has_no_gate_fusion_state_after_cleanup``); this file locks
-    only the forward behavior.
+    rep3 is the 5D direct-angle residual representation (num_reg_dist=5)
+    with a decoupled angle stream and no gate fusion. This test locks the
+    retained rep3 + shifted forward contract.
     """
     torch.manual_seed(seed)
     model = _make_obb_model(
         angle_rep=3,
         decoder_angle_encoding="shifted",
-        use_angle_first=False,
     )
     model.train()
 

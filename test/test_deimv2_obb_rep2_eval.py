@@ -44,7 +44,6 @@ def test_angle_rep2_eval_forward_returns_public_physical_obb() -> None:
         share_score_head=False,
         box_mode="obb",
         angle_rep=2,
-        use_angle_first=False,
     )
     model.eval()
     features = [torch.randn(1, 32, 4, 4), torch.randn(1, 32, 2, 2)]
@@ -101,7 +100,6 @@ def test_angle_rep2_eval_shifted_config_returns_public_physical_obb() -> None:
             share_score_head=False,
             box_mode="obb",
             angle_rep=2,
-            use_angle_first=False,
             decoder_angle_encoding=encoding,
         )
         model.eval()
