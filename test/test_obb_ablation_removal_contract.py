@@ -41,12 +41,6 @@ def _params(fn):
     return set(inspect.signature(fn).parameters)
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="Task 3 pending: offset_scale_source must leave the two dfine_utils "
-    "OBB geometry functions and the DEIMTransformer / TransformerDecoder / "
-    "DEIMCriterion constructors.",
-)
 def test_task3_offset_scale_source_removed():
     offenders = []
     for fn, label in [
@@ -61,22 +55,12 @@ def test_task3_offset_scale_source_removed():
     assert not offenders, "offset_scale_source still accepted by: " + ", ".join(offenders)
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="Task 4 pending: angle_step must leave DEIMTransformer.__init__.",
-)
 def test_task4_angle_step_removed():
     assert "angle_step" not in _params(DEIMTransformer.__init__), (
         "angle_step still accepted by DEIMTransformer.__init__"
     )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="Task 5 pending: use_gate_fusion and use_angle_first must leave "
-    "DEIMTransformer / TransformerDecoder, and engine.deim.gated_fusion must "
-    "be deleted.",
-)
 def test_task5_gate_fusion_and_angle_first_removed():
     offenders = []
     for fn, label in [
@@ -97,12 +81,6 @@ def test_task5_gate_fusion_and_angle_first_removed():
     )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="Task 8 pending: decoder_angle_encoding / angle_encoding must leave "
-    "the decoder + attention + denoising signatures, and "
-    "_VALID_DECODER_ANGLE_ENCODINGS must be gone.",
-)
 def test_task8_decoder_angle_encoding_removed():
     offenders = []
     for fn, label in [

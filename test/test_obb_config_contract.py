@@ -113,7 +113,7 @@ def test_yaml_section_keys_match_constructor_signature(path):
 
 
 # ---------------------------------------------------------------------------
-# Cleanup completeness (in progress)
+# Cleanup completeness (hard guards — cleanup complete)
 # ---------------------------------------------------------------------------
 
 
@@ -135,11 +135,6 @@ def _collect_violations():
     return key_violations, rep_violations
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="Cleanup in progress (plan Tasks 3-8); fails until removed ablation "
-    "keys are gone from every OBB config. The list below is the manifest.",
-)
 def test_no_removed_ablation_keys_in_any_obb_config():
     key_violations, _ = _collect_violations()
     assert not key_violations, (
@@ -148,11 +143,6 @@ def test_no_removed_ablation_keys_in_any_obb_config():
     )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="Cleanup in progress (plan Tasks 6-7); fails until every OBB config "
-    "uses angle_rep in {0, 3}.",
-)
 def test_angle_rep_is_only_0_or_3_in_any_obb_config():
     _, rep_violations = _collect_violations()
     assert not rep_violations, (
