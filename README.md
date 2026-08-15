@@ -379,7 +379,7 @@ ckpts/
 
 ### Using Models from Hugging Face
 
-You can see examples in [hf_models.ipynb](./hf_models.ipynb)
+You can see examples in [hf_models.ipynb](./docs/examples/hf_models.ipynb)
 
 ## 📦 Application Layer (deim_app)
 
