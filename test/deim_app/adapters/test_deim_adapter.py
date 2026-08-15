@@ -133,10 +133,17 @@ class _FakeTorch:
 
     We swap the adapter's ``torch`` name with this so ``torch.load`` routes to
     the test's fake while keeping everything else the adapter does intact.
+    ``load_calls`` records every call's path and kwargs so tests can assert on
+    HOW ``torch.load`` was invoked (e.g. ``weights_only=True``).
     """
 
     def __init__(self, load_fn) -> None:
-        self.load = load_fn
+        self._load_fn = load_fn
+        self.load_calls: list[dict[str, object]] = []
+
+    def load(self, path, map_location=None, **kwargs):
+        self.load_calls.append({"path": path, "map_location": map_location, **kwargs})
+        return self._load_fn(path, map_location=map_location)
 
 
 def _build_stub_yaml(
@@ -898,6 +905,36 @@ def test_obb_adapter_contract_check_runs_after_torch_load_before_select(
 
     assert call_log.index("torch.load") < call_log.index("select_model_state")
     assert len(select_calls) == 1
+
+
+def test_adapter_loads_checkpoint_with_weights_only(monkeypatch, call_log):
+    """The adapter must deserialise checkpoints with ``weights_only=True``.
+
+    Checkpoint files are data, not code: unrestricted pickle deserialisation
+    (CWE-502) executes arbitrary code embedded in a crafted ``.pth``. The
+    engine checkpoint format (tensors + plain dicts/primitives) is fully
+    loadable under the restricted unpickler.
+    """
+    resolved = _resolved_with_box_mode("obb")
+    loaded = _loaded_for(resolved)
+    raw_ckpt = {
+        "model": {"decoder.enc_bbox_head.layers.2.bias": _bias(5)},
+        "meta": {"obb_angle_contract": OBB_ANGLE_CONTRACT},
+    }
+    _wire_stubs(monkeypatch, call_log, raw_ckpt=raw_ckpt)
+
+    adapter = DeimDetectionAdapter(resolved=resolved, loaded=loaded)
+    adapter.load(checkpoint="/ckpt.pth")
+
+    import deim_app.adapters.deim as deim_mod
+
+    fake_torch = deim_mod.torch
+    assert isinstance(fake_torch, _FakeTorch)
+    assert fake_torch.load_calls, "adapter must call torch.load for a checkpoint path"
+    assert fake_torch.load_calls[-1].get("weights_only") is True, (
+        f"torch.load must pass weights_only=True, got kwargs: "
+        f"{fake_torch.load_calls[-1]}"
+    )
 
 
 # ---- stubs (predict/export) --------------------------------------------------
