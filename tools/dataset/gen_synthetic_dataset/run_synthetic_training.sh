@@ -2,11 +2,11 @@
 set -e
 cd /mnt/d/cx/thired/deimv2_daod
 
-# Comet API key (also set in train.py env, but belt-and-suspenders)
 # COMET_API_KEY 必须来自环境（密钥已轮换，禁止写回脚本）
 # export COMET_API_KEY="..."
 
-DENSITIES=(001 002 005 010 020 050 100)
+# 020 密度族已在 OBB 消融清理中删除
+DENSITIES=(001 002 005 010 050 100)
 TOTAL=${#DENSITIES[@]}
 CURRENT=0
 ERRORS=()
@@ -26,11 +26,11 @@ for density in "${DENSITIES[@]}"; do
     echo ""
     echo "============================================================"
     echo "  [$CURRENT/$TOTAL] Starting density_${density} at $(date)"
-    echo "  Config: configs/custom_obb/synthetic_exp_${density}.yml"
+    echo "  Config: configs/custom_obb/synthetic_configs/synthetic_exp_${density}.yml"
     echo "  Output: outputs/synthetic_exp_${density}/last.pth"
     echo "============================================================"
 
-    if python train.py --config "configs/custom_obb/synthetic_exp_${density}.yml"; then
+    if python tools/train/train.py --config "configs/custom_obb/synthetic_configs/synthetic_exp_${density}.yml"; then
         EXP_END=$(date +%s)
         ELAPSED=$((EXP_END - EXP_START))
         ELAPSED_MIN=$((ELAPSED / 60))

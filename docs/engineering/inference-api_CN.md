@@ -109,7 +109,7 @@ python -m deim_app train \
   [--output-dir ./outputs/my-run]
 ```
 
-训练调用引擎 solver 的 `fit()` —— 训练循环与旧版 `train.py` 入口保持一致。
+训练调用引擎 solver 的 `fit()` —— 训练循环与 `tools/train/train.py` 入口保持一致。
 `--resume` 与 YAML 中的 `train.pretrained` 互斥。
 
 ### 2.3 `eval`

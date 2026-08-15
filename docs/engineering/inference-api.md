@@ -110,8 +110,8 @@ python -m deim_app train \
   [--output-dir ./outputs/my-run]
 ```
 
-Training calls the engine solver's `fit()` and uses the same loop as the legacy
-`train.py` entry point. `--resume` is mutually exclusive with
+Training calls the engine solver's `fit()` and uses the same loop as the
+`tools/train/train.py` entry point. `--resume` is mutually exclusive with
 `train.pretrained` from the YAML.
 
 ### 2.3 `eval`
