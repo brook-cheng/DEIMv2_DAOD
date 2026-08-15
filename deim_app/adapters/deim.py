@@ -311,7 +311,11 @@ class DeimDetectionAdapter(DetectionAdapter):
 
         # 3-6. Checkpoint load (only when a path is provided).
         if checkpoint is not None:
-            raw_ckpt = torch.load(checkpoint, map_location="cpu")
+            # weights_only=True: checkpoints are data, not code (CWE-502); the
+            # engine format is tensors + plain primitives, so this never needs pickle.
+            raw_ckpt = torch.load(
+                checkpoint, map_location="cpu", weights_only=True
+            )
 
             # 4. OBB shifted_v1 contract gate — only for OBB app configs, on the
             #    RAW checkpoint so ``meta`` is retained. 4-D HBB pretraining is
