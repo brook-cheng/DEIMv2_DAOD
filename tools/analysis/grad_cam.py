@@ -159,17 +159,26 @@ def _test():
         sys.path.append(ROOT_PATH)
 
     from engine.backbone.dinov3_adapter import DINOv3STAs
-    from deimv2_det import DEIMV2_X_CFG
+    from engine.core.yaml_config import YAMLConfig
 
-    deimv2_backboen_cfg = DEIMV2_X_CFG["DINOv3STAs"]
-    deimv2_backboen_cfg.update(
-        {
-            "weights_path": "./outputs/deimv2_dinov3_x_custom/best_stg2_freeze_1109_e186_mAP67.pth"
-        }
+    backbone_section = YAMLConfig(
+        os.path.join(
+            ROOT_PATH,
+            "configs/custom/deimv2_dinov3_vits16p_freeze_test_eiou.yml",
+        )
+    ).global_cfg["DINOv3STAs"]
+    backbone_kwargs = {
+        k: v
+        for k, v in backbone_section.items()
+        if not k.startswith("_") and k != "type"
+    }
+    # DINOv3STAs strips a full fine-tuned checkpoint down to backbone.dinov3.*.
+    backbone_kwargs["weights_path"] = (
+        "./outputs/deimv2_dinov3_x_custom/best_stg2_freeze_1109_e186_mAP67.pth"
     )
     img_path = "./test/DJI_20250821061356_0001_S_frame_000123_20251009.jpg"
     image = Image.open(img_path).convert("RGB")
-    dinov3_adapter_backbone = DINOv3STAs(**deimv2_backboen_cfg)
+    dinov3_adapter_backbone = DINOv3STAs(**backbone_kwargs)
     imgsz = (640, 640)
     transform = torchvision.transforms.Compose(
         [
