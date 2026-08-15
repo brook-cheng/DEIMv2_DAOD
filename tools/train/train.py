@@ -21,14 +21,14 @@ os.environ.update(
             "PYTORCH_CUDA_ALLOC_CONF",
             "expandable_segments:True,garbage_collection_threshold:0.6",
         ),
-        "COMET_API_KEY": os.environ.get("COMET_API_KEY", "EoSgIYtwa6a5rKElgh9KD59xS"),
         "COMET_LOGGING_CONSOLE": os.environ.get("COMET_LOGGING_CONSOLE", "WARNING"),
     }
 )
 
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+# tools/train/ → two dirnames up is the repo root (the engine package root).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
 
@@ -40,21 +40,6 @@ except ImportError:
 from engine.misc import dist_utils
 from engine.core import YAMLConfig, yaml_utils
 from engine.solver import TASKS
-
-debug = True
-
-if debug:
-    import torch
-
-    print(f"PyTorch CUDA version: {torch.__version__}")
-    print(f"GPU available: {torch.cuda.is_available()}")
-    print(f"Device count: {torch.cuda.device_count()}")
-
-    def custom_repr(self):
-        return f"{{Tensor:{tuple(self.shape)}}} {original_repr(self)}"
-
-    original_repr = torch.Tensor.__repr__
-    torch.Tensor.__repr__ = custom_repr
 
 
 def init_comet_experiment(cfg: YAMLConfig) -> None:
@@ -202,7 +187,7 @@ if __name__ == "__main__":
         "-c",
         "--config",
         type=str,
-        default="configs/deimv2/deimv2_dinov3_x_custom.yml",
+        default="configs/deimv2/deimv2_dinov3_x_coco.yml",
     )
     parser.add_argument("-r", "--resume", type=str, help="resume from checkpoint")
     parser.add_argument("-t", "--tuning", type=str, help="tuning from checkpoint")
@@ -239,10 +224,5 @@ if __name__ == "__main__":
 
     parser.add_argument("--local-rank", type=int, help="local rank id")
     args = parser.parse_args()
-
-    # args.use_amp = False
-    # model test part
-    # args.test_only = False
-    # args.device = "cuda:0"
 
     main(args)

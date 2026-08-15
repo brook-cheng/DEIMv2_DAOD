@@ -67,7 +67,7 @@ fi
 OUTPUT_DIR="output/${MODEL_SIZE}_${TASK}"
 
 # Construct the training command
-TRAIN_CMD="CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 train.py -c $CONFIG_FILE --use-amp --seed=0 --output-dir $OUTPUT_DIR"
+TRAIN_CMD="CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 tools/train/train.py -c $CONFIG_FILE --use-amp --seed=0 --output-dir $OUTPUT_DIR"
 
 # Append log redirection if SAVE_LOGS is true
 if [ "$SAVE_LOGS" = true ]; then
@@ -82,7 +82,7 @@ eval $TRAIN_CMD
 if [ $? -ne 0 ]; then
     echo "First training failed, restarting with resume option..."
     while true; do
-        RESUME_CMD="CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 train.py -c $CONFIG_FILE --use-amp --seed=0 --output-dir $OUTPUT_DIR -r ${OUTPUT_DIR}/last.pth"
+        RESUME_CMD="CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 tools/train/train.py -c $CONFIG_FILE --use-amp --seed=0 --output-dir $OUTPUT_DIR -r ${OUTPUT_DIR}/last.pth"
         if [ "$SAVE_LOGS" = true ]; then
             LOG_FILE="${MODEL_SIZE}_${TASK}_2.txt"
             RESUME_CMD="$RESUME_CMD &> \"$LOG_FILE\" 2>&1 &"

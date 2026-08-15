@@ -32,11 +32,18 @@ RUNNABLE_DIAG_SCRIPTS = (
     "test/diagnose_hungarian_matching.py",
     "test/test_cdn_inspect.py",
     "test/test_infer_diag.py",
+    # shell runners reference the same config tree
+    "tools/dataset/gen_synthetic_dataset/run_synthetic_training.sh",
+    "tools/dataset/gen_synthetic_dataset/run_synthetic_A.sh",
+    "tools/dataset/gen_synthetic_dataset/run_synthetic_B.sh",
+    "scripts/single_gpu_train.sh",
+    "scripts/single_gpu_val.sh",
+    "scripts/multi_gpu_train.sh",
 )
 
-#: train.py argparse default is an upstream DEIM path outside this cleanup;
+#: train entry point default is an upstream DEIM path outside this cleanup;
 #: only the deleted OBB config names are contract-checked there.
-TRAIN_PY = "train.py"
+TRAIN_PY = "tools/train/train.py"
 
 #: Tokens of configs deleted by the OBB ablation cleanup (plan Tasks 5-11).
 _DELETED_OBB_TOKENS = (
