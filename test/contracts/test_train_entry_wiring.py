@@ -74,3 +74,33 @@ def test_scripts_and_readme_reference_relocated_entry():
         assert not re.search(r"(?<![\w/])train\.py", text), (
             f"{rel} still references a bare root-level train.py"
         )
+
+
+def test_entry_imports_engine_from_foreign_cwd(tmp_path):
+    """The entry must bootstrap sys.path itself, independent of the cwd.
+
+    ``python3 tools/train/train.py`` puts the SCRIPT directory (not the cwd)
+    at ``sys.path[0]``; torchrun likewise runs from arbitrary working
+    directories. The only reliable import root is the one derived from
+    ``__file__`` — three dirnames up from ``<repo>/tools/train/train.py``.
+    Regression: a two-dirname insert resolved to ``<repo>/tools`` and every
+    engine import failed outside the repo root.
+    """
+    import subprocess
+    import sys as _sys
+
+    proc = subprocess.run(
+        [
+            _sys.executable,
+            os.path.join(ROOT, "tools", "train", "train.py"),
+            "--help",
+        ],
+        cwd=str(tmp_path),
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert proc.returncode == 0, (
+        f"entry failed from foreign cwd {tmp_path}:\n{proc.stderr[-2000:]}"
+    )
+    assert "usage:" in proc.stdout
