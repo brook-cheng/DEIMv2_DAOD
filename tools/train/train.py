@@ -26,13 +26,10 @@ os.environ.update(
 )
 
 import sys
+from pathlib import Path
 
-# <repo>/tools/train/train.py → three dirnames up is the repo root; the
-# script dir and cwd never contain the engine package.
-sys.path.insert(
-    0,
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-)
+# cwd and the script dir never contain the engine package — derive from __file__.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import argparse
 
