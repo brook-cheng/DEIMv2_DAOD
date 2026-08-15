@@ -17,7 +17,7 @@ Two test groups:
    pointing at local fixture checkpoints + images (+ metadata), we run the new
    adapter backend and an independently constructed legacy reference path
    (mirroring ``tools/inference/torch_inf.py`` for HBB and
-   ``test/tool_deimv2_obb_infer.py`` for OBB) and assert labels/boxes/scores
+   ``tools/compare/core.py`` for OBB) and assert labels/boxes/scores
    agree within tight tolerances. When any required env var or fixture file is
    absent, the test skips with the exact missing path so CI stays green.
 
@@ -746,12 +746,12 @@ def _hbb_legacy_torch_inf(
 
 
 # ---------------------------------------------------------------------------
-# OBB numerical parity vs test/tool_deimv2_obb_infer.py
+# OBB numerical parity vs tools/compare/core.py
 # ---------------------------------------------------------------------------
 
 
 def test_obb_numerical_parity_vs_tool_infer() -> None:
-    """OBB adapter backend matches the legacy ``test/tool_deimv2_obb_infer.py``
+    """OBB adapter backend matches the legacy ``tools/compare/core.py``
     DEIMv2OBB-wrapper path bit-for-bit."""
     paths = _skip_if_missing(
         {
@@ -798,7 +798,7 @@ def test_obb_numerical_parity_vs_tool_infer() -> None:
         [d.xywhr for d in new_pred.detections], dtype=torch.float32
     ).reshape(-1, 5)
 
-    # ---- Legacy reference path (mirrors test/tool_deimv2_obb_infer.py) -----
+    # ---- Legacy reference path (mirrors tools/compare/core.py) -----
     legacy_labels, legacy_boxes, legacy_scores = _obb_legacy_tool_infer(
         ckpt=ckpt,
         img_path=img_path,
@@ -824,7 +824,7 @@ def _obb_legacy_tool_infer(
     classes_file: str,
     size: tuple[int, int],
 ) -> tuple[Any, Any, Any]:
-    """Replicate ``test/tool_deimv2_obb_infer.py`` exactly: build the
+    """Replicate ``tools/compare/core.py`` exactly: build the
     DEIMv2OBB wrapper from the source algorithm YAML + checkpoint, run a single
     image, rescale OBB boxes to original size, return tensors.
     """
@@ -835,13 +835,10 @@ def _obb_legacy_tool_infer(
     from engine.core.yaml_utils import load_config
     from engine.data.transforms import ConvertPILImage
 
-    # DEIMv2OBB + load_checkpoint are imported from the legacy tool itself, per
-    # the task brief ("use their inference helpers directly via import").
-    import sys
-    legacy_tool_dir = str(REPO_ROOT / "test")
-    if legacy_tool_dir not in sys.path:
-        sys.path.insert(0, legacy_tool_dir)
-    from tool_deimv2_obb_infer import DEIMv2OBB, load_checkpoint  # noqa: E402
+    # DEIMv2OBB + load_checkpoint are imported from the compare tool core
+    # itself, per the task brief ("use their inference helpers directly via
+    # import").
+    from tools.compare.core import DEIMv2OBB, load_checkpoint  # noqa: E402
 
     with open(classes_file, "r") as f:
         class_names = [line.strip() for line in f if line.strip()]
