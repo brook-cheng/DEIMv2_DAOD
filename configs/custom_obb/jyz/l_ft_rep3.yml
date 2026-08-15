@@ -110,7 +110,7 @@ DEIMTransformer:
   dim_feedforward: 4096 # hidden_dim*8
   num_layers: 3 # 当前测试显示前3层的作用较大，为了能够全参数微调，避免OOM，这里减少层数
   box_mode: obb
-  angle_rep: 0
+  angle_rep: 3
 
 PostProcessor:
   box_mode: obb
@@ -148,7 +148,7 @@ DEIMCriterion:
   alpha: 0.75
   reg_max: 32
   box_mode: obb
-  obbox_rep_dim: 6  # 派生自 angle_rep: rep0/2→6, rep1/3→5
+  obbox_rep_dim: 5  # 派生自 angle_rep: rep0/2→6, rep1/3→5
 
   matcher:
     type: HungarianMatcher
