@@ -3,7 +3,8 @@ set -e
 cd /mnt/d/cx/thired/deimv2_daod
 
 # Comet API key (also set in train.py env, but belt-and-suspenders)
-export COMET_API_KEY="EoSgIYtwa6a5rKElgh9KD59xS"
+# COMET_API_KEY 必须来自环境（密钥已轮换，禁止写回脚本）
+# export COMET_API_KEY="..."
 
 DENSITIES=(001 002 005 010 020 050 100)
 TOTAL=${#DENSITIES[@]}

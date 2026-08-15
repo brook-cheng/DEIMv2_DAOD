@@ -21,7 +21,6 @@ os.environ.update(
             "PYTORCH_CUDA_ALLOC_CONF",
             "expandable_segments:True,garbage_collection_threshold:0.6",
         ),
-        "COMET_API_KEY": os.environ.get("COMET_API_KEY", "EoSgIYtwa6a5rKElgh9KD59xS"),
         "COMET_LOGGING_CONSOLE": os.environ.get("COMET_LOGGING_CONSOLE", "WARNING"),
     }
 )
