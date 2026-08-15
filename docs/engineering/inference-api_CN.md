@@ -192,5 +192,5 @@ python -m deim_app infer \
 
 这项**手动**冒烟测试需要本地 checkpoint 与数据集。该路径与旧工具
 （`tools/inference/torch_inf.py`、
-`test/tool_deimv2_obb_infer.py`）的数值一致性，由 `test/deim_app/test_legacy_parity.py`
+`tools/compare/core.py`）的数值一致性，由 `test/deim_app/test_legacy_parity.py`
 在 `DEIM_APP_PARITY_*` 环境变量就绪时自动校验。

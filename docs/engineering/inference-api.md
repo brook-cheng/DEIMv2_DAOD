@@ -198,6 +198,6 @@ Verify:
 This smoke test is **manual** because it requires a local checkpoint and
 dataset. Numerical parity between this path and the legacy tools
 (`tools/inference/torch_inf.py`,
-`test/tool_deimv2_obb_infer.py`) is gated automatically by
+`tools/compare/core.py`) is gated automatically by
 `test/deim_app/test_legacy_parity.py` when the `DEIM_APP_PARITY_*` env vars are
 set.
