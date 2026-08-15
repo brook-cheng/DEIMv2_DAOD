@@ -16,7 +16,7 @@ Designed for comparing DEIMv2-OBB variants against YOLO-OBB baselines.
 
 Entry Points
 ------------
-    python test/tool_dlzdt_obb_compare.py
+    python tools/compare/tool_dlzdt_obb_compare.py
 
 Configuration (edit in-file)
 -----------------------------
@@ -40,13 +40,13 @@ OUTPUT_ROOT/
 Usage
 -----
     1. Set paths at the top of the script
-    2. python test/tool_dlzdt_obb_compare.py
+    2. python tools/compare/tool_dlzdt_obb_compare.py
 """
 
 import os
 import sys
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 

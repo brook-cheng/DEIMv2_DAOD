@@ -4,8 +4,8 @@ OBB model health diagnostic — box IoU distribution, score calibration,
 and per-threshold precision for a given checkpoint.
 
 Usage:
-    python test/model_health_diag.py
-    python test/model_health_diag.py -c configs/custom_obb/dlzdt/sp_fz_common.yml -r outputs/dlzdt_ablation/abl_rep0.pth -d cuda:0
+    python tools/compare/model_health_diag.py
+    python tools/compare/model_health_diag.py -c configs/custom_obb/dlzdt/sp_fz_common.yml -r outputs/dlzdt_ablation/abl_rep0.pth -d cuda:0
 
 What it reports:
     Box IoU    — per-GT best IoU with any prediction, distribution and match rate
@@ -18,7 +18,7 @@ import argparse
 import os
 import sys
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 

@@ -4,8 +4,8 @@ Bisect: compare obb_evaluate results between training-style and inference-style
 model loading, using the same checkpoint and val dataloader.
 
 Usage:
-    python test/bisect_eval.py
-    python test/bisect_eval.py -c configs/custom_obb/dlzdt/sp_fz_common.yml -r outputs/dlzdt_ablation/abl_rep0.pth -d cuda:0
+    python tools/compare/bisect_eval.py
+    python tools/compare/bisect_eval.py -c configs/custom_obb/dlzdt/sp_fz_common.yml -r outputs/dlzdt_ablation/abl_rep0.pth -d cuda:0
 
 Paths compared:
     A  Training-style — YAMLConfig.model + EMA weights → obb_evaluate
@@ -20,7 +20,7 @@ import argparse
 import os
 import sys
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 

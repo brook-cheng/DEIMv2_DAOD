@@ -49,8 +49,8 @@ DETR 的训练流程是：
 
 用法
 ----
-  python test/diagnose_hungarian_matching.py
-  python test/diagnose_hungarian_matching.py --max-images 10  # 快速测试
+  python tools/compare/diagnose_hungarian_matching.py
+  python tools/compare/diagnose_hungarian_matching.py --max-images 10  # 快速测试
 """
 
 # ============================================================================
@@ -67,7 +67,7 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 
 # 将项目根目录加入 sys.path，以便导入 engine 下的模块
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, ROOT)
 
 from engine.core import YAMLConfig  # YAML 配置加载器

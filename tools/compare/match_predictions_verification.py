@@ -7,14 +7,14 @@ torch/numpy 输入下各自输出一致（torch 路径 == numpy 路径），
 并展示两种模式之间的差异。
 
 用法:
-    python test/test_match_predictions_verification.py
+    python tools/compare/match_predictions_verification.py
 """
 
 import sys, os
 import numpy as np
 import torch
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
 from engine.deim.obb_ops import batch_probiou
 from engine.eval.obb_eval import match_predictions
 

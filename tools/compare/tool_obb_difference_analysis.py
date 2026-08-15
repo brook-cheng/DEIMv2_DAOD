@@ -31,7 +31,7 @@ Programmatic:
 Script:
     Edit ``main()`` paths and run::
 
-        python test/tool_obb_difference_analysis.py
+        python tools/compare/tool_obb_difference_analysis.py
 
 Configuration (edit in-file)
 -----------------------------
@@ -66,13 +66,13 @@ OUTPUT_DIR/
 
 Usage
 -----
-    python test/tool_obb_difference_analysis.py
+    python tools/compare/tool_obb_difference_analysis.py
 """
 
 import os
 import sys
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 

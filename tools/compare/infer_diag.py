@@ -1,8 +1,8 @@
 """DEIMv2-OBB 推理诊断：观察预测置信度分布、框质量、GT vs Pred 对比。
 
 用法：
-    python test/test_infer_diag.py
-    python test/test_infer_diag.py --num 5 --conf 0.1 --conf-step 0.2
+    python tools/compare/infer_diag.py
+    python tools/compare/infer_diag.py --num 5 --conf 0.1 --conf-step 0.2
 """
 
 import os, sys, argparse, math
@@ -10,7 +10,7 @@ import torch
 import numpy as np
 from PIL import Image, ImageDraw
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, ROOT)
 
 from engine.deim.obb_geometry import xywhr_to_xyxyxyxy

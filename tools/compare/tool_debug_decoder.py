@@ -21,12 +21,12 @@ Entry Points
 Single model:
     Edit ``main()`` and run::
 
-        python test/tool_debug_decoder.py
+        python tools/compare/tool_debug_decoder.py
 
 Multi model (batch compare):
     Edit ``main_multi()`` MODEL_LIST and run::
 
-        python test/tool_debug_decoder.py
+        python tools/compare/tool_debug_decoder.py
 
 API:
     ``run_debug(config_path, ckpt_path, img_dir, gt_dota_dir, output_root, ...)``
@@ -68,12 +68,12 @@ Time-Saving Tips
 
 Usage
 -----
-    python test/tool_debug_decoder.py
+    python tools/compare/tool_debug_decoder.py
 """
 
 import os, sys, shutil
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 

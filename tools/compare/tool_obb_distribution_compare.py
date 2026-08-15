@@ -25,7 +25,7 @@ Programmatic:
 Script:
     Edit ``main()`` paths and run::
 
-        python test/tool_obb_distribution_compare.py
+        python tools/compare/tool_obb_distribution_compare.py
 
 Configuration (edit in-file)
 -----------------------------
@@ -51,13 +51,13 @@ OUTPUT_TXT                    # text report with all metrics
 
 Usage
 -----
-    python test/tool_obb_distribution_compare.py
+    python tools/compare/tool_obb_distribution_compare.py
 """
 
 import os
 import sys
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
