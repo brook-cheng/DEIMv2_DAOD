@@ -16,20 +16,16 @@ from PIL import Image
 from tqdm import tqdm
 import torch
 
-from deim_wapper.deimv2_det import DEIMv2Det
-from deim_wapper.deimv2_model_config import DEIMV2_VITL16P_CFG, DEIMV2_VITH16P_CFG
 from tools.model_compare.coco_utils import (
     deimv2_outputs_to_coco_annotations,
     show_coco_annotations_on_image,
 )
 
 
-def test_and_export(
+def export_predictions(
     img_dir,
+    config_path,
     model_weight,
-    num_classes,
-    imgsz=(640, 640),
-    max_det=20,
     score_threshold=0.5,
     num_visualize=10,
     output_dir="./test/outputs",
@@ -42,16 +38,18 @@ def test_and_export(
 
     Args:
         img_dir: 图像目录
+        config_path: 训练配置 YAML（模型结构、类别数、输入尺寸均来自该配置）
         model_weight: 模型权重路径
-        num_classes: 类别数量
-        imgsz: 图像尺寸
-        max_det: 最大检测数量
         score_threshold: 置信度阈值
         num_visualize: 随机抽取可视化的图片数量
         output_dir: 输出目录
         labels_map: 类别映射字典
         device: 设备
     """
+    from torchvision import transforms
+
+    from engine.core import YAMLConfig
+
     if labels_map is None:
         labels_map = {0: "background", 1: "dlzdt", 2: "null"}
 
@@ -61,19 +59,46 @@ def test_and_export(
     print("DEIMv2 Model Testing and Export")
     print("=" * 80)
     print(f"Image directory: {img_dir}")
+    print(f"Config: {config_path}")
     print(f"Model weight: {model_weight}")
-    print(f"Number of classes: {num_classes}")
-    print(f"Image size: {imgsz}")
-    print(f"Max detections: {max_det}")
     print(f"Score threshold: {score_threshold}")
     print(f"Number of visualizations: {num_visualize}")
     print(f"Output directory: {output_dir}")
     print(f"Device: {device}")
     print("=" * 80)
 
-    model = DEIMv2Det(
-        model_weight, num_classes, imgsz, max_det, DEIMV2_VITH16P_CFG, device
+    cfg = YAMLConfig(config_path)
+    model, postprocessor = cfg.model.deploy(), cfg.postprocessor.deploy()
+    model.eval()
+    ckpt = torch.load(model_weight, map_location="cpu", weights_only=True)
+    ema = ckpt.get("ema")
+    state = (
+        ema["module"]
+        if isinstance(ema, dict) and "module" in ema
+        else ckpt.get("model", ckpt)
     )
+    model.load_state_dict(state)
+    model.to(device)
+    postprocessor.to(device)
+
+    imgsz = tuple(cfg.yaml_cfg.get("eval_spatial_size", (640, 640)))
+    transform = transforms.Compose(
+        [transforms.Resize(imgsz), transforms.ToTensor()]
+    )
+
+    def infer(image):
+        input_tensor = transform(image).unsqueeze(0).to(device)
+        w, h = image.size
+        orig_size = torch.tensor([[w, h]], device=device)
+        with torch.no_grad():
+            outputs = model(input_tensor)
+            labels, boxes, scores = postprocessor(outputs, orig_size)
+        keep = scores[0] > score_threshold
+        return {
+            "labels": labels[0][keep].cpu().numpy().tolist(),
+            "boxes": boxes[0][keep].cpu().numpy().tolist(),
+            "scores": scores[0][keep].cpu().numpy().tolist(),
+        }
 
     img_list = [
         f for f in os.listdir(img_dir) if f.lower().endswith((".jpg", ".jpeg", ".png"))
@@ -91,13 +116,7 @@ def test_and_export(
         img_path = os.path.join(img_dir, img_name)
         try:
             image = Image.open(img_path).convert("RGB")
-            outputs = model.infer(image, score_threshold)
-
-            outputs_dict[img_name] = {
-                "labels": outputs["labels"][0],
-                "boxes": outputs["boxes"][0],
-                "scores": outputs["scores"][0],
-            }
+            outputs_dict[img_name] = infer(image)
         except Exception as e:
             print(f"Error processing {img_name}: {e}")
             continue
@@ -159,11 +178,9 @@ if __name__ == "__main__":
     img_dir = (
         "/home/cx/cx_dir/data/deimv2_train_data/dlzdt_dataset_20260331_hbb/images/val"
     )
+    config_path = "configs/custom/deimv2_dinov3_vith16p_freeze.yml"
     model_weight = "./outputs/dlzdt_vith16p_freeze/best_stg2.pth"
 
-    num_classes = 3
-    imgsz = (640, 640)
-    max_det = 20
     score_threshold = 0.0
     num_visualize = 10
     output_dir = "./test/data/outputs/deimv2_attenRes/"
@@ -171,12 +188,10 @@ if __name__ == "__main__":
 
     labels_map = {0: "background", 1: "dlzdt", 2: "null"}
 
-    test_and_export(
+    export_predictions(
         img_dir=img_dir,
+        config_path=config_path,
         model_weight=model_weight,
-        num_classes=num_classes,
-        imgsz=imgsz,
-        max_det=max_det,
         score_threshold=score_threshold,
         num_visualize=num_visualize,
         output_dir=output_dir,
