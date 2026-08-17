@@ -1,0 +1,14 @@
+__include__:
+  - ./deimv2_dinov3_sp_hbb.yml
+
+# ============================================================================
+# DEIMv2 DINOv3 ViT-S/16 STA — HBB preset variant, backbone FROZEN.
+# ----------------------------------------------------------------------------
+# Same architecture as deimv2_dinov3_sp_hbb.yml; only DINOv3STAs.finetune
+# flips to False (backbone in eval mode, requires_grad=False). Used when
+# training downstream heads on limited compute — backbone weights stay at
+# their DINOv3 pretraining values.
+# ============================================================================
+
+DINOv3STAs:
+  finetune: False

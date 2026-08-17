@@ -141,6 +141,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _APPROVED_BASE_PATHS: tuple[Path, ...] = (
     (_REPO_ROOT / "configs" / "app" / "base" / "hbb_app.yml").resolve(),
     (_REPO_ROOT / "configs" / "app" / "base" / "obb_app.yml").resolve(),
+    (_REPO_ROOT / "configs" / "app" / "base" / "hbb_freeze_app.yml").resolve(),
+    (_REPO_ROOT / "configs" / "app" / "base" / "obb_freeze_app.yml").resolve(),
 )
 
 

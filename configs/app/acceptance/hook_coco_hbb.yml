@@ -1,0 +1,47 @@
+__include__:
+  - ../base/hbb_freeze_app.yml
+
+# ============================================================================
+# 验收测试：HOOK 数据集 HBB 检测（COCO 格式，1 类：bh_guagoutou）
+# 冻结 ViT-S/16 主干，epochs=2 短训 —— 仅功能验收，非质量训练
+# ============================================================================
+
+project:
+  name: acceptance-hook-hbb
+  output_dir: ./outputs/acceptance/hook_hbb
+
+runtime:
+  input_size: [640, 640]
+  seed: 42
+
+data:
+  format: COCO
+  train_images: /mnt/d/project_data/model_test/deimv2_train_data/hook_coco/images/train
+  train_annotations: test/fixtures/acceptance/instances_train.json
+  val_images: /mnt/d/project_data/model_test/deimv2_train_data/hook_coco/images/val
+  val_annotations: test/fixtures/acceptance/instances_val.json
+  num_workers: 4
+  cache_images: none
+
+train:
+  epochs: 2
+  batch_size: 4
+  learning_rate: 5.0e-4
+  device: cuda
+  amp: True
+  early_stopping:
+    enabled: False
+
+evaluation:
+  batch_size: 4
+  device: cuda
+
+inference:
+  checkpoint: null
+  device: cuda
+  batch_size: 1
+  score_threshold: 0.25
+  top_k: 300
+  output_formats:
+    - json
+    - visualization

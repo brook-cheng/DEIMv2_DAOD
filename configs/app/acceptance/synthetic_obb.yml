@@ -1,0 +1,50 @@
+__include__:
+  - ../base/obb_freeze_app.yml
+
+# ============================================================================
+# 验收测试：synthetic ellipse density_002 OBB 检测（DOTA 格式，3 类：r/g/b）
+# 冻结 ViT-S/16 主干，epochs=2 短训 —— 仅功能验收，非质量训练
+# val 集同时作为推理测试图像来源（用户指定）
+# ============================================================================
+
+project:
+  name: acceptance-synthetic-obb
+  output_dir: ./outputs/acceptance/synthetic_obb
+
+runtime:
+  input_size: [640, 640]
+  seed: 42
+
+data:
+  format: DOTA
+  train_images: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_002/train
+  train_annotations: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_002/train
+  val_images: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_002/val
+  val_annotations: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/density_002/val
+  classes_file: /mnt/d/project_data/model_test/deimv2_obb_train_data/synthetic_ellipse/classes.txt
+  num_workers: 2
+  cache_images: none
+
+train:
+  epochs: 2
+  batch_size: 4
+  learning_rate: 5.0e-4
+  device: cuda
+  amp: True
+  early_stopping:
+    enabled: False
+
+evaluation:
+  batch_size: 2
+  device: cuda
+
+inference:
+  checkpoint: null
+  device: cuda
+  batch_size: 1
+  score_threshold: 0.25
+  top_k: 300
+  output_formats:
+    - json
+    - dota
+    - visualization
