@@ -26,7 +26,7 @@ data:
   cache_images: none
 
 train:
-  epochs: 2
+  epochs: 68
   batch_size: 4
   learning_rate: 5.0e-4
   device: cuda

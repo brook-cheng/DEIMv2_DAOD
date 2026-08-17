@@ -4,14 +4,18 @@ __include__:
 # ============================================================================
 # DEIMv2 DINOv3 ViT-S/16 STA — OBB preset variant, plain ViT-S/16 backbone.
 # ----------------------------------------------------------------------------
-# Same architecture as deimv2_dinov3_sp_obb.yml (conv_inplane 64 /
-# hidden_dim 256; the adapter projects embed_dim→hidden_dim automatically,
-# and vits16 shares vits16plus' 384-dim embedding, so no dims change). Only
-# the backbone swaps: dinov3_vits16plus → dinov3_vits16 with its LVD-1689M
-# pretraining weights. finetune stays False (frozen backbone).
+# Same OBB data pipeline / evaluator / criterion as deimv2_dinov3_sp_obb.yml
+# (do NOT include the HBB freeze preset here — its HBB transforms and
+# CocoEvaluator would override the OBB pipeline). Only the backbone swaps:
+# ResAtten on dinov3_vits16, frozen, compact 224/32 dims for fast acceptance
+# runs. The adapter projects embed_dim(384)→hidden_dim automatically.
 # ============================================================================
 
 DINOv3STAsResAtten:
   name: dinov3_vits16
   weights_path: ./ckpts/dinov3_vits16_pretrain_lvd1689m-08c60483.pth
+  interaction_indexes: []
   finetune: False
+  conv_inplane: 32
+  hidden_dim: 224
+  adapter_type: 'sta'
