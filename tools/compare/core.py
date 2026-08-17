@@ -149,7 +149,9 @@ def infer_obb_and_export(
     model_cfg = build_model_cfg(load_config(config), ckpt, num_classes, max_det)
 
     model = DEIMv2OBB(model_cfg, device)
-    load_checkpoint(model, ckpt)
+    # map straight to the target device — CPU staging of large checkpoints
+    # can hit ENOMEM on memory-tight hosts.
+    load_checkpoint(model, ckpt, map_location=device)
     model.eval()
 
     transform = transforms.Compose(
