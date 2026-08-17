@@ -53,7 +53,9 @@ DEIMTransformer:
 epoches: 68
 lrsheduler: flatcosine
 lr_gamma: 0.5
-warmup_iter: 2000
+# This fork's FlatCosineLRScheduler multiplies warmup_iter by iters/epoch —
+# the value is EPOCH-scale. Upstream's 2000 (iteration semantics) pinned lr at ~1e-10.
+warmup_iter: 1
 flat_epoch: 34
 no_aug_epoch: 8
 
