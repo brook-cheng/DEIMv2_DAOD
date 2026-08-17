@@ -165,6 +165,10 @@ def _map_data(overrides: dict[str, Any], app: AppConfig, box_mode: str) -> None:
     # dies with KeyError '_pymodule'. The resolver owns the assembly.
     train_dl["type"] = "DataLoader"
     val_dl["type"] = "DataLoader"
+    # Engine dataset-YAML siblings supply val collate_fn; without it
+    # default_collate stacks targets into a dict and evaluate() crashes.
+    train_dl.setdefault("collate_fn", {"type": "BatchImageCollateFunction"})
+    val_dl.setdefault("collate_fn", {"type": "BatchImageCollateFunction"})
     train_ds = train_dl.setdefault("dataset", {})
     val_ds = val_dl.setdefault("dataset", {})
 

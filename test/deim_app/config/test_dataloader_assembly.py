@@ -55,6 +55,20 @@ def test_map_data_injects_dataloader_type_coco():
     assert overrides["val_dataloader"]["type"] == "DataLoader"
 
 
+def test_map_data_injects_val_collate_fn():
+    """Without a list-preserving collate_fn, default_collate stacks targets
+    into a dict and ``det_engine.evaluate`` dies on ``'str'.items``."""
+    overrides: dict = {
+        "train_dataloader": {"collate_fn": {"type": "PresetCollate"}},
+    }
+    _map_data(overrides, _coco_app(), box_mode="hbb")
+    # preset-provided train collate preserved; missing val collate injected
+    assert overrides["train_dataloader"]["collate_fn"] == {"type": "PresetCollate"}
+    assert (
+        overrides["val_dataloader"]["collate_fn"]["type"] == "BatchImageCollateFunction"
+    )
+
+
 def test_map_data_injects_dataloader_type_dota():
     overrides: dict = {}
     _map_data(overrides, _dota_app(), box_mode="obb")
