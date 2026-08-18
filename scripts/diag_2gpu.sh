@@ -63,17 +63,25 @@ echo "[diag] 心跳与 NCCL flight recorder 已开启；日志 → $DIAG_DIR/"
 
 # ── 2.5 分布式最小冒烟（30s 暴露 init 层问题，与训练代码解耦）──────────
 # 独立日志文件：训练段 tee 会重建 train_full log，混写会丢失冒烟现场
+# 注意：torchrun 的入口必须是脚本文件；`torchrun ... python3 -c "code"` 会把
+# python3 当脚本路径（can't open file '.../python3'），故先落临时脚本。
 echo "[diag] 分布式冒烟: torchrun ${NPROC} 进程 init + allreduce..."
+SMOKE_SCRIPT="$(mktemp /tmp/diag_smoke_XXXXXX.py)"
+cat > "$SMOKE_SCRIPT" <<'PYEOF'
+import torch
+import torch.distributed as d
+
+d.init_process_group("nccl")
+t = torch.ones(1, device="cuda")
+d.all_reduce(t)
+print(f"SMOKE_OK rank={d.get_rank()} ws={d.get_world_size()} sum={t.item():.0f}")
+d.destroy_process_group()
+PYEOF
 SMOKE_RC=0
 CUDA_VISIBLE_DEVICES="$GPUS" \
 torchrun --master_port="${SMOKE_PORT:-7778}" --nproc_per_node="$NPROC" \
-  python3 -c "
-import torch.distributed as d, torch, os
-d.init_process_group('nccl')
-t = torch.ones(1, device='cuda'); d.all_reduce(t)
-print(f'SMOKE_OK rank={d.get_rank()} ws={d.get_world_size()} sum={t.item():.0f}')
-d.destroy_process_group()
-" 2>&1 | tee "$DIAG_DIR/smoke_$STAMP.log" || SMOKE_RC=$?
+  "$SMOKE_SCRIPT" 2>&1 | tee "$DIAG_DIR/smoke_$STAMP.log" || SMOKE_RC=$?
+rm -f "$SMOKE_SCRIPT"
 if [ "$SMOKE_RC" -ne 0 ]; then
   echo "[diag] FATAL: 分布式初始化冒烟失败（见上方输出）——NCCL/torchrun 环境问题，训练必然无法多卡，先修环境再跑。"
   exit "$SMOKE_RC"
