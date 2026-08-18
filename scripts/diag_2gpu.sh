@@ -68,13 +68,22 @@ echo "[diag] 心跳与 NCCL flight recorder 已开启；日志 → $DIAG_DIR/"
 echo "[diag] 分布式冒烟: torchrun ${NPROC} 进程 init + allreduce..."
 SMOKE_SCRIPT="$(mktemp /tmp/diag_smoke_XXXXXX.py)"
 cat > "$SMOKE_SCRIPT" <<'PYEOF'
+import os
+
 import torch
 import torch.distributed as d
 
+# NCCL requires one GPU per rank: bind via LOCAL_RANK or every rank lands on
+# cuda:0 → "Duplicate GPU detected" (server 20260818_1602 evidence).
+torch.cuda.set_device(int(os.getenv("LOCAL_RANK", 0)))
 d.init_process_group("nccl")
 t = torch.ones(1, device="cuda")
 d.all_reduce(t)
-print(f"SMOKE_OK rank={d.get_rank()} ws={d.get_world_size()} sum={t.item():.0f}")
+name = torch.cuda.get_device_name(torch.cuda.current_device())
+print(
+    f"SMOKE_OK rank={d.get_rank()} ws={d.get_world_size()} "
+    f"dev={torch.cuda.current_device()}({name}) sum={t.item():.0f}"
+)
 d.destroy_process_group()
 PYEOF
 SMOKE_RC=0
