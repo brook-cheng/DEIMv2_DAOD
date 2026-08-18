@@ -1,0 +1,45 @@
+__include__:
+  - ./sp_fz_common.yml
+
+# ============================================================================
+# 双卡训练诊断配置（多卡进度漂移/超时中断复现用）
+# ----------------------------------------------------------------------------
+# 模型结构 ← configs/app/presets/deimv2_dinov3_vits16_freeze_obb.yml
+#            （ResAtten + dinov3_vits16 冻结主干，224/32 紧凑维度，训练快）
+# 数据/训练参数 ← sp_fz_common.yml（dlzdt 电缆终端头 OBB 数据集全套继承：
+#            路径、batch、scheduler、loss/matcher、增强管线、cache_images=disk）
+# 仅覆盖：模型段（224 系通道匹配）与输出目录。
+#
+# 复现命令见 scripts/diag_2gpu.sh（含环境快照与 NCCL flight recorder）。
+# ============================================================================
+
+output_dir: ./outputs/diag_2gpu_vits16
+
+DEIM:
+  backbone: DINOv3STAsResAtten
+
+DINOv3STAsResAtten:
+  name: dinov3_vits16
+  weights_path: ./ckpts/dinov3_vits16_pretrain_lvd1689m-08c60483.pth
+  interaction_indexes: []
+  finetune: False
+  conv_inplane: 32
+  hidden_dim: 224
+  adapter_type: 'sta'
+
+HybridEncoder:
+  in_channels: [224, 224, 224]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 224
+  dim_feedforward: 896
+
+DEIMTransformer:
+  feat_channels: [224, 224, 224]
+  feat_strides: [8, 16, 32]
+  hidden_dim: 224
+  num_levels: 3
+  num_layers: 6
+  eval_idx: -1
+  dim_feedforward: 1792
+  box_mode: obb
+  angle_rep: 0

@@ -191,6 +191,12 @@ def train_one_epoch(
 
     nan_tracker = NanGradientTracker(max_events=int(nan_max_events))
 
+    # Per-rank iteration timestamps for multi-GPU hang diagnosis; no-op
+    # unless DEIM_DIAG_HEARTBEAT=1 (see engine/misc/diag.py).
+    from ..misc.diag import Heartbeat
+
+    _heartbeat = Heartbeat(output_dir=str(nan_output_dir) if nan_output_dir else ".")
+
     cur_iters = epoch * len(data_loader)
 
     _optimizer_step_count = 0
@@ -210,6 +216,11 @@ def train_one_epoch(
         )
 
     for i, (samples, targets) in data_loader_iter:
+        _heartbeat.beat(
+            epoch=epoch,
+            step=i,
+            extra={"global_step": epoch * len(data_loader) + i},
+        )
         samples = samples.to(device)
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         global_step = epoch * len(data_loader) + i

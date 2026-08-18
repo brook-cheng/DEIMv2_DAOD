@@ -39,8 +39,12 @@ except ImportError:
     pass
 
 from engine.misc import dist_utils
+from engine.misc.diag import enable_usr1_stack_dump
 from engine.core import YAMLConfig, yaml_utils
 from engine.solver import TASKS
+
+# kill -USR1 <pid> dumps all thread stacks while hung (DEIM_DIAG_USR1=1).
+enable_usr1_stack_dump()
 
 
 def init_comet_experiment(cfg: YAMLConfig) -> None:
