@@ -103,6 +103,9 @@ def _map_runtime(overrides: dict[str, Any], app: AppConfig) -> None:
         if isinstance(dataset, dict):
             transforms = dataset.get("transforms")
             if isinstance(transforms, dict):
+                # Engine chains get this key from a dataset-YAML sibling; the
+                # resolver is the app layer's sibling (inject contract).
+                transforms.setdefault("type", "Compose")
                 ops = transforms.get("ops")
                 if isinstance(ops, list):
                     for op in ops:
@@ -158,6 +161,14 @@ def _map_data(overrides: dict[str, Any], app: AppConfig, box_mode: str) -> None:
 
     train_dl = overrides.setdefault("train_dataloader", {})
     val_dl = overrides.setdefault("val_dataloader", {})
+    # Preset include chains carry no type: DataLoader; without it create()
+    # dies with KeyError '_pymodule'. The resolver owns the assembly.
+    train_dl["type"] = "DataLoader"
+    val_dl["type"] = "DataLoader"
+    # Engine dataset-YAML siblings supply val collate_fn; without it
+    # default_collate stacks targets into a dict and evaluate() crashes.
+    train_dl.setdefault("collate_fn", {"type": "BatchImageCollateFunction"})
+    val_dl.setdefault("collate_fn", {"type": "BatchImageCollateFunction"})
     train_ds = train_dl.setdefault("dataset", {})
     val_ds = val_dl.setdefault("dataset", {})
 

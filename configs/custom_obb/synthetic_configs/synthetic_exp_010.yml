@@ -170,7 +170,7 @@ lr_warmup_scheduler:
   type: LinearWarmup
   warmup_duration: 250
 task: detection
-num_classes: 15
+num_classes: 3
 model: DEIM
 criterion: DEIMCriterion
 postprocessor: PostProcessor

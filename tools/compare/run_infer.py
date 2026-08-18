@@ -14,6 +14,12 @@ Usage:
 """
 
 import argparse
+import sys
+from pathlib import Path
+
+# cwd and the script dir never contain the engine/tools packages — derive
+# the repo root from __file__ so this runs as a plain script anywhere.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from tools.compare.core import OBBModelSpec, infer_obb_and_export, run_model_specs
 
