@@ -114,7 +114,7 @@ def _run_infer_recording(
         return recorder
 
     def noop_load_checkpoint(
-        model: _RecordingModel, _ckpt_path: str
+        model: _RecordingModel, _ckpt_path: str, map_location: str = "cpu"
     ) -> _RecordingModel:
         return model
 
@@ -135,6 +135,9 @@ def _run_infer_recording(
 
     monkeypatch.setattr(tool, "DEIMv2OBB", build_model)
     monkeypatch.setattr(tool, "load_checkpoint", noop_load_checkpoint)
+    monkeypatch.setattr(
+        tool, "_peek_checkpoint", lambda _p: {"model": {}}
+    )
     monkeypatch.setattr("engine.core.yaml_utils.load_config", fake_load_config)
     monkeypatch.setattr(tool, "deimv2_obb_outputs_to_dota", noop_dota_export)
 

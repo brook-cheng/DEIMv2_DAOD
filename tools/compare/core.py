@@ -96,6 +96,32 @@ def load_checkpoint(model: nn.Module, ckpt_path: str, map_location: str = "cpu")
     return model
 
 
+def _peek_checkpoint(ckpt_path: str) -> dict:
+    """Load a checkpoint on CPU for head-shape probing (patchable seam)."""
+    return torch.load(ckpt_path, weights_only=True, map_location="cpu")
+
+
+def resolve_num_classes(ckpt: dict, num_classes_from_txt: int) -> int:
+    """Head size comes from the checkpoint when it carries one.
+
+    Legacy configs may declare a different class count than the dataset
+    (synthetic-ellipse: 3 classes vs config's 15) — the checkpoint is the
+    trained artifact, so its ``dec_score_head`` shape is ground truth and
+    the model is built to match instead of erroring in load_state_dict.
+    """
+    model_state = ckpt.get("model", ckpt)
+    if "ema" in ckpt and isinstance(ckpt["ema"], dict):
+        model_state = ckpt["ema"].get("module", ckpt["ema"])
+    for probe in (
+        "decoder.dec_score_head.0.weight",
+        "dec_score_head.0.weight",
+    ):
+        layer = model_state.get(probe)
+        if layer is not None and layer.ndim == 2:
+            return int(layer.shape[0])
+    return num_classes_from_txt
+
+
 def build_model_cfg(config: dict, ckpt: str, num_classes: int, max_det: int) -> dict:
     """Assemble the inference model config from a resolved training-YAML dict.
 
@@ -146,7 +172,18 @@ def infer_obb_and_export(
 
     from engine.core.yaml_utils import load_config
 
-    model_cfg = build_model_cfg(load_config(config), ckpt, num_classes, max_det)
+    ckpt_state = _peek_checkpoint(ckpt)
+    model_classes = resolve_num_classes(ckpt_state, num_classes)
+    if model_classes != num_classes:
+        print(
+            f"[warn] checkpoint heads carry {model_classes} classes while "
+            f"{classes_txt} declares {num_classes} — building to the "
+            f"checkpoint; detection labels beyond the txt list will be "
+            f"unresolvable."
+        )
+    model_cfg = build_model_cfg(
+        load_config(config), ckpt, model_classes, max_det
+    )
 
     model = DEIMv2OBB(model_cfg, device)
     # map straight to the target device — CPU staging of large checkpoints
