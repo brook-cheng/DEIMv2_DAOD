@@ -51,15 +51,36 @@ def setup_distributed(
 
         rank = torch.distributed.get_rank()
         print(f"Rank {rank}, Local Rank {LOCAL_RANK}, World Size {WORLD_SIZE}")
-        torch.cuda.set_device(rank)
+        torch.cuda.set_device(LOCAL_RANK)
         torch.cuda.empty_cache()
         enabled_dist = True
         if get_rank() == print_rank:
             print("Initialized distributed mode...")
 
-    except Exception:
-        enabled_dist = False
-        print("Not init distributed mode.")
+    except Exception as e:
+        if RANK == -1:
+            # Plain single-process run — no torchrun env; non-distributed is
+            # the intended mode, stay silent.
+            enabled_dist = False
+            print("Not init distributed mode.")
+        else:
+            # torchrun started us but init failed: degrading silently would
+            # fork N competing single-GPU processes on cuda:0 (observed on
+            # the training server). Surface everything and abort this rank.
+            import traceback
+
+            print(
+                f"[dist] FATAL: torchrun context (RANK={RANK}, LOCAL_RANK={LOCAL_RANK}, "
+                f"WORLD_SIZE={WORLD_SIZE}) but init_process_group failed — "
+                f"{type(e).__name__}: {e}"
+            )
+            print(
+                f"[dist] env: MASTER_ADDR={os.getenv('MASTER_ADDR')} "
+                f"MASTER_PORT={os.getenv('MASTER_PORT')} "
+                f"CUDA_VISIBLE_DEVICES={os.getenv('CUDA_VISIBLE_DEVICES')}"
+            )
+            traceback.print_exc()
+            raise
 
     setup_print(get_rank() == print_rank, method=print_method)
     if seed is not None:

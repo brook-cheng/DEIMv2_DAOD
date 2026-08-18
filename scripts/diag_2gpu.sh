@@ -59,6 +59,24 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
 
 echo "[diag] 心跳与 NCCL flight recorder 已开启；日志 → $DIAG_DIR/"
 
+# ── 2.5 分布式最小冒烟（30s 暴露 init 层问题，与训练代码解耦）──────────
+echo "[diag] 分布式冒烟: torchrun ${NPROC} 进程 init + allreduce..."
+SMOKE_RC=0
+CUDA_VISIBLE_DEVICES="$GPUS" \
+torchrun --master_port="${SMOKE_PORT:-7778}" --nproc_per_node="$NPROC" \
+  python3 -c "
+import torch.distributed as d, torch, os
+d.init_process_group('nccl')
+t = torch.ones(1, device='cuda'); d.all_reduce(t)
+print(f'SMOKE_OK rank={d.get_rank()} ws={d.get_world_size()} sum={t.item():.0f}')
+d.destroy_process_group()
+" 2>&1 | tee -a "$DIAG_DIR/train_full_$STAMP.log" || SMOKE_RC=$?
+if [ "$SMOKE_RC" -ne 0 ]; then
+  echo "[diag] FATAL: 分布式初始化冒烟失败（见上方输出）——NCCL/torchrun 环境问题，训练必然无法多卡，先修环境再跑。"
+  exit "$SMOKE_RC"
+fi
+echo "[diag] 冒烟通过。"
+
 # ── 3. torchrun 双卡启动（tee 全量日志）─────────────────────────────────
 rm -f "$DIAG_DIR"/heartbeat_rank*.jsonl
 CUDA_VISIBLE_DEVICES="$GPUS" \
