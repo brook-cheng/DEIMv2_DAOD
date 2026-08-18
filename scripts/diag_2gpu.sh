@@ -15,7 +15,7 @@
 # 人工干预手段（训练挂住时，另开终端）:
 #   kill -USR1 <训练pid>   — 立即 dump 该 rank 全线程栈到 train_full.log
 # ============================================================================
-set -u
+set -u -o pipefail   # pipefail: torchrun|tee 管道失败必须传播，否则冒烟拦截失效
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
@@ -49,7 +49,9 @@ UPDATE_ARGS=()
 export NCCL_DEBUG=INFO                    # NCCL 通信事件全量入日志
 export NCCL_DEBUG_SUBSYS=INIT,COLL,TUNING
 export TORCH_NCCL_TRACE_BUFFER_SIZE=2048  # 开启 c10d flight recorder（环形缓冲）
-export TORCH_NCCL_DUMP_ON_TIMEOUT=3       # 超时时自动 dump flight recorder + 栈
+# 注意：此变量是字符串开关（仅 1/0）；写成等级数字会让 init_process_group
+# 直接抛 "Invalid value for environment variable"（服务器 20260818_153144 实证）
+export TORCH_NCCL_DUMP_ON_TIMEOUT=1       # 超时时自动 dump flight recorder + 栈
 export TORCH_NCCL_DEBUG_INFO_TEMP_FILE="$DIAG_DIR/nccl_flight_dump/timeout_info"
 # watchdog 超时（毫秒）：保持与出问题时一致以免改变复现条件；需要缩短复现周期时下调
 export TORCH_NCCL_HEARTBEAT_TIMEOUT="${TORCH_NCCL_HEARTBEAT_TIMEOUT:-600000}"
@@ -60,6 +62,7 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
 echo "[diag] 心跳与 NCCL flight recorder 已开启；日志 → $DIAG_DIR/"
 
 # ── 2.5 分布式最小冒烟（30s 暴露 init 层问题，与训练代码解耦）──────────
+# 独立日志文件：训练段 tee 会重建 train_full log，混写会丢失冒烟现场
 echo "[diag] 分布式冒烟: torchrun ${NPROC} 进程 init + allreduce..."
 SMOKE_RC=0
 CUDA_VISIBLE_DEVICES="$GPUS" \
@@ -70,7 +73,7 @@ d.init_process_group('nccl')
 t = torch.ones(1, device='cuda'); d.all_reduce(t)
 print(f'SMOKE_OK rank={d.get_rank()} ws={d.get_world_size()} sum={t.item():.0f}')
 d.destroy_process_group()
-" 2>&1 | tee -a "$DIAG_DIR/train_full_$STAMP.log" || SMOKE_RC=$?
+" 2>&1 | tee "$DIAG_DIR/smoke_$STAMP.log" || SMOKE_RC=$?
 if [ "$SMOKE_RC" -ne 0 ]; then
   echo "[diag] FATAL: 分布式初始化冒烟失败（见上方输出）——NCCL/torchrun 环境问题，训练必然无法多卡，先修环境再跑。"
   exit "$SMOKE_RC"
@@ -89,7 +92,7 @@ echo "[diag] 训练退出码: $RUN_RC"
 # ── 4. 产物打包（无论成败）──────────────────────────────────────────────
 BUNDLE="$DIAG_DIR/bundle_${STAMP}.tar.gz"
 tar czf "$BUNDLE" -C "$DIAG_DIR" \
-  env_snapshot.txt "train_full_$STAMP.log" \
+  env_snapshot.txt "train_full_$STAMP.log" "smoke_$STAMP.log" \
   $(cd "$DIAG_DIR" && ls heartbeat_rank*.jsonl 2>/dev/null) \
   nccl_flight_dump 2>/dev/null
 echo "[diag] 现场已打包: $BUNDLE"
