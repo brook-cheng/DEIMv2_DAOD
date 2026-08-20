@@ -1,18 +1,15 @@
-"""DistributedSampler wiring in build_dataloader (multi-GPU hang root cause).
+"""Sampler ownership contract: warp_loader owns DistributedSampler wiring.
 
-Flight-recorder evidence (server 20260820_091919): both ranks deadlocked on
-DIFFERENT collectives — rank0 in iter N+1 forward (SyncBN allgather,
-SeqNum 1027960), rank1 still in iter N loss reduction (allreduce, SeqNum
-1027956). Without a DistributedSampler each rank shuffles the FULL dataset
-independently, so per-rank batches drive different conditional paths
-(``find_unused_parameters=True``) and the collective streams desync by 4
-before deadlocking. The drift window opened exactly at epoch 10 — the
-``policy.epoch=[10,30,50]`` augmentation switch.
+Layer map (verified on server 20260820_152043):
+- ``YAMLConfig.build_dataloader``: per-rank batch size only, NO sampler
+  (upstream design).
+- ``DetSolver.train`` -> ``dist_utils.warp_loader``: rebuilds the loader with
+  a ``DistributedSampler``; shuffle lives in the sampler, NOT the DataLoader —
+  torch rejects ``DataLoader(shuffle=True, sampler=...)``.
+- ``det_solver`` per-epoch: ``loader.set_epoch`` + ``sampler.set_epoch``.
 
-Contract: under an initialized process group, ``build_dataloader`` must
-attach a DistributedSampler (shuffle honored, epoch-resettable); single
-process must remain sampler-free. The engine ``create`` seam is patched so
-the test asserts wiring only — no dataset on disk needed.
+Attaching a sampler inside ``build_dataloader`` double-wires the chain and
+crashes on configs with ``shuffle: true`` (server 20260820_152043).
 
 Run:
     pytest test/contracts/test_distributed_sampler.py -v
@@ -21,9 +18,9 @@ Run:
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-import torch
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -38,19 +35,18 @@ _CFG = os.path.join(ROOT, "configs/custom_obb/synthetic_configs/synthetic_exp_00
 class _FakeLoader:
     def __init__(self, **kw):
         self.dataset = list(range(100))
+        self.sampler = None
+        self.shuffle = False
         self.__dict__.update(kw)
 
 
 @pytest.fixture()
 def _capture_create(monkeypatch):
-    calls: list[dict] = []
+    calls: list = []
 
     def fake_create(name, global_cfg, **kw):
         calls.append({"name": name, **kw})
-        if not kw:
-            calls[-1]["config"] = global_cfg[name]
-            return list(range(100))  # dataset pre-build (no kwargs at all)
-        return _FakeLoader(batch_size=kw.get("batch_size", 1), sampler=kw.get("sampler"))
+        return _FakeLoader(batch_size=kw.get("batch_size", 1))
 
     monkeypatch.setattr(yc, "create", fake_create)
     return calls
@@ -79,50 +75,55 @@ def _cfg_with_shuffle(flag):
     return cfg
 
 
-def test_two_rank_build_attaches_distributed_sampler(
+def test_two_rank_build_leaves_sampler_to_warp_loader(
     _two_rank_world, _capture_create
 ):
-    from torch.utils.data import DistributedSampler
+    loader_calls = []
+    _cfg_with_shuffle(True).build_dataloader("train_dataloader")
 
-    cfg = _cfg_with_shuffle(True)
-    loader = cfg.build_dataloader("train_dataloader")
-    assert isinstance(loader.sampler, DistributedSampler), (
-        "distributed build must shard data via DistributedSampler; "
-        "independent full-dataset shuffles desync the ranks' collective "
-        "streams (server 20260820_091919 deadlock root cause)"
-    )
-    assert loader.sampler.shuffle is True
-    # batch is total/world_size
     loader_calls = [c for c in _capture_create if "batch_size" in c]
-    assert loader_calls[0]["batch_size"] == 3  # total 6 / world 2
+    assert loader_calls, "build_dataloader must create the loader"
+    assert "sampler" not in loader_calls[0], (
+        "sampler wiring belongs to dist_utils.warp_loader (called by the "
+        "solver); attaching it in build_dataloader double-wires the chain "
+        "and conflicts with config shuffle:true "
+        "(server 20260820_152043 mutual-exclusion crash)"
+    )
+    assert "dataset" not in loader_calls[0]
 
 
-def test_distributed_dataset_create_preserves_config(_two_rank_world, _capture_create):
-    cfg = _cfg_with_shuffle(True)
-
-    cfg.build_dataloader("train_dataloader")
-
-    dataset_call = _capture_create[0]
-    assert dataset_call["name"] == "__distributed_dataset__"
-    assert dataset_call["config"]["classes_file"] is not None
-
-
-def test_single_process_stays_sampler_free(_single_process, _capture_create):
+def test_single_process_build_stays_sampler_free(_single_process, _capture_create):
     from torch.utils.data import DistributedSampler
 
-    cfg = _cfg_with_shuffle(True)
-    loader = cfg.build_dataloader("train_dataloader")
+    loader = _cfg_with_shuffle(True).build_dataloader("train_dataloader")
     assert not isinstance(loader.sampler, DistributedSampler)
-    assert _capture_create[0]["batch_size"] == 6  # single create pass, total
 
 
-def test_two_rank_shuffle_false_sampler_unshuffled(_two_rank_world, _capture_create):
+def test_warp_loader_attaches_distributed_sampler_without_shuffle_conflict(
+    monkeypatch,
+):
+    import torch.distributed as dist
+    from engine.misc import dist_utils
     from torch.utils.data import DistributedSampler
 
-    cfg = _cfg_with_shuffle(False)
-    loader = cfg.build_dataloader("train_dataloader")
-    assert isinstance(loader.sampler, DistributedSampler)
-    assert loader.sampler.shuffle is False
+    monkeypatch.setattr(dist_utils, "is_dist_available_and_initialized", lambda: True)
+    monkeypatch.setattr(dist, "is_initialized", lambda: True)
+    monkeypatch.setattr(dist, "get_world_size", lambda: 2)
+    monkeypatch.setattr(dist, "get_rank", lambda: 0)
+
+    raw = SimpleNamespace(
+        dataset=list(range(101)),
+        batch_size=4,
+        drop_last=True,
+        collate_fn=None,
+        pin_memory=False,
+        num_workers=0,
+    )
+    warped = dist_utils.warp_loader(raw, shuffle=True)
+
+    assert isinstance(warped.sampler, DistributedSampler)
+    assert warped.sampler.shuffle is True
+    assert warped.sampler.num_samples == 51
 
 
 def test_create_kwargs_override_injected_dataset(monkeypatch):
