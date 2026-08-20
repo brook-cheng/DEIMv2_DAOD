@@ -222,18 +222,37 @@ def reduce_dict(data, avg=True):
         return data
 
     with torch.no_grad():
-        keys, values = [], []
-        for k in sorted(data.keys()):
-            keys.append(k)
-            values.append(data[k])
+        # Rank-local loss dicts can hold DIFFERENT key sets: e.g. a rank whose
+        # batch has zero GT boxes skips denoising, so its criterion omits
+        # every ``*_dn_*`` loss key. Reducing rank-local keys directly makes
+        # ranks enter all_reduce with different numel and desync the
+        # collective stream (NCCL hang). Build ONE rank-consistent schema:
+        # the union of all ranks' keys in deterministic sorted order; a rank
+        # missing a key contributes a zero tensor of matching dtype/device.
+        local_keys = sorted(data.keys())
+        keys_on_ranks = [None] * world_size
+        torch.distributed.all_gather_object(keys_on_ranks, local_keys)
+        union_keys = sorted({k for keys in keys_on_ranks for k in keys})
 
-        values = torch.stack(values, dim=0)
+        reference = next(iter(data.values()), None)
+        if reference is None:
+            dtype, device = torch.float32, torch.device("cpu")
+        else:
+            dtype, device = reference.dtype, reference.device
+
+        values = torch.stack(
+            [
+                data[k] if k in data else torch.zeros((), dtype=dtype, device=device)
+                for k in union_keys
+            ],
+            dim=0,
+        )
         torch.distributed.all_reduce(values)
 
         if avg is True:
             values /= world_size
 
-        return {k: v for k, v in zip(keys, values)}
+        return {k: v for k, v in zip(union_keys, values)}
 
 
 def all_gather(data):
