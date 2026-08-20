@@ -46,8 +46,13 @@ UPDATE_ARGS=()
 } > "$DIAG_DIR/env_snapshot.txt" 2>&1
 
 # ── 2. 诊断开关 ─────────────────────────────────────────────────────────
-export NCCL_DEBUG=INFO                    # NCCL 通信事件全量入日志
-export NCCL_DEBUG_SUBSYS=INIT,COLL,TUNING
+# NCCL_DEBUG 默认 WARN（正常跑静默）；DEEP=1 升 INIT+COLL+TUNING 逐 coll 明细（仅深潜漂移时用）
+export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
+export NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-ALL}"
+if [ "${DEEP:-0}" = "1" ]; then
+  export NCCL_DEBUG=INFO
+  export NCCL_DEBUG_SUBSYS=INIT,COLL,TUNING
+fi
 export TORCH_NCCL_TRACE_BUFFER_SIZE=2048  # 开启 c10d flight recorder（环形缓冲）
 # 注意：此变量是字符串开关（仅 1/0）；写成等级数字会让 init_process_group
 # 直接抛 "Invalid value for environment variable"（服务器 20260818_153144 实证）

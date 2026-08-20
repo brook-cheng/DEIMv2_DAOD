@@ -76,10 +76,11 @@ P2P/IB 配置、NVLink 拓扑（`nvidia-smi topo -m`）；`train_full.log` 中 N
 
 | 环境变量 | 作用 | 默认 |
 |---|---|---|
+| `DEEP=1` | 升级 NCCL 日志至 INIT+COLL+TUNING（逐 coll 明细，量极大仅深潜用） | 关 |
 | `DEIM_DIAG_HEARTBEAT=1` | 每 rank 每 iteration 心跳 JSONL | 关（零开销） |
 | `DEIM_DIAG_USR1=1` | 启用 `kill -USR1` 栈 dump | 关 |
 | `TORCH_NCCL_TRACE_BUFFER_SIZE` | c10d flight recorder 环形缓冲 | 脚本设 2048 |
-| `TORCH_NCCL_DUMP_ON_TIMEOUT=3` | 超时自动 dump | 脚本设 3 |
+| `TORCH_NCCL_DUMP_ON_TIMEOUT=1` | 超时自动 dump（字符串开关仅 1/0，设 3 会炸 init） | 脚本设 1 |
 | `TORCH_NCCL_HEARTBEAT_TIMEOUT` | watchdog 超时（毫秒） | 脚本 600000；**复现期保持与出问题时一致**，仅加速复现时下调 |
 | `EPOCHS` / `GPUS` / `MASTER_PORT` | 脚本参数 | 30 / 0,1 / 7777 |
 
