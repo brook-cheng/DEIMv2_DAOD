@@ -1,49 +1,34 @@
-# DEIMv2 中文文档
+# deimv2_obb 中文文档
 
 [English](README.md) | 简体中文
 
-DEIMv2 基于 [DEIM](https://github.com/ShihuaHuang95/DEIM)，使用 DINOv3 作为主干，覆盖从轻量到高精度的多个尺寸。S 尺寸在 COCO 上 AP 50.9。论文：[arXiv:2509.20787](https://arxiv.org/abs/2509.20787)，主页：[DEIMv2](https://intellindust-ai-lab.github.io/projects/DEIMv2/)。
+`deimv2_obb` 是基于 [DEIMv2](https://github.com/Intellindust-AI-Lab/DEIMv2) 的 fork，专注于**旋转框检测（OBB）**与统一的**应用层（`deim_app`）**——训练、评估与推理。
 
-权重下载表、更新记录、引擎级用法与引用信息见 [English README](README.md)。
+上游 [DEIMv2](https://github.com/Intellindust-AI-Lab/DEIMv2) 提供基础框架：基于 DINOv3 / HGNetv2 主干的实时检测、官方模型系列与引擎级训练配方。本 fork ：
 
-## 1. 模型系列一览
+- **加固 OBB 旋转框流水线**：角度表示契约、稳定 atan2 反向传播、hw-order 一致的坐标约定；
+- **新增数据集无关的应用层（`deim_app`）**：统一的 `train / eval / infer` CLI 与 `DetectionModel` Python API，覆盖精选应用配置预设（HBB COCO、OBB DOTA / YOLO-OBB）；
+- **重组工具**并按领域划分 pytest 套件（`contracts / obb / eval / engine / deim_app`）。
 
-### 轻量系列（HGNetv2）
+> **上游 DEIMv2。** 官方模型库、预训练权重、引擎级训练 / 测试 / 调优配方、部署与基准工具、上游变更历史均在
+> [原始 DEIMv2 仓库](https://github.com/Intellindust-AI-Lab/DEIMv2) 中。本仓库专注于上述 OBB / 应用层新增内容，其余部分以上游为准。
 
-Atto、Femto、Pico、N 基于 HGNetv2 主干，参数量 0.5M–3.6M，适合资源受限或实时场景。
+## Release Notes — v1.0.0
 
-### 精度系列（DINOv3）
+本 fork 的首个生产版本。工程线亮点（基于上游 DEIMv2）：
 
-S、M、L、X 基于 DINOv3 主干，参数量 9.7M–50.3M，精度更高。
+- **OBB 流水线加固**：旋转框训练/评估采用 `shifted_v1` checkpoint 契约（所有加载路径显式拒绝无标记的历史 checkpoint）、严格的 `angle_rep ∈ {0, 3}` 构造，以及按配置的契约测试套件。
+- **应用层（`deim_app`）**：统一的 `train / eval / infer` CLI + `DetectionModel` Python API，覆盖精选应用配置预设（HBB COCO、OBB DOTA/YOLO），含类别数校验、checkpoint 门禁与 JSON / DOTA / 可视化输出。
+- **工具重组**：`tools/` 下的可执行入口（`train`、`inference`、`compare` 研究流水线、`analysis`），pytest 套件按领域分组（`contracts / obb / eval / engine / deim_app`）。
+- **安全加固**：应用层使用 `weights_only=True` checkpoint 反序列化；脚本中的凭据移除（仅环境变量）。
+- **多 GPU 诊断支持**：环境门控的逐 rank 迭代心跳、SIGUSR1 栈转储、通过 `scripts/diag_2gpu.sh` 打包 NCCL flight-recorder。
+- **真实数据验收通过**（单 GPU 硬件）：17 用例矩阵（训练、评估、推理、API 一致性、负路径）；验收期间发现并修复 7 个真实集成缺陷。
 
-### 应用预设（HBB / OBB）
+---
 
-`configs/app/presets/` 提供两个算法预设：
+## 快速开始
 
-| 预设 | 主干 | 框类型 | 数据集格式 |
-| :--- | :--- | :--- | :--- |
-| `deimv2_dinov3_sp_hbb.yml` | DINOv3 ViT-S/16 + STA | HBB 水平框 | COCO |
-| `deimv2_dinov3_sp_obb.yml` | DINOv3 ViT-S/16+ + STA | OBB 旋转框 | DOTA / YOLO-OBB |
-
-- HBB 路径面向 COCO 格式数据集，输出水平框（`CocoEvaluator`）。
-- OBB 路径面向 DOTA 与 YOLO-OBB 格式数据集，输出旋转框（`box_mode: obb`）。
-
-## 2. Model Zoo 摘要（COCO）
-
-| 型号 | 系列 | AP | Params | GFLOPs | 延迟 (ms) |
-| :---: | :---: | :---: | :---: | :---: | :---: |
-| **Atto** | HGNetv2 | **23.8** | 0.5M | 0.8 | 1.10 |
-| **Femto** | HGNetv2 | **31.0** | 1.0M | 1.7 | 1.45 |
-| **Pico** | HGNetv2 | **38.5** | 1.5M | 5.2 | 2.13 |
-| **N** | HGNetv2 | **43.0** | 3.6M | 6.8 | 2.32 |
-| **S** | DINOv3 | **50.9** | 9.7M | 25.6 | 5.78 |
-| **M** | DINOv3 | **53.0** | 18.1M | 52.2 | 8.80 |
-| **L** | DINOv3 | **56.0** | 32.2M | 96.7 | 10.47 |
-| **X** | DINOv3 | **57.8** | 50.3M | 151.6 | 13.75 |
-
-以上均为 COCO 指标。含配置文件、权重与日志下载链接的完整表格见 [English README · Model Zoo](README.md#3-model-zoo)。OBB 预设暂无公开的官方 AP 数值，请以实际评测为准。
-
-## 3. 快速开始
+`deim_app` 通过每个数据集一个 YAML 配置运行训练、评估与推理。完整 CLI 与 Python API 见 [推理 API 与 CLI 指南](docs/engineering/inference-api_CN.md)；YAML 结构见 [应用配置指南](docs/engineering/application-config_CN.md)。
 
 ### 环境安装
 
@@ -52,8 +37,6 @@ conda create -n deimv2 python=3.11 -y
 conda activate deimv2
 pip install -r requirements.txt
 ```
-
-DINOv3 骨干预训练权重需放在 `./ckpts/`（按 [facebookresearch/dinov3](https://github.com/facebookresearch/dinov3) 官方指引下载），预设中已引用 `dinov3_vits16_pretrain_lvd1689m-08c60483.pth`（HBB）与 `dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth`（OBB）。
 
 ### 选择并修改配置
 
@@ -135,20 +118,56 @@ results.save_images("outputs/visualization")
 
 `from_config` 不会自动加载权重，需显式调用 `load`（返回 `self`，可链式调用）。`predict_filtered` 默认使用配置中的 `score_threshold`、`class_filter` 与 `top_k`，也可在调用时覆盖筛选参数。
 
-## 4. 模型导出
+### 模型导出
 
-应用层导出（`python -m deim_app export`）为预留接口，v1 版本尚未启用，调用会抛出 `ExportError`。需要 ONNX / TensorRT 请使用仓库现有的部署工具（基于引擎配置）：
+应用层导出（`python -m deim_app export`）为预留接口，v1 版本尚未启用，调用会抛出 `ExportError`。需要 ONNX / TensorRT 请使用上游
+[DEIMv2 仓库](https://github.com/Intellindust-AI-Lab/DEIMv2) 的部署工具（`tools/deployment/export_onnx.py` 与 `trtexec`）。
 
-```shell
-pip install onnx onnxsim
-python tools/deployment/export_onnx.py --check -c configs/deimv2/deimv2_dinov3_${model}_coco.yml -r model.pth
+## 应用层（deim_app）
 
-# TensorRT
-trtexec --onnx="model.onnx" --saveEngine="model.engine" --fp16
+`deim_app` 工作流见 [快速开始](#快速开始)。完整参考见 [应用配置指南](docs/engineering/application-config_CN.md) 与 [推理 API 与 CLI 指南](docs/engineering/inference-api_CN.md)。
+
+## 项目工具
+
+本 fork 重组的工具：
+
+- `tools/train`、`tools/inference` —— 可执行入口
+- `tools/compare` —— 模型对比研究流水线
+- `tools/analysis` —— 分析工具（如 OBB 误差分类、rep2 NaN 诊断）
+- pytest 套件按领域分组：`contracts / obb / eval / engine / deim_app`
+
+部署（ONNX / TensorRT）、基准测试与可视化工具继承自上游——见
+[DEIMv2 仓库](https://github.com/Intellindust-AI-Lab/DEIMv2)。
+
+## 上游 DEIMv2
+
+本项目基于 [DEIMv2](https://github.com/Intellindust-AI-Lab/DEIMv2)。官方模型库与权重、引擎级训练 / 测试 / 调优配方、数据准备指南与上游变更历史，请参考原始仓库：
+**[github.com/Intellindust-AI-Lab/DEIMv2](https://github.com/Intellindust-AI-Lab/DEIMv2)**。
+
+## 引用
+
+如果您在研究中使用了 `DEIMv2` 或其方法，请引用以下 BibTeX：
+
+<details open>
+<summary> bibtex </summary>
+
+```latex
+@article{huang2025deimv2,
+  title={Real-Time Object Detection Meets DINOv3},
+  author={Huang, Shihua and Hou, Yongjie and Liu, Longfei and Yu, Xuanlong and Shen, Xi},
+  journal={arXiv},
+  year={2025}
+}
+
 ```
+</details>
 
-## 5. 更多文档
+## 致谢
 
-- [application-config_CN.md](docs/engineering/application-config_CN.md)：应用层 YAML 配置指南（公共字段、继承优先级、类元数据来源）
-- [inference-api_CN.md](docs/engineering/inference-api_CN.md)：推理 Python API 与 CLI 完整参考（子命令、参数、输出格式）
-- [English README](README.md)：Model Zoo 完整表格与权重下载、引擎级训练/调优用法、工具、引用与致谢
+我们的工作基于 [DEIMv2](https://github.com/Intellindust-AI-Lab/DEIMv2)、
+[D-FINE](https://github.com/Peterande/D-FINE)、
+[RT-DETR](https://github.com/lyuwenyu/RT-DETR)、
+[DEIM](https://github.com/ShihuaHuang95/DEIM) 与
+[DINOv3](https://github.com/facebookresearch/dinov3)。感谢他们的杰出工作！
+
+✨ 欢迎贡献，有任何问题请随时联系我们！✨
