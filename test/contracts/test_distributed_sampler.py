@@ -47,7 +47,9 @@ def _capture_create(monkeypatch):
 
     def fake_create(name, global_cfg, **kw):
         calls.append({"name": name, **kw})
-        return _FakeLoader(batch_size=kw.get("batch_size", 1), sampler=None)
+        if not kw:
+            return list(range(100))  # dataset pre-build (no kwargs at all)
+        return _FakeLoader(batch_size=kw.get("batch_size", 1), sampler=kw.get("sampler"))
 
     monkeypatch.setattr(yc, "create", fake_create)
     return calls
@@ -90,7 +92,8 @@ def test_two_rank_build_attaches_distributed_sampler(
     )
     assert loader.sampler.shuffle is True
     # batch is total/world_size
-    assert _capture_create[0]["batch_size"] == 3  # total 6 / world 2
+    loader_calls = [c for c in _capture_create if "batch_size" in c]
+    assert loader_calls[0]["batch_size"] == 3  # total 6 / world 2
 
 
 def test_single_process_stays_sampler_free(_single_process, _capture_create):
@@ -99,7 +102,7 @@ def test_single_process_stays_sampler_free(_single_process, _capture_create):
     cfg = _cfg_with_shuffle(True)
     loader = cfg.build_dataloader("train_dataloader")
     assert not isinstance(loader.sampler, DistributedSampler)
-    assert _capture_create[0]["batch_size"] == 6  # total, undivided
+    assert _capture_create[0]["batch_size"] == 6  # single create pass, total
 
 
 def test_two_rank_shuffle_false_sampler_unshuffled(_two_rank_world, _capture_create):
