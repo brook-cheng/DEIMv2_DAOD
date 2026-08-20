@@ -89,10 +89,11 @@ DataLoader(shuffle=False, sampler=DistributedSampler(...))
 
 ## 五、观察清单（按嫌疑排序）
 
-> **2026-08-20 已结案**：根因为观察清单 ②（缺 DistributedSampler），证据与修复见
-> 提交 `f08cfb7`。flight recorder 显示两卡卡在不同 iteration 的不同 collective
-> （SyncBN allgather vs 损失 allreduce，SeqNum 差 4）——不是慢卡漂移而是
-> collective 流错位死锁；触发窗口恰为 epoch10 增强策略切换点。
+> **2026-08-20 复盘更正**：此前"根因=缺 DistributedSampler（已结案）"的结论**错误**。
+> `dist_utils.warp_loader`（solver 训练启动时调用）一直在分布式模式下正确挂载
+> DistributedSampler——最早 epoch-10 死锁运行的调用栈本身就包含 warp_loader。
+> 当时分析只追到 `build_dataloader` 就停了，未追到 solver 层。epoch-10 死锁
+> 根因**重新开放调查**（见下方更新后的嫌疑排序）。
 
 ### ① disk 缓存双卡竞态（高嫌疑）
 `DotaDataset.precache_images` 在两 rank 各自并发执行：`np.save` 直接写同一路径
@@ -102,11 +103,14 @@ all_reduce 处等待直至 watchdog 超时。**与症状（若干轮后漂移）
 验证：症状出现时看 `train_full.log` 是否有 `[DotaDataset] Failed to cache`；尝试
 `cache_images: none` 复跑对比是否复现。
 
-### ② 无 DistributedSampler（高嫌疑）
-`engine/core/yaml_config.build_dataloader` 仅按 world_size 均分 batch_size，
-**未挂 DistributedSampler**——两卡各自 shuffle 全量数据：样本重复（等效 batch 语义错）、
-两卡首个 epoch 的迭代耗时就可能不同（不同样本的 Mosaic/CopyBlend 代价差异大），
-与 ① 叠加放大漂移。验证：心跳对比两卡同 iteration 耗时分布。
+### ② 数据驱动的 collective 分歧（高嫌疑，epoch-10 死锁重新开放后的首要方向）
+flight recorder 证据仍成立：两卡卡在不同 collective（SyncBN allgather vs 损失
+allreduce，SeqNum 差 4），且 DistributedSampler 当时已在位——说明分歧不来自
+迭代数错位，而来自**每 iteration 的 collective 序列本身随数据内容变化**。
+重点排查：空目标 batch 是否走条件性 loss 分支、`find_unused_parameters=True`
+的梯度簿记差异、SyncBN 模块在不同输入下是否执行不同次数的前向 collective、
+Mosaic/CopyBlend 在 policy.epoch 切换点（[10,30,50]）生成的 batch 结构差异。
+验证：心跳对比两卡同 iteration 耗时；DEEP=1 抓逐 coll 序列对比两 rank。
 
 ### ③ /dev/shm 不足
 多 worker DataLoader 共享内存不足时 worker 通信阻塞（Docker 常见默认 64M）。
@@ -131,7 +135,8 @@ P2P/IB 配置、NVLink 拓扑（`nvidia-smi topo -m`）；`train_full.log` 中 N
 ## 七、定位后的修复方向预告（按观察清单对应）
 
 - ①：缓存写入改原子（`tmp + os.replace`），预缓存仅 rank0 执行 + barrier
-- ②：`build_dataloader` 挂 `DistributedSampler(dataset, shuffle=..., drop_last=...)`
+- ②：对齐两卡 collective 序列（条件性 loss 分支改为无条件、必要时关闭
+  `find_unused_parameters` 做对照、SyncBN 执行路径核查）
 - ③：`docker run --shm-size` 或减小 num_workers
 - ④：按 NCCL dump 针对性设置（如 `NCCL_P2P_DISABLE=1` 对照实验）
 
