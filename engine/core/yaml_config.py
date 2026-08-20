@@ -222,11 +222,13 @@ class YAMLConfig(BaseConfig):
             from torch.utils.data import DistributedSampler
 
             shuffle = self.yaml_cfg[name].get("shuffle", False)
-            dataset = create(global_cfg[name]["dataset"], global_cfg)
+            dataset_key = "__distributed_dataset__"
+            global_cfg[dataset_key] = copy.deepcopy(global_cfg[name]["dataset"])
+            dataset = create(dataset_key, global_cfg)
+            extra["dataset"] = dataset
             extra["sampler"] = DistributedSampler(
                 dataset, shuffle=shuffle, drop_last=False
             )
-            global_cfg[name]["dataset"] = dataset
         loader = create(name, global_cfg, batch_size=bs, **extra)
         loader.shuffle = self.yaml_cfg[name].get("shuffle", False)
         return loader
