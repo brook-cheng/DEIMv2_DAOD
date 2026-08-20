@@ -212,5 +212,16 @@ class YAMLConfig(BaseConfig):
             _ = global_cfg[name].pop("total_batch_size")
         print(f"building {name} with batch_size={bs}...")
         loader = create(name, global_cfg, batch_size=bs)
+        # No DistributedSampler → each rank shuffles the FULL dataset →
+        # collective streams desync into deadlock (20260820 evidence).
+        from ..misc import dist_utils
+
+        if dist_utils.is_dist_available_and_initialized():
+            from torch.utils.data import DistributedSampler
+
+            shuffle = self.yaml_cfg[name].get("shuffle", False)
+            loader.sampler = DistributedSampler(
+                loader.dataset, shuffle=shuffle, drop_last=False
+            )
         loader.shuffle = self.yaml_cfg[name].get("shuffle", False)
         return loader
