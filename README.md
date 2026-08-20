@@ -24,6 +24,7 @@
     <a href="mailto:shenxi@intellindust.com">
         <img alt="Contact Us" src="https://img.shields.io/badge/Contact-Email-yellow">
     </a>
+    <img alt="release" src="https://img.shields.io/badge/release-v1.0.0-blue">
 </p>
 
 <p align="center">
@@ -33,6 +34,32 @@
 <p align="center">
     English | <a href="./README_CN.md">简体中文</a>
 </p>
+
+## Release Notes — v1.0.0
+
+First production release of this fork. Highlights of the engineering track
+(built on top of upstream DEIMv2):
+
+- **OBB pipeline hardened**: rotated-box training/eval with the
+  `shifted_v1` checkpoint contract (unmarked legacy checkpoints are
+  explicitly rejected on every load path), strict `angle_rep ∈ {0, 3}`
+  construction, and per-config contract test suites.
+- **Application layer** (`deim_app`): unified `train / eval / infer` CLI +
+  `DetectionModel` Python API over curated app-config presets (HBB COCO and
+  OBB DOTA/YOLO), with class-count validation, checkpoint gating, and JSON /
+  DOTA / visualization writers.
+- **Tooling reorganized**: executable entry points under `tools/`
+  (`train`, `inference`, `compare` research pipeline, `analysis`), pytest
+  suite grouped by domain (`contracts / obb / eval / engine / deim_app`).
+- **Security hardening**: `weights_only=True` checkpoint deserialization in
+  the application layer; credentials removed from scripts (environment
+  only).
+- **Multi-GPU diagnosis support**: env-gated per-rank iteration heartbeat,
+  SIGUSR1 stack dumps, NCCL flight-recorder bundling via
+  `scripts/diag_2gpu.sh`.
+- **Real-data acceptance passed** on single-GPU hardware: 17-case matrix
+  (training, evaluation, inference, API parity, negative paths); seven
+  real integration defects found and fixed during acceptance.
 
 ---
 
