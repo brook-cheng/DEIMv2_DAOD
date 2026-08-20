@@ -1,5 +1,0 @@
-{"type":"click","text":"A\n    认可架构继续细化各组件的数据流、错误处理与测试标准。","choice":"approve","id":null,"timestamp":1785827145202}
-{"type":"click","text":"A\n    认可架构继续细化各组件的数据流、错误处理与测试标准。","choice":"approve","id":null,"timestamp":1785827150578}
-{"type":"click","text":"B\n    需要调整指出不认可的模块边界或角度语义。","choice":"revise","id":null,"timestamp":1785827157754}
-{"type":"click","text":"A\n    认可架构继续细化各组件的数据流、错误处理与测试标准。","choice":"approve","id":null,"timestamp":1785827158274}
-{"type":"click","text":"A\n    认可数据流继续错误处理和测试验收标准。","choice":"approve-dataflow","id":null,"timestamp":1785827402890}
