@@ -156,5 +156,7 @@ test/data
 .omo/
 .opencode/
 .codegraph/
+.ccb/
+.superpowers/
 docs/superpowers/
 docs/MAINTENANCE.md
