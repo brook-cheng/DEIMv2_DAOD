@@ -103,14 +103,33 @@ all_reduce 处等待直至 watchdog 超时。**与症状（若干轮后漂移）
 验证：症状出现时看 `train_full.log` 是否有 `[DotaDataset] Failed to cache`；尝试
 `cache_images: none` 复跑对比是否复现。
 
-### ② 数据驱动的 collective 分歧（高嫌疑，epoch-10 死锁重新开放后的首要方向）
+### ② 数据驱动的 collective 分歧（已结案：reduce_dict 键集随数据分叉，已修复）
 flight recorder 证据仍成立：两卡卡在不同 collective（SyncBN allgather vs 损失
 allreduce，SeqNum 差 4），且 DistributedSampler 当时已在位——说明分歧不来自
 迭代数错位，而来自**每 iteration 的 collective 序列本身随数据内容变化**。
-重点排查：空目标 batch 是否走条件性 loss 分支、`find_unused_parameters=True`
-的梯度簿记差异、SyncBN 模块在不同输入下是否执行不同次数的前向 collective、
-Mosaic/CopyBlend 在 policy.epoch 切换点（[10,30,50]）生成的 batch 结构差异。
-验证：心跳对比两卡同 iteration 耗时；DEEP=1 抓逐 coll 序列对比两 rank。
+
+代码层最终定案（2026-08-20）：
+
+1. epoch 10 起 Mosaic 启用（`container.py` 的 `policy_epoch[0] <= epoch <
+   policy_epoch[1]`），单 rank 可能抽到全空 GT 的 batch（mosaic 仿射 keep-filter
+   过滤掉全部框）。
+2. 空 GT batch 使 `denoising.py:30` 直接返回 None → decoder 不产出
+   `dn_outputs`/`dn_pre_outputs` → criterion 少生成全部 `*_dn_*` loss 键
+   （约 41 个）。
+3. `reduce_dict()` 按 rank 本地键集 `torch.stack` 后直接 `all_reduce` → 两 rank
+   同一 collective 的 numel 不同 → NCCL 序列错位挂死（rank0 卡 SyncBN
+   allgather、rank1 卡 `ALLREDUCE NumelIn=97`，现场与推算键数 97 吻合）。
+
+修复（`engine/misc/dist_utils.py::reduce_dict`）：先 `all_gather_object` 收集
+各 rank 键集，按全局排序 union 建立一致 schema；缺失键由该 rank 以同
+device/dtype 零标量补齐后统一 `all_reduce`。缺键 rank 贡献 0 参与平均，
+不掩盖真实损失值，且各 rank 返回键集一致（metric logger 同步受益）。
+
+验证：
+- 新增 `test/contracts/test_reduce_dict_schema.py` + 双进程 worker：真实双进程
+  （gloo）键集分歧场景在修复前**挂死超时**（与服务器 NCCL 同构），修复后通过；
+  另有 union 键集、零填充 dtype/device、`avg` 契约的单测。
+- 本地无第二张 GPU，复现用 gloo+CPU；服务器可直接按第一节复跑确认。
 
 ### ③ /dev/shm 不足
 多 worker DataLoader 共享内存不足时 worker 通信阻塞（Docker 常见默认 64M）。
@@ -135,8 +154,8 @@ P2P/IB 配置、NVLink 拓扑（`nvidia-smi topo -m`）；`train_full.log` 中 N
 ## 七、定位后的修复方向预告（按观察清单对应）
 
 - ①：缓存写入改原子（`tmp + os.replace`），预缓存仅 rank0 执行 + barrier
-- ②：对齐两卡 collective 序列（条件性 loss 分支改为无条件、必要时关闭
-  `find_unused_parameters` 做对照、SyncBN 执行路径核查）
+- ②：已修复——`reduce_dict` 统一 rank 间键集（union + 零填充）后再 collective；
+  条件性 loss 分支与 `find_unused_parameters` 均为合法设计，无需改动
 - ③：`docker run --shm-size` 或减小 num_workers
 - ④：按 NCCL dump 针对性设置（如 `NCCL_P2P_DISABLE=1` 对照实验）
 
