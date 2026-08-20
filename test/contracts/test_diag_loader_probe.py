@@ -18,6 +18,11 @@ def test_diag_script_contains_loader_probe_evidence_contract():
         assert marker in SCRIPT
 
 
+def test_loader_probe_bootstraps_repo_root_import_path():
+    assert 'DEIM_DIAG_REPO_ROOT="$REPO_ROOT"' in SCRIPT
+    assert 'sys.path.insert(0, os.environ["DEIM_DIAG_REPO_ROOT"])' in SCRIPT
+
+
 def test_loader_probe_uses_same_config_and_gates_training():
     assert 'DEIM_DIAG_CONFIG="$CONFIG"' in SCRIPT
     probe_pos = SCRIPT.index("loader_probe")

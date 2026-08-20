@@ -110,9 +110,12 @@ echo "[diag] DataLoader 探针: 构造 loader 并读取首 batch..."
 LOADER_PROBE_SCRIPT="$(mktemp /tmp/diag_loader_probe_XXXXXX.py)"
 cat > "$LOADER_PROBE_SCRIPT" <<'PYEOF'
 import os
+import sys
 import time
 import traceback
 from pathlib import Path
+
+sys.path.insert(0, os.environ["DEIM_DIAG_REPO_ROOT"])
 
 import torch.distributed as dist
 
@@ -188,6 +191,7 @@ except Exception:
     raise
 PYEOF
 DEIM_DIAG_CONFIG="$CONFIG" \
+DEIM_DIAG_REPO_ROOT="$REPO_ROOT" \
 DEIM_DIAG_GIT_HEAD="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)" \
 CUDA_VISIBLE_DEVICES="$GPUS" \
 torchrun --master_port="${LOADER_PROBE_PORT:-7779}" --nproc_per_node="$NPROC" \
