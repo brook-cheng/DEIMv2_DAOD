@@ -21,6 +21,8 @@ GPUS=0,1 MASTER_PORT=7777 bash scripts/diag_2gpu.sh
 |---|---|---|
 | `env_snapshot.txt` | GPU/驱动/拓扑/P2P//dev/shm/torch/nccl 版本 | 排除环境差异 |
 | `train_full_<时间戳>.log` | torchrun 全量输出（含 NCCL_DEBUG=INFO） | 看通信初始化、coll 选择、告警 |
+| `loader_probe_<时间戳>.log` | 正式训练前构造 train DataLoader 并读取首 batch 的双 rank 输出 | 区分配置/构造/首 batch 问题与训练期问题 |
+| `loader_probe_rank*_<时间戳>.log` | 按 rank 分割的 loader probe 输出 | 对比各 rank 的 dataset、sampler、loader 和首 batch 状态 |
 | `heartbeat_rank{0,1}.jsonl` | **每 rank 每 iteration 时间戳** | **定位分歧点**（见下） |
 | `nccl_flight_dump/` | 超时自动 dump 的 c10d flight recorder + 各 rank 调用栈 | 看超时瞬间各 rank 卡在哪个集合通信 |
 | 人工栈 dump | 挂住时另开终端 `kill -USR1 <训练pid>` | 立即抓全线程栈入日志 |
@@ -48,7 +50,44 @@ PY
 - 若停摆 step 后该 rank 心跳**完全消失**：进程/worker 挂死（查 USR1 栈）
 - 若心跳**持续但变慢**：数据加载/IO/缓存问题（见观察清单①②）
 
-## 四、观察清单（按嫌疑排序）
+## 四、DataLoader 探针解读（训练前第一道闸）
+
+脚本按以下顺序推进，前一步失败时不会进入下一步：
+
+```text
+NCCL smoke -> loader probe -> first batch -> first iteration -> epoch/policy switch -> collective timeout
+```
+
+`loader_probe_<时间戳>.log` 中的关键记录：
+
+| 记录 | 含义 | 正常预期 |
+|---|---|---|
+| `PROBE` | rank、local rank、world size、代码版本 | 两个 rank 的 world size 相同，local rank 分别为 0/1 |
+| `DATASET_CONFIG` | 配置类型、classes 文件和数据目录存在性 | `type=DotaDataset`、`classes_file_set=True`、目录存在 |
+| `DATASET_INSTANCE` | 实际构造出的 dataset 类型和长度 | 两个 rank 类型和长度相同 |
+| `SAMPLER` | sampler 类型、shuffle、drop_last、每 rank 样本数 | 分布式时为 `DistributedSampler`，两个 rank 的 `num_samples` 相同 |
+| `LOADER` | batch、shuffle、drop_last、worker 数和 loader 长度 | 显式 sampler 时 DataLoader 的 `shuffle` 不应为 True |
+| `FIRST_BATCH_OK` | 首次 `next(iter(loader))` 是否成功及耗时 | 两个 rank 都出现，耗时差距可接受 |
+| `PROBE_OK` | 首 batch 后的 rank 间 barrier 是否通过 | 两个 rank 都出现 |
+
+分布式 DataLoader 的正确关系是：
+
+```text
+DistributedSampler(shuffle=True)
+DataLoader(shuffle=False, sampler=DistributedSampler(...))
+```
+
+`shuffle=True` 应由 `DistributedSampler` 控制；PyTorch 不允许 DataLoader 同时使用显式 sampler 和 `shuffle=True`。每个 epoch 创建 iterator 前还必须调用 `sampler.set_epoch(epoch)`，否则各 epoch 会重复相同的 shuffle 顺序。
+
+按 probe 停止位置判断范围：
+
+- 没有 `DATASET_INSTANCE`：dataset/workspace 配置或外部路径问题。
+- 有 `DATASET_INSTANCE`，没有 `LOADER`：DataLoader 参数冲突或 inject 问题。
+- 有 `LOADER`，没有 `FIRST_BATCH_OK`：worker、transform、cache、collate 或首样本问题。
+- 两个 `FIRST_BATCH_OK` 都有但没有 `PROBE_OK`：rank 间 probe barrier 或进程组问题。
+- `PROBE_OK` 完整但正式训练失败：问题已经越过 loader 构造边界，继续看 heartbeat、flight recorder 和模型 collective 顺序。
+
+## 五、观察清单（按嫌疑排序）
 
 > **2026-08-20 已结案**：根因为观察清单 ②（缺 DistributedSampler），证据与修复见
 > 提交 `f08cfb7`。flight recorder 显示两卡卡在不同 iteration 的不同 collective
@@ -77,7 +116,7 @@ all_reduce 处等待直至 watchdog 超时。**与症状（若干轮后漂移）
 P2P/IB 配置、NVLink 拓扑（`nvidia-smi topo -m`）；`train_full.log` 中 NCCL INIT
 段的告警。flight recorder dump 会直接给出超时瞬间卡住的集合通信调用。
 
-## 五、诊断开关速查
+## 六、诊断开关速查
 
 | 环境变量 | 作用 | 默认 |
 |---|---|---|
@@ -89,9 +128,22 @@ P2P/IB 配置、NVLink 拓扑（`nvidia-smi topo -m`）；`train_full.log` 中 N
 | `TORCH_NCCL_HEARTBEAT_TIMEOUT` | watchdog 超时（毫秒） | 脚本 600000；**复现期保持与出问题时一致**，仅加速复现时下调 |
 | `EPOCHS` / `GPUS` / `MASTER_PORT` | 脚本参数 | 30 / 0,1 / 7777 |
 
-## 六、定位后的修复方向预告（按观察清单对应）
+## 七、定位后的修复方向预告（按观察清单对应）
 
 - ①：缓存写入改原子（`tmp + os.replace`），预缓存仅 rank0 执行 + barrier
 - ②：`build_dataloader` 挂 `DistributedSampler(dataset, shuffle=..., drop_last=...)`
 - ③：`docker run --shm-size` 或减小 num_workers
 - ④：按 NCCL dump 针对性设置（如 `NCCL_P2P_DISABLE=1` 对照实验）
+
+## 八、多卡训练学习路径
+
+建议先按下面顺序阅读：
+
+1. [PyTorch Distributed Overview](https://pytorch.org/tutorials/beginner/dist_overview.html)：理解 rank、world size、process group 和 collective。
+2. [DistributedDataParallel notes](https://pytorch.org/docs/stable/notes/ddp.html)：理解每个 rank 为什么必须执行一致的模型与 collective 顺序。
+3. [DistributedSampler API](https://pytorch.org/docs/stable/data.html#torch.utils.data.distributed.DistributedSampler)：理解数据如何分片、`shuffle`、`drop_last` 以及 `set_epoch`。
+4. [DataLoader API](https://pytorch.org/docs/stable/data.html#torch.utils.data.DataLoader)：理解 `sampler`、`shuffle`、`batch_sampler` 的互斥关系，以及 `num_workers` 的进程模型。
+5. [torchrun / Distributed Elastic](https://pytorch.org/docs/stable/elastic/run.html)：理解 `LOCAL_RANK`、`RANK`、`WORLD_SIZE` 和 torchrun 进程启动方式。
+6. [NVIDIA NCCL User Guide](https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/)：在 DataLoader 和模型逻辑确认后，用于分析 collective、拓扑和 NCCL 调试开关。
+
+当前问题最推荐先看第 1、2、3 篇，再结合本节的 DataLoader 探针输出理解实际运行状态。
