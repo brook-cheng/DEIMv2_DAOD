@@ -1,0 +1,6 @@
+__include__: [
+  '../dataset/dota_detection.yml',
+  '../runtime.yml',
+  'deimv2_obb.yml',
+]
+output_dir: ./outputs/deimv2_obb_dinov3_s_dota

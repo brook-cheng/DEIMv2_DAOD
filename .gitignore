@@ -144,3 +144,17 @@ dmypy.json
 .DS_Store
 
 test/data
+*.log
+
+# Training logs (log.txt, log_*.txt)
+/log*.txt
+
+
+# Generated outputs (predictions, inference artifacts)
+/out
+# code-agent working artifacts — never publish
+.omo/
+.opencode/
+.codegraph/
+docs/superpowers/
+docs/MAINTENANCE.md

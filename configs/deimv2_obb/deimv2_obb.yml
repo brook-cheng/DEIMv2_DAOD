@@ -1,0 +1,33 @@
+__include__: ['../base/deimv2.yml']
+task: detection
+
+model: DEIM
+criterion: DEIMCriterion
+postprocessor: PostProcessor
+
+use_focal_loss: True
+eval_spatial_size: [640, 640] # h w
+checkpoint_freq: 5    # save freq
+
+DEIMTransformer:
+  box_mode: obb
+
+PostProcessor:
+  box_mode: obb
+  num_top_queries: 300
+
+DEIMCriterion:
+  box_mode: obb
+  weight_dict: {loss_mal: 1, loss_bbox: 2, loss_probiou: 5, loss_angle: 3, loss_kld: 1, loss_fgl: 0.15}
+  losses: ['mal', 'boxes', 'local']
+  use_yolo_probiou: true
+  use_yolo_angle: true
+  keep_kld: true
+  angle_lambda: 3.0
+  matcher:
+    type: HungarianMatcher
+    box_mode: obb
+    weight_dict: {cost_class: 2, cost_bbox: 2, cost_probiou: 4, cost_angle: 3, cost_chamfer: 5, late_cost_bbox: 0.25}
+    change_matcher: true
+    iou_order_alpha: 4.0
+    angle_order_alpha: 1.0

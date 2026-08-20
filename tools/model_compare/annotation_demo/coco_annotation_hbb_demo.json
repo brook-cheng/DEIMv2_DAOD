@@ -1,0 +1,76 @@
+{
+    "info": {
+        "year": 2025,
+        "version": "3.3.0-rc.1",
+        "description": "COCO Label Conversion",
+        "contributor": "CVHub",
+        "url": "https://github.com/CVHub520/X-AnyLabeling",
+        "date_created": "2025-11-07"
+    },
+    "licenses": [
+        {
+            "id": 1,
+            "url": "https://www.gnu.org/licenses/gpl-3.0.html",
+            "name": "GNU GENERAL PUBLIC LICENSE Version 3"
+        }
+    ],
+    "categories": [
+        {
+            "id": 1,
+            "name": "bh_guagoutou",
+            "supercategory": ""
+        }
+    ],
+    "images": [
+        {
+            "license": 0,
+            "url": null,
+            "file_name": "DJI_20250821101713_0001_S_frame_000000_20251013.jpg",
+            "height": 304,
+            "width": 289,
+            "date_captured": null,
+            "id": 0
+        },
+        {
+            "license": 0,
+            "url": null,
+            "file_name": "DJI_20250821101713_0001_S_frame_000004_20251013.jpg",
+            "height": 263,
+            "width": 211,
+            "date_captured": null,
+            "id": 1
+        }
+    ],
+    "annotations": [
+        {
+            "id": 0,
+            "image_id": 0,
+            "category_id": 1,
+            "bbox": [
+                146.1931065,
+                116.547064,
+                7.7876830000000155,
+                12.213808
+            ],
+            "area": 95.1172649268642,
+            "iscrowd": 0,
+            "ignore": 0,
+            "segmentation": []
+        },
+        {
+            "id": 1,
+            "image_id": 1,
+            "category_id": 1,
+            "bbox": [
+                66.05660950000001,
+                111.61706850000002,
+                5.960538999999997,
+                9.322034999999985
+            ],
+            "area": 55.564353176864884,
+            "iscrowd": 0,
+            "ignore": 0,
+            "segmentation": []
+        }
+    ]
+}

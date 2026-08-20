@@ -1,0 +1,21 @@
+# ============================================================================
+# 消融实验: angle_rep = 3（rep0 vs rep3 保留对比）
+# ============================================================================
+# 基线: sp_fz_common.yml (angle_rep=0)
+# 变量: DEIMTransformer.angle_rep 0 → 3
+#
+# angle_rep=3 语义（deim_decoder.py DEIMTransformer.__init__）:
+#   box 表示: (cx,cy,w,h,θ_norm)
+#   refinement: 5D (α,β,γ,δ,Δθ) 直接角度残差回归
+#   关键区别: rep3 有独立的解耦角度流（decouple_angle_layers），
+#            与 box 特征并行处理角度特征。
+#
+# 派生参数: obbox_rep_dim 6 → 5
+# 观察重点: 解耦角度流 + 直接残差回归 vs rep0 的间接 vertex offset 回归
+# ============================================================================
+__include__: ['../sp_fz_common.yml']
+output_dir: ./outputs/deimv2_obb_dlzdt_sp_fz_ablation/abl_rep3
+DEIMTransformer:
+  angle_rep: 3
+DEIMCriterion:
+  obbox_rep_dim: 5

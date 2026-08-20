@@ -1,0 +1,34 @@
+__include__:
+  - ../base/obb_app.yml
+
+# ============================================================================
+# Example: OBB detection on YOLO-OBB format data using DEIMv2 DINOv3 ViT-S/16+.
+# Override the paths below to point at your YOLO-OBB dataset.
+# YOLO-OBB format uses normalized 8-coord polygons (one per line, class-index
+# first) in per-image .txt label files.
+# ============================================================================
+
+project:
+  name: deimv2-yolo-obb
+  output_dir: ./outputs/deimv2-yolo-obb
+
+runtime:
+  input_size: [640, 640]
+  seed: 42
+
+data:
+  format: YOLO-OBB
+  train_images: /data/yolo_obb/train/images/
+  train_annotations: /data/yolo_obb/train/labels/
+  val_images: /data/yolo_obb/val/images/
+  val_annotations: /data/yolo_obb/val/labels/
+  classes_file: /data/yolo_obb/classes.txt
+  num_workers: 2
+  cache_images: disk
+
+train:
+  epochs: 200
+  batch_size: 4
+  learning_rate: 5.0e-4
+  device: cuda
+  amp: True

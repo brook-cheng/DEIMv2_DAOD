@@ -1,0 +1,43 @@
+task: detection
+
+evaluator:
+  type: CocoEvaluator
+  iou_types: ['bbox', ]
+
+num_classes: 91 # your dataset classes,coco begin from 1, and dota begion from 0, num_classes represent background
+remap_mscoco_category: False
+
+train_dataloader:
+  type: DataLoader
+  dataset:
+    type: CocoDetection
+    img_folder: /mnt/d/project_data/model_test/COCO128-main/train2017
+    ann_file: /mnt/d/project_data/model_test/COCO128-main/annotations/instances_train2017.json
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: True
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
+  num_workers: 0
+  drop_last: True
+  collate_fn:
+    type: BatchImageCollateFunction
+
+
+val_dataloader:
+  type: DataLoader
+  dataset:
+    type: CocoDetection
+    img_folder: /mnt/d/project_data/model_test/COCO128-main/val2017
+    ann_file: /mnt/d/project_data/model_test/COCO128-main/annotations/instances_val2017.json
+    return_masks: False
+    transforms:
+      type: Compose
+      ops: ~
+  shuffle: False
+  total_batch_size: 4 # total batch size equals to gpu_nums*batch_size
+  num_workers: 0
+  drop_last: False
+  collate_fn:
+    type: BatchImageCollateFunction

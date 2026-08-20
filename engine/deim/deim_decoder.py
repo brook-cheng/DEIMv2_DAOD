@@ -27,13 +27,40 @@ from .utils import (
 )
 
 from .dfine_decoder import MSDeformableAttention, LQE, Integral
-from .dfine_utils import weighting_function, distance2bbox
+from .dfine_utils import weighting_function, distance2bbox, distance2bbox_obb
 from .deim_utils import RMSNorm, SwiGLUFFN, Gate, MLP
+from .obb_angle_contract import (
+    shifted_norm_to_physical_rad,
+    physical_rad_to_shifted_norm,
+)
 
 __all__ = ["DEIMTransformer"]
 
 
+_VALID_ANGLE_REPS = (0, 3)
+
+
+def _assert_obb_angle_rep(angle_rep) -> None:
+    """Assert ``angle_rep`` is exactly ``int`` ``0`` or ``3``.
+
+    Python numeric equality lets ``False == 0``, ``0.0 == 0``, etc., so a
+    plain ``angle_rep not in (0, 3)`` check accepts booleans and floats
+    that are semantically invalid.  This guard rejects them at the
+    boundary so the error surfaces at construction, not deep in forward.
+    """
+    if isinstance(angle_rep, bool) or type(angle_rep) is not int:
+        raise TypeError(
+            f"angle_rep must be int (0 or 3), "
+            f"got {type(angle_rep).__name__}: {angle_rep!r}"
+        )
+    if angle_rep not in _VALID_ANGLE_REPS:
+        raise ValueError(
+            f"angle_rep must be 0 or 3, got {angle_rep}"
+        )
+
+
 class TransformerDecoderLayer(nn.Module):
+
     def __init__(
         self,
         d_model=256,
@@ -63,7 +90,11 @@ class TransformerDecoderLayer(nn.Module):
 
         # cross attention
         self.cross_attn = MSDeformableAttention(
-            d_model, n_head, n_levels, n_points, method=cross_attn_method
+            d_model,
+            n_head,
+            n_levels,
+            n_points,
+            method=cross_attn_method,
         )
         self.dropout2 = nn.Dropout(dropout)
 
@@ -136,12 +167,15 @@ class TransformerDecoder(nn.Module):
         decoder_layer_wide,
         num_layers,
         num_head,
+        num_reg_dist,
         reg_max,
         reg_scale,
         up,
         eval_idx=-1,
         layer_scale=2,
         act="relu",
+        box_mode="hbb",
+        angle_rep=0,
     ):
         super(TransformerDecoder, self).__init__()
         self.hidden_dim = hidden_dim
@@ -150,6 +184,12 @@ class TransformerDecoder(nn.Module):
         self.num_head = num_head
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
         self.up, self.reg_scale, self.reg_max = up, reg_scale, reg_max
+        self.box_mode = box_mode
+        self.angle_rep = angle_rep
+        if self.box_mode == "obb":
+            _assert_obb_angle_rep(self.angle_rep)
+        self.num_decouple_layers = num_layers
+
         self.layers = nn.ModuleList(
             [copy.deepcopy(decoder_layer) for _ in range(self.eval_idx + 1)]
             + [
@@ -157,9 +197,24 @@ class TransformerDecoder(nn.Module):
                 for _ in range(num_layers - self.eval_idx - 1)
             ]
         )
+
         self.lqe_layers = nn.ModuleList(
-            [copy.deepcopy(LQE(4, 64, 2, reg_max, act=act)) for _ in range(num_layers)]
+            [
+                copy.deepcopy(
+                    LQE(4, 64, 2, reg_max, act=act, num_reg_dist=num_reg_dist)
+                )
+                for _ in range(num_layers)
+            ]
         )
+
+        if self.angle_rep == 3:
+            decouple_layer_template = self.layers[-1]
+            self.decouple_angle_layers = nn.ModuleList(
+                [
+                    copy.deepcopy(decouple_layer_template)
+                    for _ in range(self.num_decouple_layers)
+                ]
+            )
 
     def value_op(
         self, memory, value_proj, value_scale, memory_mask, memory_spatial_shapes
@@ -194,7 +249,7 @@ class TransformerDecoder(nn.Module):
         ref_points_unact,
         memory,
         spatial_shapes,
-        bbox_head,
+        dec_bbox_head,
         score_head,
         query_pos_head,
         pre_bbox_head,
@@ -204,7 +259,11 @@ class TransformerDecoder(nn.Module):
         attn_mask=None,
         memory_mask=None,
         dn_meta=None,
+        pre_angle_head=None,
+        query_angle_head=None,
+        dec_angle_head=None,
     ):
+
         output = target
         output_detach = pred_corners_undetach = 0
         value = self.value_op(memory, None, None, memory_mask, spatial_shapes)
@@ -213,18 +272,40 @@ class TransformerDecoder(nn.Module):
         dec_out_logits = []
         dec_out_pred_corners = []
         dec_out_refs = []
+
+        # TODO: 需要针对obb请款下的project
         if not hasattr(self, "project"):
             project = weighting_function(self.reg_max, up, reg_scale)
         else:
             project = self.project
 
-        ref_points_detach = F.sigmoid(ref_points_unact)
-        query_pos_embed = query_pos_head(ref_points_detach).clamp(min=-10, max=10)
+        if self.box_mode == "obb":
+            if self.angle_rep == 0:
+                ref_points_detach = F.sigmoid(ref_points_unact)
+                query_pos_embed = query_pos_head(ref_points_detach).clamp(
+                    min=-10, max=10
+                )
+            elif self.angle_rep == 3:
+                dec_angle_output = target
+                dec_angle_output_detach = 0
+                dec_angle_pred_corners_undetach = 0
+                ref_points_detach = F.sigmoid(ref_points_unact[..., :4])
+                ref_dec_angle_detach = F.sigmoid(ref_points_unact)
+                query_dec_angle_embed = query_angle_head(
+                    F.sigmoid(ref_points_unact[..., 4:])
+                )
+                query_pos_embed = query_pos_head(ref_points_detach).clamp(
+                    min=-10, max=10
+                )
+        elif self.box_mode == "hbb":
+            ref_points_detach = F.sigmoid(ref_points_unact)
+            query_pos_embed = query_pos_head(ref_points_detach).clamp(min=-10, max=10)
 
-        for i, layer in enumerate(self.layers):
+        for layer_idx, layer in enumerate(self.layers):
+
             ref_points_input = ref_points_detach.unsqueeze(2)
 
-            if i >= self.eval_idx + 1 and self.layer_scale > 1:
+            if layer_idx >= self.eval_idx + 1 and self.layer_scale > 1:
                 query_pos_embed = F.interpolate(
                     query_pos_embed, scale_factor=self.layer_scale
                 )
@@ -233,6 +314,16 @@ class TransformerDecoder(nn.Module):
                 )
                 output = F.interpolate(output, size=query_pos_embed.shape[-1])
                 output_detach = output.detach()
+
+                if self.box_mode == "obb":
+                    if self.angle_rep == 3:
+                        query_dec_angle_embed = F.interpolate(
+                            query_dec_angle_embed, scale_factor=self.layer_scale
+                        )
+                        dec_angle_output = F.interpolate(
+                            dec_angle_output, size=query_dec_angle_embed.shape[-1]
+                        )
+                        dec_angle_output_detach = dec_angle_output.detach()
 
             output = layer(
                 output,
@@ -243,24 +334,86 @@ class TransformerDecoder(nn.Module):
                 query_pos_embed,
             )
 
-            if i == 0:
-                # Initial bounding box predictions with inverse sigmoid refinement
+            if layer_idx == 0:
                 pre_bboxes = F.sigmoid(
                     pre_bbox_head(output) + inverse_sigmoid(ref_points_detach)
                 )
-                pre_scores = score_head[0](output)
+                pre_scores = score_head[layer_idx](output)
                 ref_points_initial = pre_bboxes.detach()
-
-            # Refine bounding box corners using FDR, integrating previous layer's corrections
-            pred_corners = bbox_head[i](output + output_detach) + pred_corners_undetach
-            inter_ref_bbox = distance2bbox(
-                ref_points_initial, integral(pred_corners, project), reg_scale
+            pred_corners = (
+                dec_bbox_head[layer_idx](output + output_detach) + pred_corners_undetach
             )
+            output_detach = output.detach()
+            pred_corners_undetach = pred_corners
 
-            if self.training or i == self.eval_idx:
-                scores = score_head[i](output)
-                # Lqe does not affect the performance here.
-                scores = self.lqe_layers[i](scores, pred_corners)
+            if self.box_mode == "obb":
+                if self.angle_rep == 3:
+                    # ref_dec_angle_input 首次为(x,y,w,h,offset_w,offset_h)，后续为(x,y,w,h,r)
+                    ref_dec_angle_input = ref_dec_angle_detach.unsqueeze(2)
+                    dec_angle_output = self.decouple_angle_layers[layer_idx](
+                        dec_angle_output,
+                        ref_dec_angle_input,
+                        value,
+                        spatial_shapes,
+                        attn_mask,
+                        query_dec_angle_embed,
+                    )
+                    if layer_idx == 0:
+                        dec_angle_initial = torch.sigmoid(
+                            pre_angle_head(dec_angle_output)
+                            + inverse_sigmoid(ref_dec_angle_detach)[..., 4:]
+                        )
+                        if self.angle_rep == 3:
+                            pre_bboxes = torch.concat(
+                                [pre_bboxes, dec_angle_initial], dim=-1
+                            )
+                        ref_points_initial = pre_bboxes.detach()
+
+                    dec_angle_pred_corners = (
+                        dec_angle_head[layer_idx](
+                            dec_angle_output + dec_angle_output_detach
+                        )
+                        + dec_angle_pred_corners_undetach
+                    )
+                    dec_angle_output_detach = dec_angle_output.detach()
+                    dec_angle_pred_corners_undetach = dec_angle_pred_corners
+
+                    # 1:(α,β,γ,δ)(ε,η)->(α,β,γ,δ,ε,η) 2:(α,β,γ,δ)(deta_theta)->(α,β,γ,δ,deta_theta)
+                    pred_corners = torch.concat(
+                        [pred_corners, dec_angle_pred_corners], dim=-1
+                    )
+
+            if self.box_mode == "hbb":
+                inter_ref_bbox = distance2bbox(
+                    ref_points_initial, integral(pred_corners, project), reg_scale
+                )
+            elif self.box_mode == "obb":
+                # [0,1)→[-pi/4,3*pi/4)
+                ref_phys = torch.cat(
+                    [
+                        ref_points_initial[..., :4],
+                        shifted_norm_to_physical_rad(ref_points_initial[..., 4:5]),
+                    ],
+                    dim=-1,
+                )
+                distance = integral(pred_corners, project)
+                inter_ref_bbox = distance2bbox_obb(
+                    ref_phys,
+                    distance,
+                    reg_scale,
+                )
+                # [-pi/4,3*pi/4)→[0,1)
+                inter_ref_bbox = torch.cat(
+                    [
+                        inter_ref_bbox[..., :4],
+                        physical_rad_to_shifted_norm(inter_ref_bbox[..., 4:]),
+                    ],
+                    dim=-1,
+                )
+
+            if self.training or layer_idx == self.eval_idx:
+                scores = score_head[layer_idx](output)
+                scores = self.lqe_layers[layer_idx](scores, pred_corners)
                 dec_out_logits.append(scores)
                 dec_out_bboxes.append(inter_ref_bbox)
                 dec_out_pred_corners.append(pred_corners)
@@ -269,10 +422,11 @@ class TransformerDecoder(nn.Module):
                 if not self.training:
                     break
 
-            pred_corners_undetach = pred_corners
-            ref_points_detach = inter_ref_bbox.detach()
-            output_detach = output.detach()
-
+            if self.angle_rep == 3:
+                ref_points_detach = inter_ref_bbox[..., :4].detach()
+                ref_dec_angle_detach = inter_ref_bbox.detach()
+            else:
+                ref_points_detach = inter_ref_bbox.detach()
         return (
             torch.stack(dec_out_bboxes),
             torch.stack(dec_out_logits),
@@ -318,6 +472,8 @@ class DEIMTransformer(nn.Module):
         use_gateway=True,
         share_bbox_head=False,
         share_score_head=False,
+        box_mode="hbb",
+        angle_rep=0,
     ):
         super().__init__()
         assert len(feat_channels) <= num_levels
@@ -338,6 +494,24 @@ class DEIMTransformer(nn.Module):
         self.eval_spatial_size = eval_spatial_size
         self.aux_loss = aux_loss
         self.reg_max = reg_max
+
+        self.box_mode = box_mode
+        self.angle_rep = angle_rep
+        self.num_r_layers = num_layers
+
+        # num_reg_dist: vertex bias for refienment, used in LQE
+        # _num_box_dof: bbox representation, used to define headers
+        if self.box_mode == "obb":
+            _assert_obb_angle_rep(self.angle_rep)
+            if self.angle_rep == 0:
+                self._num_box_dof = 5  # (cx,cy,w,h,θ)
+                self.num_reg_dist = 6  # (α,β,γ,δ,ε,η)
+            elif self.angle_rep == 3:
+                self._num_box_dof = 5  # (cx,cy,w,h,θ)
+                self.num_reg_dist = 5  # (α,β,γ,δ,deta_θ)
+        elif self.box_mode == "hbb":
+            self._num_box_dof = 4  # (cx,cy,w,h)
+            self.num_reg_dist = 4  # (α,β,γ,δ)
 
         assert query_select_method in ("default", "one2many", "agnostic"), ""
         assert cross_attn_method in ("default", "discrete"), ""
@@ -365,6 +539,7 @@ class DEIMTransformer(nn.Module):
             cross_attn_method=cross_attn_method,
             use_gateway=use_gateway,
         )
+
         decoder_layer_wide = TransformerDecoderLayer(
             hidden_dim,
             nhead,
@@ -377,18 +552,22 @@ class DEIMTransformer(nn.Module):
             layer_scale=layer_scale,
             use_gateway=use_gateway,
         )
+
         self.decoder = TransformerDecoder(
             hidden_dim,
             decoder_layer,
             decoder_layer_wide,
             num_layers,
             nhead,
+            self.num_reg_dist,
             reg_max,
             self.reg_scale,
             self.up,
             eval_idx,
             layer_scale,
             act=activation,
+            box_mode=self.box_mode,
+            angle_rep=self.angle_rep,
         )
         # denoising
         self.num_denoising = num_denoising
@@ -409,14 +588,13 @@ class DEIMTransformer(nn.Module):
             self.enc_score_head = nn.Linear(hidden_dim, 1)
         else:
             self.enc_score_head = nn.Linear(hidden_dim, num_classes)
-        self.enc_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3, act=mlp_act)
 
-        self.query_pos_head = MLP(4, hidden_dim, hidden_dim, 3, act=mlp_act)
+        self.enc_bbox_head = MLP(
+            hidden_dim, hidden_dim, self._num_box_dof, 3, act=mlp_act
+        )
 
         # decoder head
-        self.pre_bbox_head = MLP(hidden_dim, hidden_dim, 4, 3, act=mlp_act)
-        self.integral = Integral(self.reg_max)
-
+        self.integral = Integral(self.reg_max, self.num_reg_dist)
         self.eval_idx = eval_idx if eval_idx >= 0 else num_layers + eval_idx
         dec_score_head = nn.Linear(hidden_dim, num_classes)
         self.dec_score_head = nn.ModuleList(
@@ -430,29 +608,112 @@ class DEIMTransformer(nn.Module):
             ]
         )
 
-        # Share the same bbox head for all layers
-        dec_bbox_head = MLP(
-            hidden_dim, hidden_dim, 4 * (self.reg_max + 1), 3, act=mlp_act
-        )
-        self.dec_bbox_head = nn.ModuleList(
-            [
-                dec_bbox_head if share_bbox_head else copy.deepcopy(dec_bbox_head)
-                for _ in range(self.eval_idx + 1)
-            ]
-            + [
-                MLP(scaled_dim, scaled_dim, 4 * (self.reg_max + 1), 3, act=mlp_act)
-                for _ in range(num_layers - self.eval_idx - 1)
-            ]
-        )
+        self.pre_angle_head = None
+        self.query_angle_head = None
+        self.dec_angle_head = None
+        if self.box_mode == "obb":
+            if self.angle_rep == 0:
+                pre_bbox_head_out_dim = 5  # (cx,cy,w,h,θ)
+                num_query_pos_in = 5
+                num_reg_dist_xywh = 6  # (α,β,γ,δ,ε,η)
+            elif self.angle_rep == 3:
+                pre_bbox_head_out_dim = 4
+                num_query_pos_in = 4
+                num_reg_dist_xywh = 4
+                num_angle_describer = 1
 
+            ## bbox head
+            self.pre_bbox_head = MLP(
+                hidden_dim, hidden_dim, pre_bbox_head_out_dim, 3, act=mlp_act
+            )
+            self.query_pos_head = MLP(
+                num_query_pos_in, hidden_dim, hidden_dim, 3, act=mlp_act
+            )
+            dec_bbox_head_hide_mlp = MLP(
+                hidden_dim,
+                hidden_dim,
+                num_reg_dist_xywh * (self.reg_max + 1),
+                3,
+                act=mlp_act,
+            )
+            dec_bbox_head_scaled_mlp = MLP(
+                scaled_dim,
+                scaled_dim,
+                num_reg_dist_xywh * (self.reg_max + 1),
+                3,
+                act=mlp_act,
+            )
+            self.dec_bbox_head = nn.ModuleList(
+                [
+                    (
+                        dec_bbox_head_hide_mlp
+                        if share_bbox_head
+                        else copy.deepcopy(dec_bbox_head_hide_mlp)
+                    )
+                    for _ in range(self.eval_idx + 1)
+                ]
+                + [
+                    copy.deepcopy(dec_bbox_head_scaled_mlp)
+                    for _ in range(num_layers - self.eval_idx - 1)
+                ]
+            )
+
+            ## angle head
+            if self.angle_rep == 3:
+                self.pre_angle_head = MLP(
+                    hidden_dim, hidden_dim, num_angle_describer, 3, act=mlp_act
+                )
+                self.query_angle_head = MLP(
+                    num_angle_describer, hidden_dim, hidden_dim, 3, act=mlp_act
+                )
+                self.dec_angle_head = nn.ModuleList(
+                    [
+                        MLP(
+                            hidden_dim,
+                            hidden_dim,
+                            num_angle_describer * (self.reg_max + 1),
+                            3,
+                            act=mlp_act,
+                        )
+                        for _ in range(self.num_layers)
+                    ]
+                )
+
+        elif self.box_mode == "hbb":
+            self.pre_bbox_head = MLP(
+                hidden_dim, hidden_dim, self._num_box_dof, 3, act=mlp_act
+            )
+            dec_bbox_head = MLP(
+                hidden_dim,
+                hidden_dim,
+                self.num_reg_dist * (self.reg_max + 1),
+                3,
+                act=mlp_act,
+            )
+            self.dec_bbox_head = nn.ModuleList(
+                [
+                    dec_bbox_head if share_bbox_head else copy.deepcopy(dec_bbox_head)
+                    for _ in range(self.eval_idx + 1)
+                ]
+                + [
+                    MLP(
+                        scaled_dim,
+                        scaled_dim,
+                        self.num_reg_dist * (self.reg_max + 1),
+                        3,
+                        act=mlp_act,
+                    )
+                    for _ in range(num_layers - self.eval_idx - 1)
+                ]
+            )
+            self.query_pos_head = MLP(
+                self._num_box_dof, hidden_dim, hidden_dim, 3, act=mlp_act
+            )
         # init encoder output anchors and valid_mask
         if self.eval_spatial_size:
             anchors, valid_mask = self._generate_anchors()
             self.register_buffer("anchors", anchors)
             self.register_buffer("valid_mask", valid_mask)
-        # init encoder output anchors and valid_mask
-        if self.eval_spatial_size:
-            self.anchors, self.valid_mask = self._generate_anchors()
 
         self._reset_parameters(feat_channels)
 
@@ -490,6 +751,16 @@ class DEIMTransformer(nn.Module):
         for m, in_channels in zip(self.input_proj, feat_channels):
             if in_channels != self.hidden_dim:
                 init.xavier_uniform_(m[0].weight)
+
+        if self.angle_rep == 3:
+            init.constant_(self.pre_angle_head.layers[-1].weight, 0)
+            init.constant_(self.pre_angle_head.layers[-1].bias, 0)
+            for dec_angle_h in self.dec_angle_head:
+                init.constant_(dec_angle_h.layers[-1].weight, 0)
+                init.constant_(dec_angle_h.layers[-1].bias, 0)
+            init.xavier_uniform_(self.query_angle_head.layers[0].weight)
+            init.xavier_uniform_(self.query_angle_head.layers[1].weight)
+            init.xavier_uniform_(self.query_angle_head.layers[-1].weight)
 
     def _build_input_proj_layer(self, feat_channels):
         self.input_proj = nn.ModuleList()
@@ -581,15 +852,42 @@ class DEIMTransformer(nn.Module):
                 spatial_shapes.append([int(eval_h / s), int(eval_w / s)])
 
         anchors = []
-        for lvl, (h, w) in enumerate(spatial_shapes):
-            grid_y, grid_x = torch.meshgrid(
-                torch.arange(h), torch.arange(w), indexing="ij"
-            )
-            grid_xy = torch.stack([grid_x, grid_y], dim=-1)
-            grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor([w, h], dtype=dtype)
-            wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
-            lvl_anchors = torch.concat([grid_xy, wh], dim=-1).reshape(-1, h * w, 4)
-            anchors.append(lvl_anchors)
+        if self.box_mode == "hbb":
+            for lvl, (h, w) in enumerate(spatial_shapes):
+                grid_y, grid_x = torch.meshgrid(
+                    torch.arange(h), torch.arange(w), indexing="ij"
+                )
+                grid_xy = torch.stack([grid_x, grid_y], dim=-1)
+                grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor(
+                    [w, h], dtype=dtype
+                )
+                wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
+                lvl_anchors = torch.concat([grid_xy, wh], dim=-1).reshape(
+                    -1, h * w, self._num_box_dof
+                )
+                anchors.append(lvl_anchors)
+        elif self.box_mode == "obb":
+            for lvl, (h, w) in enumerate(spatial_shapes):
+                grid_y, grid_x = torch.meshgrid(
+                    torch.arange(h), torch.arange(w), indexing="ij"
+                )
+                grid_xy = torch.stack([grid_x, grid_y], dim=-1)
+                grid_xy = (grid_xy.unsqueeze(0) + 0.5) / torch.tensor(
+                    [w, h], dtype=dtype
+                )
+                wh = torch.ones_like(grid_xy) * grid_size * (2.0**lvl)
+
+                default_r = 0.5
+                r = default_r * torch.ones(
+                    *grid_xy.shape[:-1],
+                    1,
+                    dtype=grid_xy.dtype,
+                    device=grid_xy.device,
+                )
+                lvl_anchors = torch.concat([grid_xy, wh, r], dim=-1).reshape(
+                    -1, h * w, self._num_box_dof
+                )
+                anchors.append(lvl_anchors)
 
         anchors = torch.concat(anchors, dim=1).to(device)
         valid_mask = ((anchors > self.eps) * (anchors < 1 - self.eps)).all(
@@ -607,7 +905,45 @@ class DEIMTransformer(nn.Module):
         denoising_logits=None,
         denoising_bbox_unact=None,
     ):
+        """Prepare initial decoder queries from encoder memory.
 
+        Pipeline:
+            1. Generate (or reuse cached) grid anchors for every feature level.
+            2. Mask invalid anchor positions out of encoder memory.
+            3. Score every memory token with ``enc_score_head`` and select the
+               top-``num_queries`` tokens as initial content queries.
+            4. Regress anchor-box logits with ``enc_bbox_head`` to obtain
+               unactivated reference points for the decoder.
+            5. During training, produce sigmoid boxes for the encoder auxiliary
+               output. In OBB mode the angle dimension is rescaled
+               ``[0,1] -> [0, pi]`` unless ``angle_rep`` is active, in
+               which case the 6-D ADR representation is kept as-is.
+            6. Prepend denoising queries when ``denoising_bbox_unact`` is given.
+               For the decoupled-angle path the denoising boxes are converted
+               from 5-D OBB to the 6-D ``(external_rect, epsilon, eta)``
+               layout so that the decoder sees a consistent representation.
+
+        Args:
+            memory (torch.Tensor): Encoder memory of shape ``(B, sum(H_l*W_l), hidden_dim)``.
+            spatial_shapes: List of ``(H_l, W_l)`` per feature level.
+            denoising_logits: Classification logits for denoising queries,
+                shape ``(B, num_dn_queries, num_classes)``. Only provided in
+                training with contrastive denoising enabled.
+            denoising_bbox_unact: Unactivated denoising reference boxes. For
+                ``box_mode="hbb"`` these are 4-D; for OBB ``angle_rep``
+                they are 5-D ``(cx, cy, w, h, theta)`` and are converted to the
+                6-D ADR layout before concatenation.
+
+        Returns:
+            content: Initial content queries for the decoder,
+                shape ``(B, num_queries (+num_dn_queries), hidden_dim)`` .
+            enc_topk_bbox_unact: Unactivated reference points for the decoder,
+                shape ``(B, num_queries (+num_dn_queries), num_box_dof)``.
+            enc_topk_bboxes_list: Auxiliary sigmoid boxes for the encoder
+                output (training only); empty list in eval mode.
+            enc_topk_logits_list: Auxiliary logits for the encoder output
+                (training only); empty list in eval mode.
+        """
         # prepare input for decoder
         if self.training or self.eval_spatial_size is None:
             anchors, valid_mask = self._generate_anchors(
@@ -619,7 +955,6 @@ class DEIMTransformer(nn.Module):
         if memory.shape[0] > 1:
             anchors = anchors.repeat(memory.shape[0], 1, 1)
 
-        # memory = torch.where(valid_mask, memory, 0)
         memory = valid_mask.to(memory.dtype) * memory
 
         enc_outputs_logits: torch.Tensor = self.enc_score_head(memory)
@@ -636,6 +971,16 @@ class DEIMTransformer(nn.Module):
         enc_topk_bboxes_list, enc_topk_logits_list = [], []
         if self.training:
             enc_topk_bboxes = F.sigmoid(enc_topk_bbox_unact)
+            if self.box_mode == "obb":
+                # 内部 θ_shift 还原为物理角 [0, π)
+                enc_topk_bboxes = torch.cat(
+                    [
+                        enc_topk_bboxes[..., :4],
+                        shifted_norm_to_physical_rad(enc_topk_bboxes[..., 4:]),
+                    ],
+                    dim=-1,
+                )
+
             enc_topk_bboxes_list.append(enc_topk_bboxes)
             enc_topk_logits_list.append(enc_topk_logits)
 
@@ -707,7 +1052,8 @@ class DEIMTransformer(nn.Module):
                     self.denoising_class_embed,
                     num_denoising=self.num_denoising,
                     label_noise_ratio=self.label_noise_ratio,
-                    box_noise_scale=1.0,
+                    box_noise_scale=self.box_noise_scale,
+                    box_mode=self.box_mode,
                 )
             )
         else:
@@ -726,42 +1072,68 @@ class DEIMTransformer(nn.Module):
         ) = self._get_decoder_input(
             memory, spatial_shapes, denoising_logits, denoising_bbox_unact
         )
-
         # decoder
+        # out_bboxes: 每层预测框; out_logits: 每层输出logits; out_corners: 每层输出refinement 值
+        # out_refs: 每层初始参考位置，是pre_bboxes组成的list; pre_bboxes:初始预测位置; pre_logits: 初始输出logits
         out_bboxes, out_logits, out_corners, out_refs, pre_bboxes, pre_logits = (
             self.decoder(
-                init_ref_contents,
-                init_ref_points_unact,
-                memory,
-                spatial_shapes,
-                self.dec_bbox_head,
-                self.dec_score_head,
-                self.query_pos_head,
-                self.pre_bbox_head,
-                self.integral,
-                self.up,
-                self.reg_scale,
+                target=init_ref_contents,
+                ref_points_unact=init_ref_points_unact,
+                memory=memory,
+                spatial_shapes=spatial_shapes,
+                dec_bbox_head=self.dec_bbox_head,
+                score_head=self.dec_score_head,
+                query_pos_head=self.query_pos_head,
+                pre_bbox_head=self.pre_bbox_head,
+                integral=self.integral,
+                up=self.up,
+                reg_scale=self.reg_scale,
                 attn_mask=attn_mask,
                 dn_meta=dn_meta,
+                pre_angle_head=self.pre_angle_head,
+                query_angle_head=self.query_angle_head,
+                dec_angle_head=self.dec_angle_head,
             )
         )
 
+        # criterion/matcher/postprocessor 中 theta 量纲为 [0, pi)
+        # decoder 内部 [0,1) → 外部 [0, pi)
+        if self.box_mode == "obb":
+            theta_decode = shifted_norm_to_physical_rad
+            out_bboxes = torch.cat(
+                [
+                    out_bboxes[..., :4],
+                    theta_decode(out_bboxes[..., 4:]),
+                ],
+                dim=-1,
+            )
+            out_refs = torch.cat(
+                [
+                    out_refs[..., :4],
+                    theta_decode(out_refs[..., 4:]),
+                ],
+                dim=-1,
+            )
+            pre_bboxes = torch.cat(
+                [
+                    pre_bboxes[..., :4],
+                    theta_decode(pre_bboxes[..., 4:]),
+                ],
+                dim=-1,
+            )
         if self.training and dn_meta is not None:
-            # the output from the first decoder layer, only one
             dn_pre_logits, pre_logits = torch.split(
                 pre_logits, dn_meta["dn_num_split"], dim=1
             )
             dn_pre_bboxes, pre_bboxes = torch.split(
                 pre_bboxes, dn_meta["dn_num_split"], dim=1
             )
-
             dn_out_logits, out_logits = torch.split(
                 out_logits, dn_meta["dn_num_split"], dim=2
             )
             dn_out_bboxes, out_bboxes = torch.split(
                 out_bboxes, dn_meta["dn_num_split"], dim=2
             )
-
             dn_out_corners, out_corners = torch.split(
                 out_corners, dn_meta["dn_num_split"], dim=2
             )
@@ -782,6 +1154,7 @@ class DEIMTransformer(nn.Module):
             out = {"pred_logits": out_logits[-1], "pred_boxes": out_bboxes[-1]}
 
         if self.training and self.aux_loss:
+            # Layer-wise Supervision
             out["aux_outputs"] = self._set_aux_loss2(
                 out_logits[:-1],
                 out_bboxes[:-1],
@@ -790,6 +1163,7 @@ class DEIMTransformer(nn.Module):
                 out_corners[-1],
                 out_logits[-1],
             )
+
             out["enc_aux_outputs"] = self._set_aux_loss(
                 enc_topk_logits_list, enc_topk_bboxes_list
             )

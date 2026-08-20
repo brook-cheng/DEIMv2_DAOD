@@ -1,0 +1,157 @@
+__include__: [
+  '../../runtime.yml',
+  '../../base/dataloader.yml',
+  '../../base/optimizer.yml',
+  '../../custom_obb/deimv2_obb_common.yml'
+]
+
+# ============================================================================
+# DEIMv2 DINOv3 ViT-S/16+ STA — OBB algorithm preset (dataset-neutral)
+# ----------------------------------------------------------------------------
+# Derived from configs/custom_obb/dlzdt/sp_fz_common.yml.
+# Stripped: dataset paths, project name, output_dir, cache settings,
+#           ablation-only comments, num_classes (derived by the app resolver).
+# Preserved: DINOv3 ViT-S/16 STA adapter, HybridEncoder/DEIMTransformer dims,
+#            optimizer param groups, loss/matcher weights, EMA, augmentation,
+#            scheduler defaults, and the approved OBB angle contract:
+#              angle_rep: 0,  gate fusion disabled,
+#              angle-first disabled, proportional encoding.
+# ============================================================================
+
+eval_spatial_size: [640, 640]
+checkpoint_freq: 10
+
+# ---- DEIM FlatCosine scheduler ----
+epoches: 200
+warmup_iter: 10
+flat_epoch: 100
+no_aug_epoch: 20
+
+# ---- Early stopping (preset-owned fields preserved by the app resolver) ----
+early_stopping:
+  enabled: False
+  metric: mAP50_95
+  mode: max
+  min_epochs: 100
+  patience: 40
+  min_delta: 0.0001
+  restore_best: true
+
+# ---- Backbone: DINOv3 ViT-S/16+ + STA Adapter ----
+DINOv3STAsResAtten:
+  name: dinov3_vits16plus
+  weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
+  interaction_indexes: []
+  finetune: False
+  conv_inplane: 64
+  hidden_dim: 256
+  adapter_type: 'sta'
+
+# ---- Encoder: Hybrid Encoder ----
+HybridEncoder:
+  in_channels: [256, 256, 256]
+  hidden_dim: 256
+  dim_feedforward: 1024
+
+# ---- Decoder: DEIMTransformer (OBB mode) ----
+DEIMTransformer:
+  feat_channels: [256, 256, 256]
+  hidden_dim: 256
+  dim_feedforward: 2048
+  box_mode: obb
+
+  angle_rep: 0
+
+PostProcessor:
+  box_mode: obb
+
+# ---- Optimizer: AdamW with per-group learning rates ----
+optimizer:
+  type: AdamW
+  params:
+    -
+      params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
+      lr: 0.00001
+    -
+      params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
+      lr: 0.00001
+      weight_decay: 0.
+    -
+      params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
+      weight_decay: 0.
+  lr: 0.0005
+  betas: [0.9, 0.999]
+  weight_decay: 0.000125
+
+# ---- Loss: DEIMCriterion ----
+DEIMCriterion:
+  weight_dict: {loss_mal: 1, loss_bbox: 5, loss_probiou: 5, loss_angle: 3, loss_kld: 2, loss_fgl: 0.15, loss_ddf: 1.5}
+  losses: ['mal', 'boxes', 'local']
+  use_yolo_probiou: true
+  use_yolo_angle: true
+  keep_kld: true
+  angle_lambda: 3.0
+  gamma: 1.0
+  alpha: 0.75
+  reg_max: 32
+  box_mode: obb
+  obbox_rep_dim: 6
+  matcher:
+    type: HungarianMatcher
+    weight_dict: {cost_class: 2, cost_bbox: 5, cost_probiou: 5, cost_angle: 3, cost_chamfer: 2, late_cost_bbox: 0.25}
+    angle_order_alpha: 1.0
+    alpha: 0.25
+    gamma: 2.0
+    change_matcher: False
+    iou_order_alpha: 4.0
+    matcher_change_epoch: 112
+    box_mode: obb
+
+# ---- Train DataLoader: OBB augmentation pipeline ----
+train_dataloader:
+  total_batch_size: 4
+  num_workers: 2
+  dataset:
+    transforms:
+      ops:
+        - {type: Mosaic, output_size: 320, rotation_range: 10, translation_range: [0.1, 0.1], scaling_range: [0.5, 1.5],
+           probability: 1.0, fill_value: 0, use_cache: True, max_cached_images: 60, random_pop: True}
+        - {type: RandomPhotometricDistort, p: 0.5}
+        - {type: OBBZoomOut, fill: 0}
+        - {type: OBBIoUCrop, p: 0.8}
+        - {type: OBBSanitize, min_size: 1}
+        - {type: OBBFlip}
+        - {type: OBBResize, size: [640, 640]}
+        - {type: OBBSanitize, min_size: 1}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: OBBConvertBoxes, normalize: True, img_size: [640, 640]}
+        - {type: Normalize, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}
+      policy:
+        epoch: [10, 30, 50]
+        ops: ['Mosaic', 'RandomPhotometricDistort', 'OBBZoomOut', 'OBBIoUCrop']
+      mosaic_prob: 0.5
+  collate_fn:
+    base_size: 640
+    mixup_prob: 0.5
+    mixup_epochs: [30, 50]
+    stop_epoch: 50
+    copyblend_prob: 0.5
+    copyblend_epochs: [30, 50]
+    area_threshold: 100
+    num_objects: 3
+    with_expand: True
+    expand_ratios: [0.1, 0.25]
+    ema_restart_decay: 0.9999
+    base_size_repeat: 4
+
+# ---- Val DataLoader: OBB resize-only pipeline ----
+val_dataloader:
+  total_batch_size: 2
+  num_workers: 2
+  dataset:
+    transforms:
+      ops:
+        - {type: OBBResize, size: [640, 640]}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: OBBConvertBoxes, normalize: True, img_size: [640, 640]}
+        - {type: Normalize, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}

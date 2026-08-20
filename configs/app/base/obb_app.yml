@@ -1,0 +1,50 @@
+__include__:
+  - ../presets/deimv2_dinov3_sp_obb.yml
+
+# ============================================================================
+# OBB (DOTA / YOLO-OBB) application base — safe defaults for rotated detection.
+# Users include this file via __include__ and override the six public sections.
+# Concrete dataset paths and classes_file are supplied by the user YAML.
+# ============================================================================
+
+project:
+  name: deimv2-obb
+  output_dir: ./outputs/deimv2-obb
+
+runtime:
+  input_size: [640, 640]
+  seed: 42
+
+data:
+  format: DOTA
+  train_images: null
+  train_annotations: null
+  val_images: null
+  val_annotations: null
+  classes_file: null
+  num_workers: 2
+  cache_images: none
+
+train:
+  epochs: 200
+  batch_size: 4
+  learning_rate: 5.0e-4
+  device: cuda
+  amp: True
+  early_stopping:
+    enabled: False
+    patience: 40
+
+evaluation:
+  batch_size: 2
+  device: cuda
+
+inference:
+  checkpoint: null
+  device: cuda
+  batch_size: 1
+  score_threshold: 0.25
+  top_k: 300
+  output_formats:
+    - json
+    - visualization

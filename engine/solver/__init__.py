@@ -9,9 +9,11 @@ from .det_solver import DetSolver
 
 
 
-from typing import Dict
+from typing import Dict, Type
 
-TASKS :Dict[str, BaseSolver] = {
+#: Solver factory registry: each value is the solver CLASS (a callable that
+#: constructs a ``BaseSolver`` instance from a config), not a pre-built instance.
+TASKS :Dict[str, Type[BaseSolver]] = {
     'classification': ClasSolver,
     'detection': DetSolver,
 }

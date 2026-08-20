@@ -18,6 +18,7 @@ from PIL import Image, ImageDraw
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from engine.core import YAMLConfig
+from engine.solver._solver import model_is_obb
 
 
 def draw(images, labels, boxes, scores, thrh=0.45):
@@ -127,6 +128,9 @@ def main(args):
         raise AttributeError('Only support resume to load model.state_dict by now.')
 
     # Load train mode state and convert to deploy mode
+    if model_is_obb(cfg.model):
+        from engine.solver._solver import assert_checkpoint_compat
+        assert_checkpoint_compat(checkpoint)
     cfg.model.load_state_dict(state)
 
     class Model(nn.Module):

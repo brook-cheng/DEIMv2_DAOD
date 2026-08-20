@@ -1,0 +1,38 @@
+Found 231 images for testing
+Warmup iterations: 10
+Test iterations: 100
+--------------------------------------------------------------------------------
+
+=== Warmup Phase ===
+
+=== Testing Phase ===
+
+================================================================================
+Performance Benchmark Results
+================================================================================
+Device: cuda:1
+Image Size: (640, 640)
+Number of Test Images: 100
+Score Threshold: 0.5
+--------------------------------------------------------------------------------
+Average Preprocessing Time:  16.25 ms
+Average Model Inference Time: 99.60 ms
+Average Postprocessing Time: 115.89 ms
+Average Total Time:          231.74 ms
+--------------------------------------------------------------------------------
+Inference FPS:        10.04
+Total FPS (with I/O): 4.32
+Inference Time Std:   0.60 ms
+--------------------------------------------------------------------------------
+Peak Memory Allocated:   3018.44 MB
+Peak Memory Reserved:    4094.00 MB
+Current Memory Allocated: 3018.44 MB
+Current Memory Reserved:  4094.00 MB
+--------------------------------------------------------------------------------
+Model Parameters: 308.464M
+FLOPs: 481.629G
+--------------------------------------------------------------------------------
+================================================================================
+Benchmark completed successfully!
+Log file saved to: /mnt/disk8t/cx_dir/projects/deimv2_daod/test/benchmark.txt
+================================================================================

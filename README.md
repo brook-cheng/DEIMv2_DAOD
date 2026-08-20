@@ -24,11 +24,42 @@
     <a href="mailto:shenxi@intellindust.com">
         <img alt="Contact Us" src="https://img.shields.io/badge/Contact-Email-yellow">
     </a>
+    <img alt="release" src="https://img.shields.io/badge/release-v1.0.0-blue">
 </p>
 
 <p align="center">
     DEIMv2 is an evolution of the DEIM framework while leveraging the rich features from DINOv3. Our method is designed with various model sizes, from an ultra-light version up to S, M, L, and X, to be adaptable for a wide range of scenarios. Across these variants, DEIMv2 achieves state-of-the-art performance, with the S-sized model notably surpassing 50 AP on the challenging COCO benchmark.
 </p>
+
+<p align="center">
+    English | <a href="./README_CN.md">简体中文</a>
+</p>
+
+## Release Notes — v1.0.0
+
+First production release of this fork. Highlights of the engineering track
+(built on top of upstream DEIMv2):
+
+- **OBB pipeline hardened**: rotated-box training/eval with the
+  `shifted_v1` checkpoint contract (unmarked legacy checkpoints are
+  explicitly rejected on every load path), strict `angle_rep ∈ {0, 3}`
+  construction, and per-config contract test suites.
+- **Application layer** (`deim_app`): unified `train / eval / infer` CLI +
+  `DetectionModel` Python API over curated app-config presets (HBB COCO and
+  OBB DOTA/YOLO), with class-count validation, checkpoint gating, and JSON /
+  DOTA / visualization writers.
+- **Tooling reorganized**: executable entry points under `tools/`
+  (`train`, `inference`, `compare` research pipeline, `analysis`), pytest
+  suite grouped by domain (`contracts / obb / eval / engine / deim_app`).
+- **Security hardening**: `weights_only=True` checkpoint deserialization in
+  the application layer; credentials removed from scripts (environment
+  only).
+- **Multi-GPU diagnosis support**: env-gated per-rank iteration heartbeat,
+  SIGUSR1 stack dumps, NCCL flight-recorder bundling via
+  `scripts/diag_2gpu.sh`.
+- **Real-data acceptance passed** on single-GPU hardware: 17-case matrix
+  (training, evaluation, inference, API parity, negative paths); seven
+  real integration defects found and fixed during acceptance.
 
 ---
 
@@ -41,10 +72,10 @@
   <a href="https://xishen0220.github.io">Xi Shen</a><sup>1†</sup>&nbsp;&nbsp;
 </div>
 
-  
+
 <p align="center">
 <i>
-1. <a href="https://intellindust-ai-lab.github.io"> Intellindust AI Lab</a> &nbsp;&nbsp; 2. Xiamen University &nbsp; <br> 
+1. <a href="https://intellindust-ai-lab.github.io"> Intellindust AI Lab</a> &nbsp;&nbsp; 2. Xiamen University &nbsp; <br>
 * Equal Contribution &nbsp;&nbsp; † Corresponding Author
 </i>
 </p>
@@ -60,10 +91,8 @@
   <img src="./figures/deimv2_coco_AP_vs_GFLOPs.png" alt="Image 2" width="49%">
 </p>
 
-</details>
 
- 
-  
+
 ## 🚀 Updates
 - [x] **\[2025.11.3\]** We have uploaded our models to Hugging Face.
 - [x] **\[2025.10.28\]** Optimized the attention module in ViT-Tiny, reducing memory usage by half for the S and M models.
@@ -71,16 +100,147 @@
 - [x] **\[2025.9.26\]** Release DEIMv2 series.
 
 ## 🧭 Table of Content
-* [1. 🤖 Model Zoo](#1-model-zoo)
+* [1. 🧭 Model Series at a Glance](#1-model-series-at-a-glance)
 * [2. ⚡ Quick Start](#2-quick-start)
-* [3. 🛠️ Usage](#3-usage)
-* [4. 🧰 Tools](#4-tools)
-* [5. 📜 Citation](#5-citation)
-* [6. 🙏 Acknowledgement](#6-acknowledgement)
-* [7. ⭐ Star History](#7-star-history)
-  
-  
-## 1. Model Zoo
+* [3. 🤖 Model Zoo](#3-model-zoo)
+* [4. 🚀 Quick Start (Engine)](#4-quick-start-engine)
+* [📦 Application Layer (deim_app)](#-application-layer-deim_app)
+* [5. 🛠️ Usage](#5-usage)
+* [6. 🧰 Tools](#6-tools)
+* [7. 📜 Citation](#7-citation)
+* [8. 🙏 Acknowledgement](#8-acknowledgement)
+* [9. ⭐ Star History](#9-star-history)
+
+
+## 1. Model Series at a Glance
+
+DEIMv2 ships two model families plus two dataset-neutral application presets.
+All published numbers below come from the [Model Zoo](#3-model-zoo).
+
+| Family | Variants | #Params | COCO AP | GFLOPs | Sweet spot |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **HGNetv2** | Atto / Femto / Pico / N | 0.5M - 3.6M | 23.8 - 43.0 | 0.8 - 6.8 | Compact, latency-sensitive workloads |
+| **DINOv3** | S / M / L / X | 9.7M - 50.3M | 50.9 - 57.8 | 25.6 - 151.6 | Accuracy-oriented workloads |
+
+- **HGNetv2 family:** `configs/deimv2/deimv2_hgnetv2_*_coco.yml`
+- **DINOv3 family:** `configs/deimv2/deimv2_dinov3_*_coco.yml`
+
+Two `deim_app` presets:
+
+| Preset | Backbone | Box mode | Datasets | Annotation formats |
+| :--- | :--- | :---: | :--- | :--- |
+| HBB ([yml](./configs/app/presets/deimv2_dinov3_sp_hbb.yml)) | DINOv3 ViT-S/16 + STA | `hbb` | COCO | COCO JSON |
+| OBB ([yml](./configs/app/presets/deimv2_dinov3_sp_obb.yml)) | DINOv3 ViT-S/16+ + STA | `obb` | DOTA, YOLO-OBB | DOTA `.txt`, YOLO-OBB `.txt` |
+
+Choose the HBB preset for horizontal-box detection on COCO-style datasets and
+the OBB preset for rotated boxes on DOTA or YOLO-OBB data. OBB datasets require
+a `classes_file`; HBB reads classes from the COCO annotation JSON. No AP is
+listed for the presets: they are dataset-neutral.
+
+## 2. Quick Start
+
+`deim_app` runs training, evaluation, and inference from one YAML config per
+dataset. For the full CLI and Python API, see the
+[Inference API & CLI Guide](docs/engineering/inference-api.md); for the YAML
+schema, see the [Application Config Guide](docs/engineering/application-config.md).
+
+### Setup
+
+```shell
+conda create -n deimv2 python=3.11 -y
+conda activate deimv2
+pip install -r requirements.txt
+```
+
+### Choose a config
+
+Three examples cover the supported formats:
+
+| Example | Format | Box mode |
+| :--- | :--- | :---: |
+| [hbb_coco.yml](./configs/app/examples/hbb_coco.yml) | COCO | HBB |
+| [obb_dota.yml](./configs/app/examples/obb_dota.yml) | DOTA | OBB |
+| [obb_yolo.yml](./configs/app/examples/obb_yolo.yml) | YOLO-OBB | OBB |
+
+Copy the example that matches your dataset and edit its `data` section: point
+`train_images`, `train_annotations`, `val_images`, and `val_annotations` at
+your paths. OBB examples also require `classes_file` (one class name per
+line); COCO class names come from the annotation JSON instead.
+
+### Train
+
+```shell
+python -m deim_app train \
+  -c configs/app/examples/hbb_coco.yml \
+  --device cuda \
+  [--resume /path/to/checkpoint.pth] \
+  [--output-dir ./outputs/my-run]
+```
+
+`--resume` continues an interrupted run from a full training-state checkpoint
+and is mutually exclusive with `train.pretrained` in the YAML.
+
+### Evaluate
+
+```shell
+python -m deim_app eval \
+  -c configs/app/examples/hbb_coco.yml \
+  -r /path/to/model.pth \
+  [--device cuda]
+```
+
+### Infer
+
+HBB, JSON and visualization:
+
+```shell
+python -m deim_app infer \
+  -c configs/app/examples/hbb_coco.yml \
+  -r /path/to/model.pth \
+  -i /path/to/images \
+  -o /tmp/deim-app-output \
+  --score-threshold 0.25 \
+  --format json visualization
+```
+
+OBB, JSON plus DOTA labels and visualization:
+
+```shell
+python -m deim_app infer \
+  -c configs/app/examples/obb_yolo.yml \
+  -r /path/to/model.pth \
+  -i /path/to/images \
+  -o /tmp/deim-app-output \
+  --score-threshold 0.25 \
+  --format json dota visualization
+```
+
+`json` and `visualization` work for both HBB and OBB; `dota` is OBB-only.
+
+### Python API
+
+```python
+from deim_app import DetectionModel
+
+model = DetectionModel.from_config("configs/app/examples/obb_yolo.yml")
+model.load("outputs/model.pth")
+results = model.predict_filtered("images/", score_threshold=0.25)
+results.export_json("outputs/predictions.json")
+results.export_dota("outputs/dota")
+results.save_images("outputs/visualization")
+```
+
+`from_config` does not load weights; call `load` next. `predict_filtered`
+applies `score_threshold`, `class_filter`, and `top_k` from the config by
+default.
+
+### Export
+
+The `deim_app export` subcommand is not enabled and always raises
+`ExportError`. For ONNX and TensorRT export, use the [Tools](#6-tools)
+(`tools/deployment/export_onnx.py` and `trtexec`).
+
+## 3. Model Zoo
 
 | Model | Dataset | AP | #Params | GFLOPs | Latency (ms) | config | checkpoint | log |
 | :---: | :---: | :---: | :---: | :---: |:------------:| :---: | :---: | :---: |
@@ -96,7 +256,7 @@
 
 
 
-## 2. Quick start
+## 4. Quick Start (Engine)
 
 ### Setup
 
@@ -190,7 +350,7 @@ To train on your custom dataset, you need to organize it in the COCO format. Fol
       type: CocoEvaluator
       iou_types: ['bbox', ]
 
-    num_classes: 777 # your dataset classes
+    num_classes: 777  # your dataset classes,coco begin from 1, and dota begion from 0, num_classes represent background
     remap_mscoco_category: False
 
     train_dataloader:
@@ -246,39 +406,46 @@ ckpts/
 
 ### Using Models from Hugging Face
 
-You can see examples in [hf_models.ipynb](./hf_models.ipynb)
+You can see examples in [hf_models.ipynb](./docs/examples/hf_models.ipynb)
 
-## 3. Usage
+## 📦 Application Layer (deim_app)
+
+The `deim_app` workflow is covered in
+[2. Quick Start](#2-quick-start). For the full
+reference, see the [Application Config Guide](docs/engineering/application-config.md)
+and the [Inference API & CLI Guide](docs/engineering/inference-api.md).
+
+## 5. Usage
 <details open>
 <summary> COCO2017 </summary>
 
 1. Training
 ```shell
 # for ViT-based variants
-CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 train.py -c configs/deimv2/deimv2_dinov3_${model}_coco.yml --use-amp --seed=0
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 tools/train/train.py -c configs/deimv2/deimv2_dinov3_${model}_coco.yml --use-amp --seed=0
 
 # for HGNetv2-based variants
-CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 train.py -c configs/deimv2/deimv2_hgnetv2_${model}_coco.yml --use-amp --seed=0
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 tools/train/train.py -c configs/deimv2/deimv2_hgnetv2_${model}_coco.yml --use-amp --seed=0
 ```
 
 <!-- <summary>2. Testing </summary> -->
 2. Testing
 ```shell
 # for ViT-based variants
-CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 train.py -c configs/deimv2/deimv2_dinov3_${model}_coco.yml --test-only -r model.pth
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 tools/train/train.py -c configs/deimv2/deimv2_dinov3_${model}_coco.yml --test-only -r model.pth
 
 # for HGNetv2-based variants
-CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 train.py -c configs/deimv2/deimv2_hgnetv2_${model}_coco.yml --test-only -r model.pth
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 tools/train/train.py -c configs/deimv2/deimv2_hgnetv2_${model}_coco.yml --test-only -r model.pth
 ```
 
 <!-- <summary>3. Tuning </summary> -->
 3. Tuning
 ```shell
 # for ViT-based variants
-CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 train.py -c configs/deimv2/deimv2_dinov3_${model}_coco.yml --use-amp --seed=0 -t model.pth
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 tools/train/train.py -c configs/deimv2/deimv2_dinov3_${model}_coco.yml --use-amp --seed=0 -t model.pth
 
 # for HGNetv2-based variants
-CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 train.py -c configs/deimv2/deimv2_hgnetv2_${model}_coco.yml --use-amp --seed=0 -t model.pth
+CUDA_VISIBLE_DEVICES=0,1,2,3 torchrun --master_port=7777 --nproc_per_node=4 tools/train/train.py -c configs/deimv2/deimv2_hgnetv2_${model}_coco.yml --use-amp --seed=0 -t model.pth
 ```
 </details>
 
@@ -291,12 +458,12 @@ For example, if you want to use **DEIMv2-S** and  double the total batch size to
 
     ```yaml
     train_dataloader:
-      total_batch_size: 64 
-      dataset: 
+      total_batch_size: 64
+      dataset:
         transforms:
           ops:
             ...
-    
+
       collate_fn:
         ...
     ```
@@ -306,30 +473,30 @@ For example, if you want to use **DEIMv2-S** and  double the total batch size to
     ```yaml
     optimizer:
       type: AdamW
-    
-      params: 
+
+      params:
         -
           # except norm/bn/bias in self.dinov3
-          params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'  
+          params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'
           lr: 0.00005  # doubled, linear scaling law
         -
           # including all norm/bn/bias in self.dinov3
-          params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'    
+          params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'
           lr: 0.00005   # doubled, linear scaling law
           weight_decay: 0.
-        - 
+        -
           # including all norm/bn/bias except for the self.dinov3
           params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'
           weight_decay: 0.
-    
+
       lr: 0.0005   # linear scaling law if needed
       betas: [0.9, 0.999]
       weight_decay: 0.0001
-   
+
     ema:  # added EMA settings
       decay: 0.9998  # adjusted by 1 - (1 - decay) * 2
       warmups: 500  # halved
-   
+
     lr_warmup_scheduler:
       warmup_duration: 250  # halved
     ```
@@ -346,11 +513,11 @@ If you'd like to train **DEIMv2-S** on COCO2017 with an input size of 320x320, f
 
     ```yaml
     eval_spatial_size: [320, 320]
-   
+
     train_dataloader:
       # Here we set the total_batch_size to 64 as an example.
-      total_batch_size: 64 
-      dataset: 
+      total_batch_size: 64
+      dataset:
         transforms:
           ops:
             #  Especially for Mosaic augmentation, it is recommended that output_size = input_size / 2.
@@ -370,7 +537,7 @@ If you'd like to train **DEIMv2-S** on COCO2017 with an input size of 320x320, f
             - {type: Resize, size: [320, 320], }
             ...
     ```
-   
+
 </details>
 
 <details>
@@ -385,7 +552,7 @@ flat_epoch: 14    # 4 + 20 // 2
 no_aug_epoch: 12  # 4n
 
 train_dataloader:
-  dataset: 
+  dataset:
     transforms:
       ops:
         ...
@@ -397,7 +564,7 @@ train_dataloader:
     mixup_epochs: [4, 14]  # [start_epoch, flat_epoch]
     stop_epoch: 20  # epoches - no_aug_epoch
     copyblend_epochs: [4, 20]  # [start_epoch, epoches - no_aug_epoch]
-  
+
 DEIMCriterion:
   matcher:
     ...
@@ -407,7 +574,7 @@ DEIMCriterion:
 
 </details>
 
-## 4. Tools
+## 6. Tools
 <details>
 <summary> Deployment </summary>
 
@@ -498,7 +665,7 @@ python reference/convert_weight.py model.pth
 </details>
 
 
-## 5. Citation
+## 7. Citation
 If you use `DEIMv2` or its methods in your work, please cite the following BibTeX entries:
 <details open>
 <summary> bibtex </summary>
@@ -510,15 +677,15 @@ If you use `DEIMv2` or its methods in your work, please cite the following BibTe
   journal={arXiv},
   year={2025}
 }
-  
+
 ```
 </details>
 
-## 6. Acknowledgement
+## 8. Acknowledgement
 Our work is built upon [D-FINE](https://github.com/Peterande/D-FINE), [RT-DETR](https://github.com/lyuwenyu/RT-DETR), [DEIM](https://github.com/ShihuaHuang95/DEIM), and [DINOv3](https://github.com/facebookresearch/dinov3). Thanks for their great work!
 
 ✨ Feel free to contribute and reach out if you have any questions! ✨
 
-## 7. Star History
+## 9. Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Intellindust-AI-Lab/DEIMv2&type=Date)](https://www.star-history.com/#Intellindust-AI-Lab/DEIMv2&Date)

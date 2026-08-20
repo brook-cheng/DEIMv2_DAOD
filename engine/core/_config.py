@@ -62,7 +62,7 @@ class BaseConfig(object):
         self.no_aug_epoch: int = None
         self.warmup_iter: int = None
         self.flat_epoch: int = None
-        
+
         self.use_amp :bool = False
         self.use_ema :bool = False
         self.ema_decay :float = 0.9999
@@ -181,7 +181,8 @@ class BaseConfig(object):
     @property
     def scaler(self) -> GradScaler:
         if self._scaler is None and self.use_amp and torch.cuda.is_available():
-            self._scaler = GradScaler()
+            # self._scaler = GradScaler()
+            self._scaler=torch.amp.GradScaler('cuda')
         return self._scaler
 
     @scaler.setter

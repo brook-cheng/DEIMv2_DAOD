@@ -3,7 +3,12 @@ Copyright (c) 2024 The D-FINE Authors. All Rights Reserved.
 """
 
 import torch
-from .box_ops import box_xyxy_to_cxcywh
+from .box_ops import box_xyxy_to_cxcywh, box_cxcywh_to_xyxy
+from .obb_geometry import (
+    oriented_box_to_external_xyxy_rect,
+    external_xyxy_rect_to_oriented_box,
+    periodic_angle_distance,
+)
 
 
 def weighting_function(reg_max, up, reg_scale, deploy=False):
@@ -26,17 +31,29 @@ def weighting_function(reg_max, up, reg_scale, deploy=False):
         upper_bound1 = (abs(up[0]) * abs(reg_scale)).item()
         upper_bound2 = (abs(up[0]) * abs(reg_scale) * 2).item()
         step = (upper_bound1 + 1) ** (2 / (reg_max - 2))
-        left_values = [-(step) ** i + 1 for i in range(reg_max // 2 - 1, 0, -1)]
+        left_values = [-((step) ** i) + 1 for i in range(reg_max // 2 - 1, 0, -1)]
         right_values = [(step) ** i - 1 for i in range(1, reg_max // 2)]
-        values = [-upper_bound2] + left_values + [torch.zeros_like(up[0][None])] + right_values + [upper_bound2]
+        values = (
+            [-upper_bound2]
+            + left_values
+            + [torch.zeros_like(up[0][None])]
+            + right_values
+            + [upper_bound2]
+        )
         return torch.tensor(values, dtype=up.dtype, device=up.device)
     else:
         upper_bound1 = abs(up[0]) * abs(reg_scale)
         upper_bound2 = abs(up[0]) * abs(reg_scale) * 2
         step = (upper_bound1 + 1) ** (2 / (reg_max - 2))
-        left_values = [-(step) ** i + 1 for i in range(reg_max // 2 - 1, 0, -1)]
+        left_values = [-((step) ** i) + 1 for i in range(reg_max // 2 - 1, 0, -1)]
         right_values = [(step) ** i - 1 for i in range(1, reg_max // 2)]
-        values = [-upper_bound2] + left_values + [torch.zeros_like(up[0][None])] + right_values + [upper_bound2]
+        values = (
+            [-upper_bound2]
+            + left_values
+            + [torch.zeros_like(up[0][None])]
+            + right_values
+            + [upper_bound2]
+        )
         return torch.cat(values, 0)
 
 
@@ -90,12 +107,12 @@ def translate_gt(gt, reg_max, reg_scale, up):
     weight_left[valid_idx_mask] = 1.0 - weight_right[valid_idx_mask]
 
     # Invalid weights (out of range)
-    invalid_idx_mask_neg = (indices < 0)
+    invalid_idx_mask_neg = indices < 0
     weight_right[invalid_idx_mask_neg] = 0.0
     weight_left[invalid_idx_mask_neg] = 1.0
     indices[invalid_idx_mask_neg] = 0.0
 
-    invalid_idx_mask_pos = (indices >= reg_max)
+    invalid_idx_mask_pos = indices >= reg_max
     weight_right[invalid_idx_mask_pos] = 1.0
     weight_left[invalid_idx_mask_pos] = 0.0
     indices[invalid_idx_mask_pos] = reg_max - 0.1
@@ -119,10 +136,18 @@ def distance2bbox(points, distance, reg_scale):
         Tensor: Bounding boxes in (N, 4) or (B, N, 4) format [cx, cy, w, h].
     """
     reg_scale = abs(reg_scale)
-    x1 = points[..., 0] - (0.5 * reg_scale + distance[..., 0]) * (points[..., 2] / reg_scale)
-    y1 = points[..., 1] - (0.5 * reg_scale + distance[..., 1]) * (points[..., 3] / reg_scale)
-    x2 = points[..., 0] + (0.5 * reg_scale + distance[..., 2]) * (points[..., 2] / reg_scale)
-    y2 = points[..., 1] + (0.5 * reg_scale + distance[..., 3]) * (points[..., 3] / reg_scale)
+    x1 = points[..., 0] - (0.5 * reg_scale + distance[..., 0]) * (
+        points[..., 2] / reg_scale
+    )
+    y1 = points[..., 1] - (0.5 * reg_scale + distance[..., 1]) * (
+        points[..., 3] / reg_scale
+    )
+    x2 = points[..., 0] + (0.5 * reg_scale + distance[..., 2]) * (
+        points[..., 2] / reg_scale
+    )
+    y2 = points[..., 1] + (0.5 * reg_scale + distance[..., 3]) * (
+        points[..., 3] / reg_scale
+    )
 
     bboxes = torch.stack([x1, y1, x2, y2], -1)
 
@@ -145,12 +170,166 @@ def bbox2distance(points, bbox, reg_max, reg_scale, up, eps=0.1):
         Tensor: Decoded distances.
     """
     reg_scale = abs(reg_scale)
-    left   = (points[:, 0] - bbox[:, 0]) / (points[..., 2] / reg_scale + 1e-16) - 0.5 * reg_scale
-    top    = (points[:, 1] - bbox[:, 1]) / (points[..., 3] / reg_scale + 1e-16) - 0.5 * reg_scale
-    right  = (bbox[:, 2] - points[:, 0]) / (points[..., 2] / reg_scale + 1e-16) - 0.5 * reg_scale
-    bottom = (bbox[:, 3] - points[:, 1]) / (points[..., 3] / reg_scale + 1e-16) - 0.5 * reg_scale
+    left = (points[:, 0] - bbox[:, 0]) / (
+        points[..., 2] / reg_scale + 1e-16
+    ) - 0.5 * reg_scale
+    top = (points[:, 1] - bbox[:, 1]) / (
+        points[..., 3] / reg_scale + 1e-16
+    ) - 0.5 * reg_scale
+    right = (bbox[:, 2] - points[:, 0]) / (
+        points[..., 2] / reg_scale + 1e-16
+    ) - 0.5 * reg_scale
+    bottom = (bbox[:, 3] - points[:, 1]) / (
+        points[..., 3] / reg_scale + 1e-16
+    ) - 0.5 * reg_scale
     four_lens = torch.stack([left, top, right, bottom], -1)
-    four_lens, weight_right, weight_left = translate_gt(four_lens, reg_max, reg_scale, up)
+    four_lens, weight_right, weight_left = translate_gt(
+        four_lens, reg_max, reg_scale, up
+    )
     if reg_max is not None:
-        four_lens = four_lens.clamp(min=0, max=reg_max-eps)
+        four_lens = four_lens.clamp(min=0, max=reg_max - eps)
     return four_lens.reshape(-1).detach(), weight_right.detach(), weight_left.detach()
+
+
+def distance2bbox_obb(points, distance, reg_scale, layer_idx=0):
+    """
+    refine ref obbox points to new obbox points
+
+    Args:
+        points: (B,N,5) or (N,5) — ref obb (cx,cy,w,h,θ), θ in [0,π].
+        distance: (B,N,6) or (B,N,5) — (α,β,γ,δ,ε,η) or (α,β,γ,δ,deta_theta) deta_theta in [0,π] from Integral.
+        reg_scale: curvature of Weighting Function.
+
+    Returns:
+        (B,N,5) or (N,5) — (cx,cy,w,h,θ),θ belongs to [0,π].
+    """
+
+    n_obboxes = None
+    if distance.shape[-1] == 6:
+        ext_rect_xyxy, vertex_offsets = oriented_box_to_external_xyxy_rect(points)
+        ext_rect_cxcywh = box_xyxy_to_cxcywh(ext_rect_xyxy)
+
+        # (α,β,γ,δ)
+        ext_adj_cxcywh = distance2bbox(ext_rect_cxcywh, distance[..., :4], reg_scale)
+        ext_adjust_xyxy = box_cxcywh_to_xyxy(ext_adj_cxcywh)
+
+        # (ε,η): scale offset residuals by external-rect (w,h).
+        # 'pre'  -> pre-adjustment ext rect (default, spec 7.1).
+        # 'post' -> post-adjustment ext rect (ablation, spec 7.1).
+        offset_scale_wh = ext_rect_cxcywh[..., 2:]
+
+        vertex_offsets_adj = (
+            vertex_offsets + distance[..., 4:] * offset_scale_wh / reg_scale
+        )
+        n_obboxes = external_xyxy_rect_to_oriented_box(
+            ext_adjust_xyxy, vertex_offsets_adj
+        )
+    elif distance.shape[-1] == 5:
+        # (α,β,γ,δ)
+        n_obbox_cxcywh = distance2bbox(points[..., :4], distance[..., :4], reg_scale)
+
+        # (deta_theta)
+        n_obboxes_angle = (points[..., 4:5] + distance[..., 4:5] / reg_scale) % torch.pi
+        n_obboxes = torch.cat([n_obbox_cxcywh, n_obboxes_angle], dim=-1)
+
+    return n_obboxes
+
+
+def bbox2distance_obb(
+    points,
+    bbox,
+    reg_max,
+    reg_scale,
+    up,
+    eps=0.1,
+    obbox_rep_dim=6,
+):
+    """
+    Converts GT OBB to 6-distribution FGL targets.
+
+    Args:
+        points: (N,5) ref points (cx,cy,w,h,θ),θ belongs to [0,π].
+        bbox: (N,5) GT OBB (cx,cy,w,h,θ).
+        reg_max (float): Maximum bin value.
+        reg_scale (float): Controlling curvature of W(n).
+        up (Tensor): Controlling upper bounds of W(n).
+        eps (float): Small value to ensure target < reg_max.
+
+        obbox_rep_dim: number of dimensions in the obbox representation, 6-(cx,cy,w,h,ε,η), 5-(cx,cy,w,h,θ)
+
+    Returns:
+        six_lens, weight_right, weight_left
+    """
+
+    reg_scale = abs(reg_scale)
+    half_reg_scale = 0.5 * reg_scale
+
+    if obbox_rep_dim == 6:
+        rect_xyxy_pred, vertex_offsets_pred = oriented_box_to_external_xyxy_rect(points)
+        rect_xyxy_gt, vertex_offsets_gt = oriented_box_to_external_xyxy_rect(bbox)
+        rect_cxcywh_pred = box_xyxy_to_cxcywh(rect_xyxy_pred)
+        rect_cxcywh_gt = box_xyxy_to_cxcywh(rect_xyxy_gt)
+        # (ε,η): inverse of distance2bbox_obb's offset scaling.
+        # 'pre'  -> pre-adjustment pred ext rect (default, matches decode 'pre').
+        # 'post' -> GT ext rect = post-adjustment target (matches decode 'post').
+        offset_scale_wh = rect_cxcywh_pred[..., 2:]
+        angle_lens = (vertex_offsets_gt - vertex_offsets_pred) / (
+            offset_scale_wh / reg_scale + 1e-16
+        )
+    elif obbox_rep_dim == 5:
+        rect_cxcywh_pred = points
+        rect_cxcywh_gt = bbox
+        rect_xyxy_pred = box_cxcywh_to_xyxy(rect_cxcywh_pred[..., :4])
+        rect_xyxy_gt = box_cxcywh_to_xyxy(rect_cxcywh_gt[..., :4])
+        signed_delta = periodic_angle_distance(
+            rect_cxcywh_pred[..., 4:5], rect_cxcywh_gt[..., 4:5], True
+        )
+        angle_lens = signed_delta * reg_scale
+
+    pred_rect_w_scaled = rect_cxcywh_pred[..., 2] / reg_scale + 1e-16
+    pred_rect_h_sceled = rect_cxcywh_pred[..., 3] / reg_scale + 1e-16
+
+    # 下面的计算与distance2bbox_obb中的互逆
+    left = (
+        (rect_cxcywh_pred[..., 0] - rect_xyxy_gt[..., 0]) / pred_rect_w_scaled
+        - half_reg_scale
+        + 1e-16
+    )
+    top = (
+        (rect_cxcywh_pred[..., 1] - rect_xyxy_gt[..., 1]) / pred_rect_h_sceled
+        - half_reg_scale
+        + 1e-16
+    )
+    right = (
+        (rect_xyxy_gt[..., 2] - rect_cxcywh_pred[..., 0]) / pred_rect_w_scaled
+        - half_reg_scale
+        + 1e-16
+    )
+    bottom = (
+        (rect_xyxy_gt[..., 3] - rect_cxcywh_pred[..., 1]) / pred_rect_h_sceled
+        - half_reg_scale
+        + 1e-16
+    )
+    if obbox_rep_dim == 6:
+        dim_lens = torch.stack(
+            [
+                left,
+                top,
+                right,
+                bottom,
+                angle_lens[..., 0],
+                angle_lens[..., 1],
+            ],
+            dim=-1,
+        )
+    else:
+        dim_lens = torch.stack(
+            [left, top, right, bottom, angle_lens[..., 0]],
+            dim=-1,
+        )
+
+    dim_lens, weight_right, weight_left = translate_gt(dim_lens, reg_max, reg_scale, up)
+    if reg_max is not None:
+        dim_lens = dim_lens.clamp(min=0, max=reg_max - eps)
+
+    return dim_lens.reshape(-1).detach(), weight_right.detach(), weight_left.detach()

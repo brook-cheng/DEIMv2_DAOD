@@ -1,0 +1,250 @@
+# ============================================================================
+# sp_fz 公共消融基线配置
+# ============================================================================
+# 本文件是 OBB decoder 训练基线配置（angle_rep=0）。
+# 清理后仅保留 rep0/rep3 两种表征，shifted 为唯一 decoder 角度编码；
+# rep3 配置见 ablation/abl_rep3.yml（仅覆盖 angle_rep=3）。
+# 历史 6 变量消融（offset_scale_source / use_gate_fusion / angle_step /
+# use_angle_first / decoder_angle_encoding）已移除，行为在代码中固定。
+#
+# 派生参数 obbox_rep_dim（DEIMCriterion）随 angle_rep 变化:
+#   rep0 → 6, rep1 → 5, rep2 → 6, rep3 → 5
+# ============================================================================
+
+# ---- 基础框架配置（通过 __include__ 链继承，本文件覆盖其中部分参数）----
+# runtime.yml          : 训练/验证运行时基础设置（device、seed、打印频率等）
+# base/dataloader.yml  : DataLoader 基础参数模板
+# base/optimizer.yml   : 优化器基础参数模板
+# dataset/dota_detection.yml : DOTA 检测数据集基础配置
+# dataset_common.yml   : OBB 数据集公共参数（缓存策略、格式转换等）
+# deimv2_obb_common.yml : DEIM 模型公共参数（backbone/encoder/decoder/criterion 默认值）
+#                         注意: common 文件的 weights_path hash 过期（7c1da9a5），
+#                         本文件覆盖为实际存在的 4057cbaa 版本。
+__include__: [
+  '../../runtime.yml',
+  '../../base/dataloader.yml',
+  '../../base/optimizer.yml',
+  '../../dataset/dota_detection.yml',
+  '../dataset_common.yml',
+  '../deimv2_obb_common.yml'
+]
+
+# ---- 项目级配置 ----
+output_dir: ./outputs/deimv2_obb_dlzdt_sp_fz_ablation/baseline  # 训练输出目录（各消融配置覆盖此项）
+comet_project_name: 'deimv2_obb_sp_dlzdt'                       # Comet.ml 实验项目名
+eval_spatial_size: [640, 640]                                    # 模型构造时缓存 anchor 用的输入分辨率 [H, W]
+checkpoint_freq: 10                                              # 每 N 个 epoch 保存一次 checkpoint
+num_classes: 1                                                   # 电缆终端头单类检测
+
+# ---- DEIM FlatCosine 学习率调度器 ----
+# 机制（engine/solver/det_solver.py + lrsheduler: flatcosine）:
+#   1. warmup 阶段（前 warmup_iter 个 iter）: 线性预热 LR
+#   2. flat 阶段（warmup ~ flat_epoch）: 保持基础 LR 不变
+#   3. cosine 衰减阶段（flat_epoch ~ epoches-no_aug_epoch）: 余弦衰减
+#   4. no_aug 阶段（最后 no_aug_epoch 个 epoch）: 关闭数据增强 + LR 继续衰减
+epoches: 200        # 总训练 epoch 数
+warmup_iter: 10     # warmup 迭代数（约 0.1 * epoches）
+flat_epoch: 100     # flat 阶段截止 epoch（约 epoches/2）
+no_aug_epoch: 20    # 最后 N 个 epoch 关闭增强（约 epoches * 0.2）
+
+#### ES-Base：EMA mAP50_95 early stopping + 恢复全局最佳 checkpoint
+early_stopping:
+  enabled: False
+  metric: mAP50_95
+  mode: max
+  min_epochs: 100
+  patience: 40
+  min_delta: 0.0001
+  restore_best: true
+
+# ---- 训练数据 ----
+# 数据集: 电缆终端头 OBB 检测，YOLO-OBB 格式
+# 数据增强策略（3 阶段增强强度）:
+#   epoch [0, 30)            : 弱增强
+#   epoch [30, 60)           : 强增强（mosaic 概率 0.5 + 全部 ops 启用）
+#   epoch [60, 150)          : 弱增强
+#   epoch [150, 300-60=240)  : 弱增强
+#   epoch [240, 300)         : 无增强（no_aug_epoch=60）
+# collate_fn 额外增强:
+#   - Mixup: epoch [30, 60] 间以 0.5 概率混合两张图
+#   - CopyBlend: epoch [30, 150] 间以 0.5 概率复制小目标到当前图
+#   - 多尺度训练: base_size_repeat=4 → 4 种尺度重复采样
+train_dataloader:
+  total_batch_size: 4   # 总 batch size（= GPU 数 * per-GPU batch size）
+  num_workers: 2
+  dataset:
+    type: DotaDataset
+    cache_images: disk
+    cache_ram: 0
+    img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/train
+    ann_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/train
+    classes_file: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
+    format: 'YOLO-OBB'
+    transforms:
+      ops:
+        # Mosaic: 4 图拼接，output_size=320（小于训练尺寸 640，拼接后 resize 放大）
+        - {type: Mosaic, output_size: 320, rotation_range: 10, translation_range: [0.1, 0.1], scaling_range: [0.5, 1.5],
+           probability: 1.0, fill_value: 0, use_cache: True, max_cached_images: 60, random_pop: True}
+        - {type: RandomPhotometricDistort, p: 0.5}   # 随机色彩扰动
+        - {type: OBBZoomOut, fill: 0}                 # 随机缩放（zoom-out，填充背景）
+        - {type: OBBIoUCrop, p: 0.8}                  # 基于 IoU 的随机裁剪
+        - {type: OBBSanitize, min_size: 1}            # 清理过小/无效标注
+        - {type: OBBFlip}                              # 随机水平+垂直翻转
+        - {type: OBBResize, size: [640, 640]}          # 统一缩放到训练尺寸
+        - {type: OBBSanitize, min_size: 1}            # resize 后再次清理
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}  # 转 float32 并归一化到 [0,1]
+        - {type: OBBConvertBoxes, normalize: True, img_size: [640, 640]}  # OBB 坐标归一化到 [0,1]
+        - {type: Normalize, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}  # ImageNet 标准化
+      policy:
+        epoch: [10, 30, 50]   # 增强强度切换 epoch（弱→强→弱→无）
+        ops: ['Mosaic', 'RandomPhotometricDistort', 'OBBZoomOut', 'OBBIoUCrop']
+      mosaic_prob: 0.5         # Mosaic 启用概率（与 policy 联动）
+  collate_fn:
+    base_size: 640
+    # Mixup 配置
+    mixup_prob: 0.5
+    mixup_epochs: [30, 50]     # Mixup 活跃 epoch 区间
+    stop_epoch: 50            # 多尺度训练截止 epoch
+    # CopyBlend 配置（复制小目标增强）
+    copyblend_prob: 0.5
+    copyblend_epochs: [30, 50]
+    area_threshold: 100        # 仅复制面积 < 100 的小目标
+    num_objects: 3             # 每次复制 3 个目标
+    with_expand: True
+    expand_ratios: [0.1, 0.25]
+    # EMA 与多尺度
+    ema_restart_decay: 0.9999  # 增强策略切换时 EMA 重启衰减率
+    base_size_repeat: 4        # 多尺度重复次数（4 种尺度）
+
+# ---- 验证数据 ----
+val_dataloader:
+  total_batch_size: 2
+  num_workers: 2
+  dataset:
+    img_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/images/val
+    ann_folder: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/labels/val
+    classes_file: /data/lyj_dir/yolo_train/train_dataset/ShiGongYanShou/电缆终端头_数据集(2026_5_31_obb)/classes.txt
+    format: 'YOLO-OBB'
+    transforms:
+      ops:
+        - {type: OBBResize, size: [640, 640]}
+        - {type: ConvertPILImage, dtype: 'float32', scale: True}
+        - {type: OBBConvertBoxes, normalize: True, img_size: [640, 640]}
+        - {type: Normalize, mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}
+
+# ---- Backbone: DINOv3 ViT-S/16 + STA Adapter ----
+# 名称参考 engine/backbone/dinov3/vision_transformer.py
+# interaction_indexes=[]: 使用 ViT 全部层（不做层选择）
+# finetune=False: 冻结 backbone 权重（仅训练 adapter + encoder + decoder）
+# adapter_type='sta': Spatial-Temporal Attention adapter
+# conv_inplane=64: adapter 卷积平面数（= dinov3_hidden_dim/4）
+# hidden_dim=256: adapter 输出维度（= dinov3_hidden_dim*2/3）
+DINOv3STAsResAtten:
+  name: dinov3_vits16plus
+  weights_path: ./ckpts/dinov3_vits16plus_pretrain_lvd1689m-4057cbaa.pth
+  interaction_indexes: []
+  finetune: False
+  conv_inplane: 64
+  hidden_dim: 256
+  adapter_type: 'sta'
+
+# ---- Encoder: Hybrid Encoder ----
+# in_channels=[256,256,256]: 3 个特征层的输入通道（backbone adapter 统一输出 256）
+# hidden_dim=256: encoder 内部维度
+# dim_feedforward=1024: encoder FFN 维度（= 4*hidden_dim）
+# 其余参数（feat_strides, nhead, use_encoder_idx 等）继承自 deimv2_obb_common.yml
+HybridEncoder:
+  in_channels: [256, 256, 256]
+  hidden_dim: 256
+  dim_feedforward: 1024
+
+# ---- Decoder: DEIMTransformer ----
+# 以下是 decoder 的 OBB 模式参数。
+# feat_channels/hidden_dim/dim_feedforward 等基础参数继承自 common，
+# 此处仅覆盖 OBB 专属参数 + 6 个消融变量的显式默认值。
+#
+# box_mode="obb" 是所有消融实验的前提（hbb 模式不涉及角度）。
+DEIMTransformer:
+  feat_channels: [256, 256, 256]
+  hidden_dim: 256
+  dim_feedforward: 2048              # decoder FFN 维度（= 8*hidden_dim，比 encoder 更大）
+  box_mode: obb
+
+  # ====== 消融变量（显式默认值，各消融配置仅覆盖其中之一）======
+  #
+  # angle_rep: OBB 角度表示模式（deim_decoder.py DEIMTransformer.__init__）
+  #   0 → (cx,cy,w,h,θ_norm) + 6D refinement (α,β,γ,δ,ε,η)
+  #   3 → (cx,cy,w,h,θ_norm) + 5D refinement + 解耦角度流（decouple_angle_layers）
+  #   仅接受 0/3，其余取值构造期 ValueError。
+  angle_rep: 0
+
+PostProcessor:
+  box_mode: obb
+
+# ---- Optimizer: AdamW 分组学习率 ----
+# 三组参数:
+#   1. backbone (dinov3) 非 norm/bn/bias: lr=1e-5（小学习率微调）
+#   2. backbone (dinov3) norm/bn/bias:    lr=1e-5, weight_decay=0
+#   3. adapter/encoder/decoder norm/bn/bias:             weight_decay=0
+# 基础 lr=5e-4 适用于第 3 组及所有非 norm/bn/bias 的 adapter/encoder/decoder 参数
+optimizer:
+  type: AdamW
+  params:
+    -
+      params: '^(?=.*.dinov3)(?!.*(?:norm|bn|bias)).*$'   # backbone 非 norm/bn/bias
+      lr: 0.00001
+    -
+      params: '^(?=.*.dinov3)(?=.*(?:norm|bn|bias)).*$'   # backbone norm/bn/bias
+      lr: 0.00001
+      weight_decay: 0.
+    -
+      params: '^(?=.*(?:sta|encoder|decoder))(?=.*(?:norm|bn|bias)).*$'  # adapter/encoder/decoder norm/bn/bias
+      weight_decay: 0.
+  lr: 0.0005
+  betas: [0.9, 0.999]
+  weight_decay: 0.000125
+
+# ---- Loss: DEIMCriterion (nloss 统一权重) ----
+# 权重对所有 angle_rep 统一（不按 rep 区分），来自 nloss 族配置。
+#
+# 损失组成:
+#   loss_mal     : Matching-Aware Loss（DEIM 核心损失，正/负样本分类质量）
+#   loss_bbox    : L1 + GIoU 框回归损失
+#   loss_probiou : YOLO-OBB ProbIoU 损失（use_yolo_probiou=true 时启用）
+#   loss_angle   : YOLO-OBB 角度周期损失（use_yolo_angle=true 时启用，angle_lambda 控制周期距离权重）
+#   loss_kld     : KL 散度角度损失（keep_kld=true 时保留，与 probiou/angle 叠加）
+#   loss_fgl     : Fine-Grained local loss（FGL，decoder 层间分布蒸馏）
+#   loss_ddf     : Distribution refinement loss（Distance 分布细化）
+#
+# gamma=1.0: mal 损失的 IoU 敏感度（值越小 IoU 对 mal 影响越小）
+# alpha=0.75: focal loss 的 α 参数
+# reg_max=32: FGL 分布的最大 bin 数
+# obbox_rep_dim=6: criterion 消费的 box 表示维度（rep0/2→6, rep1/3→5，随消融配置变化）
+DEIMCriterion:
+  weight_dict: {loss_mal: 1, loss_bbox: 5, loss_probiou: 5, loss_angle: 3, loss_kld: 2, loss_fgl: 0.15, loss_ddf: 1.5}
+  losses: ['mal', 'boxes', 'local']
+  use_yolo_probiou: true
+  use_yolo_angle: true
+  keep_kld: true
+  angle_lambda: 3.0
+  gamma: 1.0
+  alpha: 0.75
+  reg_max: 32
+  box_mode: obb
+  obbox_rep_dim: 6              # 派生自 angle_rep: rep0/2→6, rep1/3→5
+
+  # ---- Hungarian Matcher ----
+  # change_matcher=False: 不启用 matcher 策略切换（全程使用同一组 cost 权重）
+  # iou_order_alpha=4.0: IoU 排序的 temperature
+  # angle_order_alpha=1.0: 角度排序的 temperature
+  # late_cost_bbox=0.25: 后期阶段（change_matcher 切换后）的 bbox cost 权重
+  matcher:
+    type: HungarianMatcher
+    weight_dict: {cost_class: 2, cost_bbox: 5, cost_probiou: 5, cost_angle: 3, cost_chamfer: 2, late_cost_bbox: 0.25}
+    angle_order_alpha: 1.0
+    alpha: 0.25
+    gamma: 2.0
+    change_matcher: False
+    iou_order_alpha: 4.0
+    matcher_change_epoch: 112
+    box_mode: obb

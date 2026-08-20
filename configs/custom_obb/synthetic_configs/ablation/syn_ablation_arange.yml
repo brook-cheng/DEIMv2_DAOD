@@ -1,0 +1,8 @@
+# 角度范围实验（五提案 - 提案 1：角度范围 [-π/4, 3π/4)）
+# 对照基线：synthetic_exp_020_anrep0_offset_per.yml（rep0）。
+# 实验目的：记录 rep0 默认角度范围 [-π/4, 3π/4) 的基线运行。
+# 说明：该角度范围是 rep0 解码器 sigmoid 映射的默认行为，无需额外开关；
+# 本配置与 anrep0 基线完全一致，仅输出目录不同，作为提案组的参考运行。
+__include__: [../synthetic_exp_020_anrep0_offset_per.yml]
+
+output_dir: ./outputs/syn_ablation_arange
