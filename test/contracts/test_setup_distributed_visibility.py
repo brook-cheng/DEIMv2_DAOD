@@ -35,6 +35,18 @@ import torch  # noqa: E402
 from engine.misc import dist_utils  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _restore_builtin_print():
+    """``setup_distributed`` → ``setup_print`` permanently rebinds
+    ``builtins.print``; without restoring it, this module leaks a filtered
+    print into the whole test process (CLI stderr assertions die)."""
+    import builtins
+
+    original = builtins.print
+    yield
+    builtins.print = original
+
+
 def _clear_dist_env(monkeypatch):
     for var in ("RANK", "LOCAL_RANK", "WORLD_SIZE", "MASTER_ADDR", "MASTER_PORT"):
         monkeypatch.delenv(var, raising=False)
