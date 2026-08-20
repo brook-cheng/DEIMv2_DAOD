@@ -120,6 +120,7 @@ sys.path.insert(0, os.environ["DEIM_DIAG_REPO_ROOT"])
 import torch.distributed as dist
 
 from engine.core.yaml_config import YAMLConfig
+from engine.misc import dist_utils
 
 
 def main() -> None:
@@ -155,8 +156,13 @@ def main() -> None:
         flush=True,
     )
     print(
+        "RAW_LOADER "
+        f"batch_size={loader.batch_size} shuffle_attr={getattr(loader, 'shuffle', None)}",
+        flush=True,
+    )
+    loader = dist_utils.warp_loader(loader, shuffle=loader.shuffle)
+    print(
         "SAMPLER "
-        f"type={type(loader.sampler).__name__} "
         f"sampler_type={type(loader.sampler).__name__} "
         f"shuffle={getattr(loader.sampler, 'shuffle', None)} "
         f"drop_last={getattr(loader.sampler, 'drop_last', None)} "
@@ -166,7 +172,6 @@ def main() -> None:
     print(
         "LOADER "
         f"batch_size={loader.batch_size} "
-        f"shuffle={getattr(loader, 'shuffle', None)} "
         f"drop_last={loader.drop_last} num_workers={loader.num_workers} "
         f"loader_len={len(loader)} "
         f"construct_seconds={time.monotonic() - started:.3f}",

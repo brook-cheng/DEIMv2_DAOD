@@ -10,6 +10,8 @@ def test_diag_script_contains_loader_probe_evidence_contract():
         "loader_probe",
         "loader_probe_rank",
         "classes_file_set",
+        "warp_loader",
+        "RAW_LOADER",
         "sampler_type",
         "loader_len",
         "FIRST_BATCH_OK",
