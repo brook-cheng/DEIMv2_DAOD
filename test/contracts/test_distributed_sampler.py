@@ -48,6 +48,7 @@ def _capture_create(monkeypatch):
     def fake_create(name, global_cfg, **kw):
         calls.append({"name": name, **kw})
         if not kw:
+            calls[-1]["config"] = global_cfg[name]
             return list(range(100))  # dataset pre-build (no kwargs at all)
         return _FakeLoader(batch_size=kw.get("batch_size", 1), sampler=kw.get("sampler"))
 
@@ -102,8 +103,8 @@ def test_distributed_dataset_create_preserves_config(_two_rank_world, _capture_c
     cfg.build_dataloader("train_dataloader")
 
     dataset_call = _capture_create[0]
-    assert isinstance(dataset_call["name"], dict)
-    assert dataset_call["name"]["classes_file"] is not None
+    assert dataset_call["name"] == "__distributed_dataset__"
+    assert dataset_call["config"]["classes_file"] is not None
 
 
 def test_single_process_stays_sampler_free(_single_process, _capture_create):
@@ -122,3 +123,35 @@ def test_two_rank_shuffle_false_sampler_unshuffled(_two_rank_world, _capture_cre
     loader = cfg.build_dataloader("train_dataloader")
     assert isinstance(loader.sampler, DistributedSampler)
     assert loader.sampler.shuffle is False
+
+
+def test_create_kwargs_override_injected_dataset(monkeypatch):
+    from engine.core.workspace import create
+    import engine.data.dataloader as dataloader_module
+
+    global_cfg = {
+        "DataLoader": {
+            "_name": "DataLoader",
+            "_pymodule": dataloader_module,
+        }
+    }
+
+    class _Dataset:
+        pass
+
+    configured = _Dataset()
+    explicit = _Dataset()
+    global_cfg["DataLoader"].update(
+        {
+            "_inject": ["dataset"],
+            "_share": [],
+            "dataset": "configured_dataset",
+            "batch_size": 1,
+        }
+    )
+    global_cfg["configured_dataset"] = configured
+
+    monkeypatch.setattr(yc, "create", create)
+    loader = create("DataLoader", global_cfg, dataset=explicit)
+
+    assert loader.dataset is explicit
