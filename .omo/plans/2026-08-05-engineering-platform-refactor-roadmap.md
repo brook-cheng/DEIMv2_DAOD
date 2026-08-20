@@ -1,1 +1,0 @@
-# DEIMv2 HBB/OBB 工程化平台重构 — 决策完整主路线图与原子级分解计划 2026-08-05 版本 1.0（基于经批准规格书 docs/superpowers/specs/2026-08-05-engineering-platform-refactor-design.md）

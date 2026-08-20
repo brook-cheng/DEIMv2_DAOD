@@ -4,7 +4,7 @@ Audit-driven tests verifying that the ``angle_rep=True`` OBB decoder
 reference path keeps reference-point dimensionality deliberate and finite
 across decoder layers.
 
-Audit conclusion (see ``.omo/evidence/task-7-deimv2-obb-adr-hybrid.txt``):
+Audit conclusion (see internal task audit notes):
 MSDeformableAttention CONSUMES the 5th reference dimension as theta (it is
 NOT ignored), and the decoder's 6-dim ADR -> 5-dim OBB transition across
 layers is semantically correct. These tests lock that conclusion.
