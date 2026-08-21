@@ -139,6 +139,17 @@ device/dtype 零标量补齐后统一 `all_reduce`。缺键 rank 贡献 0 参与
 P2P/IB 配置、NVLink 拓扑（`nvidia-smi topo -m`）；`train_full.log` 中 NCCL INIT
 段的告警。flight recorder dump 会直接给出超时瞬间卡住的集合通信调用。
 
+### ⑤ stop_epoch 检查点读竞态（已结案：读半写文件 EOFError，已修复）
+现场 20260820_182623：rank1 在 epoch 50 开头 `torch.load("best_stg1.pth")` 抛
+`EOFError: Ran out of input`，rank0 正常。机制：`best_stg1.pth` 只由 rank0
+（`save_on_master`，上一 epoch 验证后）写入；epoch 50 两 rank 同时刷新 EMA
+读它，中间**没有 barrier**——rank1 在 rank0 还在流式写入时读文件，读到截断内容。
+
+修复（`det_solver.py`）：`_load_stage_checkpoint()` 在读前加
+`torch.distributed.barrier()`（与 `fit()` 末尾 `best.pth` 恢复相同的既有模式），
+并加文件存在性守卫（缺失时告警跳过、不崩溃）；hbb 分支同样补 barrier。
+契约测试：`test/contracts/test_stage_checkpoint_barrier.py`。
+
 ## 六、诊断开关速查
 
 | 环境变量 | 作用 | 默认 |
