@@ -66,6 +66,18 @@ def parse_loss_key(key: str) -> tuple[str, str, int | None]:
     return (key, "main", None)
 
 
+def compute_param_norm(model: torch.nn.Module) -> float:
+    """sqrt(sum(param.norm(2)^2)) over all parameters.
+
+    One device→host ``.item()`` sync per parameter tensor — call only where
+    the value is consumed (comet batch log, rank0, every 50 steps), not on
+    every iteration (server 20260820_182623 slowdown-wave amplification).
+    """
+    return (
+        sum(p.data.float().norm(2).item() ** 2 for p in model.parameters()) ** 0.5
+    )
+
+
 # 梯度模块组映射：按参数名前缀聚合到 backbone / encoder / decoder / head
 _GRAD_GROUPS = {
     "backbone": "backbone",
@@ -384,11 +396,6 @@ def train_one_epoch(
                 optimizer.step()
                 _optimizer_step_count += 1
 
-            param_norm = (
-                sum(p.data.float().norm(2).item() ** 2 for p in model.parameters())
-                ** 0.5
-            )
-
             if ema is not None:
                 ema.update(model)
 
@@ -442,7 +449,11 @@ def train_one_epoch(
                 comet_exp.log_metric(
                     "grad/norm/after_clip", grad_norm_after, step=global_step
                 )
-                comet_exp.log_metric("param/norm", param_norm, step=global_step)
+                comet_exp.log_metric(
+                    "param/norm",
+                    compute_param_norm(model),
+                    step=global_step,
+                )
             except Exception:
                 pass
 
