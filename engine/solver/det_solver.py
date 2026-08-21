@@ -6,6 +6,7 @@ Modified from D-FINE (https://github.com/Peterande/D-FINE)
 Copyright (c) 2024 D-FINE authors. All Rights Reserved.
 """
 
+import os
 import time
 import json
 import datetime
@@ -26,6 +27,36 @@ from .early_stopping import (
 
 
 class DetSolver(BaseSolver):
+
+    def _load_stage_checkpoint(self, epoch: int) -> None:
+        """Refresh model/EMA from best_stg1.pth at stop_epoch (all ranks).
+
+        best_stg1.pth is written by rank0 only (save_on_master at the previous
+        epoch's validation); every rank loads it here at stop_epoch. Without a
+        barrier the non-writing ranks can read the file while rank0 is still
+        streaming it -> EOFError on torch.load (server 20260820_182623,
+        rank1). Same barrier pattern as the best.pth restore at the end of
+        fit().
+        """
+        ckpt = str(self.output_dir / "best_stg1.pth")
+        if dist_utils.is_dist_available_and_initialized():
+            torch.distributed.barrier()
+        saved_epoch = self.last_epoch
+        if os.path.exists(ckpt):
+            self.load_resume_state(ckpt)
+        else:
+            print(f"[warn] {ckpt} missing at stop_epoch {epoch} — skipping EMA refresh")
+        self.last_epoch = saved_epoch
+        self.ema.decay = self.train_dataloader.collate_fn.ema_restart_decay
+        print(f"Refresh EMA at epoch {epoch} with decay {self.ema.decay}")
+        if self.early_stopping is not None:
+            self.early_stopping.reset_patience()
+            print(
+                f"Early-stopping patience reset at stage transition "
+                f"(epoch {epoch}); global best preserved "
+                f"(best_epoch={self.early_stopping.best_epoch}, "
+                f"best_mAP50_95={self.early_stopping.best_observed_metric:.4f})"
+            )
 
     def fit(
         self,
@@ -158,19 +189,7 @@ class DetSolver(BaseSolver):
                 self.train_dataloader.sampler.set_epoch(epoch)
 
             if epoch == self.train_dataloader.collate_fn.stop_epoch:
-                saved_epoch = self.last_epoch
-                self.load_resume_state(str(self.output_dir / "best_stg1.pth"))
-                self.last_epoch = saved_epoch
-                self.ema.decay = self.train_dataloader.collate_fn.ema_restart_decay
-                print(f"Refresh EMA at epoch {epoch} with decay {self.ema.decay}")
-                if self.early_stopping is not None:
-                    self.early_stopping.reset_patience()
-                    print(
-                        f"Early-stopping patience reset at stage transition "
-                        f"(epoch {epoch}); global best preserved "
-                        f"(best_epoch={self.early_stopping.best_epoch}, "
-                        f"best_mAP50_95={self.early_stopping.best_observed_metric:.4f})"
-                    )
+                self._load_stage_checkpoint(epoch)
 
             train_stats = train_one_epoch(
                 self.self_lr_scheduler,
@@ -300,6 +319,8 @@ class DetSolver(BaseSolver):
                     best_stat = {"epoch": -1}
                     self.ema.decay -= 0.0001
                     saved_epoch = self.last_epoch
+                    if dist_utils.is_dist_available_and_initialized():
+                        torch.distributed.barrier()
                     self.load_resume_state(str(self.output_dir / "best_stg1.pth"))
                     self.last_epoch = saved_epoch
                     print(f"Refresh EMA at epoch {epoch} with decay {self.ema.decay}")
