@@ -150,6 +150,26 @@ P2P/IB 配置、NVLink 拓扑（`nvidia-smi topo -m`）；`train_full.log` 中 N
 并加文件存在性守卫（缺失时告警跳过、不崩溃）；hbb 分支同样补 barrier。
 契约测试：`test/contracts/test_stage_checkpoint_barrier.py`。
 
+### ⑥ "epoch 10 长时间卡顿"（已结案：共享服务器外部负载慢浪，非代码缺陷）
+心跳证据（`heartbeat_rank*.jsonl` 逐 iteration 时间戳，现场 20260820_182623）：
+
+- 无死锁、无 collective 错位、日志零异常；不存在"卡住几分钟"的单点——
+  而是 epochs 2-12 的**持续变慢波浪**：epoch 4 最慢（2.42 s/iter，21 分钟），
+  逐 epoch 衰退，epoch 13 起稳定 0.27 s/iter 并保持 37 个 epoch 不再复发。
+- 慢 iteration 中 **98% 两 rank 同时慢**，两 rank 间隔序列相关系数 0.93——
+  同机外部负载（CPU/IO 竞争）的指纹；单 rank 问题或 deadlock 不会是这个形态。
+- 慢浪覆盖 NoAug（epoch 2-4）与 Mosaic（5-12）两个阶段，且在 Mosaic 仍然
+  开启的 13-29 完全恢复 → **排除数据增强管线**。epoch 10 只是衰退曲线上的
+  普通一点（并非最慢），对应服务器 ~19:00-19:55 的外部任务窗口。
+
+顺手修复放大因素：`train_one_epoch` 原先每个 iteration 无条件重算
+`param_norm`（对每个参数张量一次 GPU→CPU `.item()` 同步，comet 关闭时纯浪费，
+竞争期放大迭代耗时）；现提取为 `compute_param_norm()`，仅在 comet batch 日志
+门内（rank0、每 50 step、comet 启用）计算。契约测试：
+`test/contracts/test_param_norm_helper.py`。
+再遇同类慢浪：先用心跳确认"两 rank 同步慢 + 波浪形 + 零异常"三特征，
+再查服务器同时段负载（`uptime`/`iotop`/其他用户任务）而非改训练代码。
+
 ## 六、诊断开关速查
 
 | 环境变量 | 作用 | 默认 |
