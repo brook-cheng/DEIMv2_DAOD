@@ -91,10 +91,13 @@ class DetSolver(BaseSolver):
         self,
     ):
         self._init_early_stopping()
+        self.train()
+        args = self.cfg
 
         # Kendall Uncertainty Weighting：可学习 σ² 自动平衡 loss 量纲
         # weight_dict 作为固定先验乘子 p_i = w_i / mean(w)，全程不洗掉。
-        # Built BEFORE recovery load so self.kendall / self.kendall_optimizer
+        # After self.train() (materializes self.criterion for the prior) and
+        # BEFORE the recovery load, so self.kendall / self.kendall_optimizer
         # exist as attributes and their state restores from the checkpoint.
         self.kendall = None
         self.kendall_optimizer = None
@@ -127,9 +130,6 @@ class DetSolver(BaseSolver):
 
         if getattr(self.cfg, "recovery", False):
             self._maybe_auto_recover()
-
-        self.train()
-        args = self.cfg
 
         n_parameters, model_stats = stats(self.cfg)
         print(model_stats)
