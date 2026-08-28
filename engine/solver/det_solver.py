@@ -58,10 +58,76 @@ class DetSolver(BaseSolver):
                 f"best_mAP50_95={self.early_stopping.best_observed_metric:.4f})"
             )
 
+    def _maybe_auto_recover(self) -> None:
+        """Auto-resume from output_dir checkpoints when recovery is enabled.
+
+        Tier 1: ``last.pth`` (written atomically after every epoch's
+        validation). Tier 2: newest ``checkpoint{NNNN}.pth`` snapshot. A
+        fresh start only when nothing usable exists; an unusable tier falls
+        through instead of aborting. With dist initialized, a barrier
+        precedes the loads so every rank resumes from the same tier.
+        """
+        if self.output_dir is None:
+            return
+        candidates = [self.output_dir / "last.pth"] + sorted(
+            self.output_dir.glob("checkpoint*.pth"), reverse=True
+        )
+        if dist_utils.is_dist_available_and_initialized():
+            torch.distributed.barrier()
+        for cand in candidates:
+            if not cand.exists():
+                continue
+            try:
+                self.load_resume_state(str(cand))
+            except Exception as e:
+                print(f"[recovery] {cand.name} unusable ({e}); trying next tier")
+                continue
+            print(f"[recovery] resumed from {cand} at epoch {self.last_epoch}")
+            return
+        if any(cand.exists() for cand in candidates):
+            print("[recovery] no usable checkpoint — starting fresh")
+
     def fit(
         self,
     ):
         self._init_early_stopping()
+
+        # Kendall Uncertainty Weighting：可学习 σ² 自动平衡 loss 量纲
+        # weight_dict 作为固定先验乘子 p_i = w_i / mean(w)，全程不洗掉。
+        # Built BEFORE recovery load so self.kendall / self.kendall_optimizer
+        # exist as attributes and their state restores from the checkpoint.
+        self.kendall = None
+        self.kendall_optimizer = None
+        kw_cfg = self.cfg.yaml_cfg.get("KendallWeighting", {})
+        if kw_cfg.get("enabled", False):
+            from .kendall import KendallWeighting
+
+            loss_names = kw_cfg.get(
+                "loss_names", ["loss_mal", "loss_bbox", "loss_kld", "loss_fgl"]
+            )
+            # 从 criterion 配置读取 weight_dict，计算再归一先验 p_i
+            wd = self.criterion.weight_dict
+            raw_prior = [wd.get(n, 1.0) for n in loss_names]
+            mean_p = sum(raw_prior) / len(raw_prior)
+            prior = [p / mean_p for p in raw_prior]
+
+            self.kendall = KendallWeighting(
+                loss_names=loss_names,
+                init_log_sigma=kw_cfg.get("init_log_sigma", 0.0),
+                prior=prior,
+            )
+            self.kendall_optimizer = torch.optim.Adam(
+                [self.kendall.log_sigma],
+                lr=kw_cfg.get("sigma_lr", 0.001),
+            )
+            print(
+                f"[KendallWeighting] enabled — "
+                f"prior={[f'{p:.3f}' for p in prior]}"
+            )
+
+        if getattr(self.cfg, "recovery", False):
+            self._maybe_auto_recover()
+
         self.train()
         args = self.cfg
 
@@ -150,34 +216,6 @@ class DetSolver(BaseSolver):
         start_time = time.time()
         start_epoch = self.last_epoch + 1
 
-        # Kendall Uncertainty Weighting：可学习 σ² 自动平衡 loss 量纲
-        # weight_dict 作为固定先验乘子 p_i = w_i / mean(w)，全程不洗掉
-        kendall = None
-        kendall_optimizer = None
-        kw_cfg = args.yaml_cfg.get("KendallWeighting", {})
-        if kw_cfg.get("enabled", False):
-            from .kendall import KendallWeighting
-
-            loss_names = kw_cfg.get(
-                "loss_names", ["loss_mal", "loss_bbox", "loss_kld", "loss_fgl"]
-            )
-            # 从 criterion 配置读取 weight_dict，计算再归一先验 p_i
-            wd = self.criterion.weight_dict
-            raw_prior = [wd.get(n, 1.0) for n in loss_names]
-            mean_p = sum(raw_prior) / len(raw_prior)
-            prior = [p / mean_p for p in raw_prior]
-
-            kendall = KendallWeighting(
-                loss_names=loss_names,
-                init_log_sigma=kw_cfg.get("init_log_sigma", 0.0),
-                prior=prior,
-            )
-            kendall_optimizer = torch.optim.Adam(
-                [kendall.log_sigma],
-                lr=kw_cfg.get("sigma_lr", 0.001),
-            )
-            print(f"[KendallWeighting] enabled — prior={[f'{p:.3f}' for p in prior]}")
-
         _max_optimizer_steps = args.yaml_cfg.get("max_optimizer_steps")
         _fail_on_zero_grad = args.yaml_cfg.get("fail_on_zero_grad", False)
 
@@ -207,8 +245,8 @@ class DetSolver(BaseSolver):
                 lr_warmup_scheduler=self.lr_warmup_scheduler,
                 comet_exp=comet_exp,
                 comet_step=epoch,
-                kendall=kendall,
-                kendall_optimizer=kendall_optimizer,
+                kendall=self.kendall,
+                kendall_optimizer=self.kendall_optimizer,
                 max_optimizer_steps=_max_optimizer_steps,
                 fail_on_zero_grad=_fail_on_zero_grad,
                 output_dir=self.output_dir,
@@ -264,7 +302,7 @@ class DetSolver(BaseSolver):
                             self.output_dir
                             and epoch >= self.train_dataloader.collate_fn.stop_epoch
                         ):
-                            dist_utils.save_on_master(
+                            dist_utils.save_on_master_atomic(
                                 self.state_dict(), self.output_dir / "best_stg2.pth"
                             )
             else:
@@ -284,11 +322,11 @@ class DetSolver(BaseSolver):
                         self.output_dir
                         and epoch >= self.train_dataloader.collate_fn.stop_epoch
                     ):
-                        dist_utils.save_on_master(
+                        dist_utils.save_on_master_atomic(
                             self.state_dict(), self.output_dir / "best_stg2.pth"
                         )
                     else:
-                        dist_utils.save_on_master(
+                        dist_utils.save_on_master_atomic(
                             self.state_dict(), self.output_dir / "best_stg1.pth"
                         )
 
@@ -306,12 +344,12 @@ class DetSolver(BaseSolver):
                     if epoch >= self.train_dataloader.collate_fn.stop_epoch:
                         if test_stats[k][0] > top1:
                             top1 = test_stats[k][0]
-                            dist_utils.save_on_master(
+                            dist_utils.save_on_master_atomic(
                                 self.state_dict(), self.output_dir / "best_stg2.pth"
                             )
                     else:
                         top1 = max(test_stats[k][0], top1)
-                        dist_utils.save_on_master(
+                        dist_utils.save_on_master_atomic(
                             self.state_dict(), self.output_dir / "best_stg1.pth"
                         )
 
@@ -363,7 +401,7 @@ class DetSolver(BaseSolver):
                         self.output_dir / f"checkpoint{epoch:04}.pth"
                     )
                 for checkpoint_path in checkpoint_paths:
-                    dist_utils.save_on_master(self.state_dict(), checkpoint_path)
+                    dist_utils.save_on_master_atomic(self.state_dict(), checkpoint_path)
 
             # Design ordering: the loop exits only after the epoch's log entry
             # and checkpoint writes have completed; rank 0 then broadcasts the
@@ -441,7 +479,7 @@ class DetSolver(BaseSolver):
                 metric, epoch, self.early_stopping_config.min_delta
             )
             if should_save_best and self.output_dir:
-                dist_utils.save_on_master(
+                dist_utils.save_on_master_atomic(
                     self.state_dict(), self.output_dir / "best.pth"
                 )
             should_stop = self.early_stopping.should_stop(
@@ -535,7 +573,7 @@ class DetSolver(BaseSolver):
         )
 
         if self.output_dir and box_mode == "hbb":
-            dist_utils.save_on_master(
+            dist_utils.save_on_master_atomic(
                 coco_evaluator.coco_eval["bbox"].eval, self.output_dir / "eval.pth"
             )
 

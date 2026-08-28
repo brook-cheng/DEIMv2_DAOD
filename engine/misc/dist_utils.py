@@ -149,6 +149,25 @@ def save_on_master(*args, **kwargs):
         torch.save(*args, **kwargs)
 
 
+def save_on_master_atomic(state, path):
+    """Atomic checkpoint write on the main process: tmp file + os.replace.
+
+    Power loss mid-``torch.save`` must never corrupt the recovery point:
+    the payload goes to ``<path>.tmp`` first and ``os.replace`` (atomic on
+    POSIX) swaps it in, so readers always see either the old or the new
+    complete file — never a truncated one.
+    """
+    if not is_main_process():
+        return
+    tmp = f"{path}.tmp"
+    try:
+        torch.save(state, tmp)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
 def warp_model(
     model: torch.nn.Module,
     sync_bn: bool = False,

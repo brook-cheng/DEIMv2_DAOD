@@ -136,6 +136,18 @@ def print_training_config(cfg: YAMLConfig) -> None:
     print("=" * 60 + "\n")
 
 
+def resolve_recovery(resume):
+    """Map the --resume value to (resume_path, recovery_flag).
+
+    ``--resume auto`` enables recovery mode: no direct load here — the
+    solver auto-resumes from ``output_dir/last.pth`` (with snapshot
+    fallback) at fit() start, after all stateful components exist.
+    """
+    if resume == "auto":
+        return None, True
+    return resume, False
+
+
 def main(
     args,
 ) -> None:
@@ -145,6 +157,9 @@ def main(
     assert not all(
         [args.tuning, args.resume]
     ), "Only support from_scrach or resume or tuning at one time"
+
+    resume_path, recovery = resolve_recovery(args.resume)
+    args.resume = resume_path
 
     update_dict = yaml_utils.parse_cli(args.update)
     update_dict.update(
@@ -158,10 +173,12 @@ def main(
             and v is not None
         }
     )
+    if recovery:
+        update_dict["recovery"] = True
 
     cfg = YAMLConfig(args.config, **update_dict)
 
-    if args.resume or args.tuning:
+    if args.resume or args.tuning or recovery:
         if "HGNetv2" in cfg.yaml_cfg:
             cfg.yaml_cfg["HGNetv2"]["pretrained"] = False
     if not args.test_only:
@@ -194,7 +211,12 @@ if __name__ == "__main__":
         type=str,
         default="configs/deimv2/deimv2_dinov3_x_coco.yml",
     )
-    parser.add_argument("-r", "--resume", type=str, help="resume from checkpoint")
+    parser.add_argument(
+        "-r",
+        "--resume",
+        type=str,
+        help="resume from checkpoint, or 'auto' to recover from output_dir/last.pth",
+    )
     parser.add_argument("-t", "--tuning", type=str, help="tuning from checkpoint")
     parser.add_argument(
         "-d",
