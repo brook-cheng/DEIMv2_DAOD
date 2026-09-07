@@ -215,7 +215,11 @@ if __name__ == "__main__":
         "-r",
         "--resume",
         type=str,
-        help="resume from checkpoint, or 'auto' to recover from output_dir/last.pth",
+        help=(
+            "'auto': recover an interrupted run (restore everything, "
+            "continue); '<path>': checkpoint training — load the file and "
+            "train a fresh epoch schedule"
+        ),
     )
     parser.add_argument("-t", "--tuning", type=str, help="tuning from checkpoint")
     parser.add_argument(

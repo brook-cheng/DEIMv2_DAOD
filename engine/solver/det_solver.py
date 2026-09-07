@@ -58,6 +58,26 @@ class DetSolver(BaseSolver):
                 f"best_mAP50_95={self.early_stopping.best_observed_metric:.4f})"
             )
 
+    def _load_checkpoint_fresh_schedule(self, path: str) -> None:
+        """-r <file>: checkpoint training — load state, train a FRESH schedule.
+
+        The checkpoint seeds weights/EMA/optimizer (+kendall state, restored
+        by the deferred load after kendall construction), but the epoch
+        schedule restarts from scratch: last_epoch=-1, fresh early stopping,
+        fresh LR warmup. A checkpoint saved at epoch N can therefore seed a
+        new run of ANY length; true interruption-continuation is `-r auto`.
+        """
+        print(f"Resume checkpoint from {path}")
+        self.load_resume_state(path)
+        self.last_epoch = -1
+        self._init_early_stopping()
+        self.cfg._lr_warmup_scheduler = None
+        self.lr_warmup_scheduler = self.cfg.lr_warmup_scheduler
+        print(
+            f"[resume] fresh schedule: {self.cfg.epoches} epochs "
+            f"from the loaded checkpoint"
+        )
+
     def _maybe_auto_recover(self) -> None:
         """Auto-resume from output_dir checkpoints when recovery is enabled.
 
@@ -91,7 +111,12 @@ class DetSolver(BaseSolver):
         self,
     ):
         self._init_early_stopping()
+        # Fit-path resume load is deferred past kendall construction so
+        # kendall/kendall_optimizer state restores too; `--test-only` (eval
+        # path) still loads immediately in BaseSolver.
+        self._defer_fit_resume = True
         self.train()
+        self._defer_fit_resume = False
         args = self.cfg
 
         # Kendall Uncertainty Weighting：可学习 σ² 自动平衡 loss 量纲
@@ -130,6 +155,8 @@ class DetSolver(BaseSolver):
 
         if getattr(self.cfg, "recovery", False):
             self._maybe_auto_recover()
+        elif self.cfg.resume:
+            self._load_checkpoint_fresh_schedule(self.cfg.resume)
 
         n_parameters, model_stats = stats(self.cfg)
         print(model_stats)
@@ -215,6 +242,14 @@ class DetSolver(BaseSolver):
         best_stat_print = best_stat.copy()
         start_time = time.time()
         start_epoch = self.last_epoch + 1
+        if start_epoch >= args.epoches:
+            print(
+                f"[fit] nothing to train: start_epoch {start_epoch} >= "
+                f"epoches {args.epoches} — the restored checkpoint "
+                f"(epoch {self.last_epoch}) is already past the target; "
+                f"raise epoches to continue, or use -r <file> for a fresh "
+                f"schedule"
+            )
 
         _max_optimizer_steps = args.yaml_cfg.get("max_optimizer_steps")
         _fail_on_zero_grad = args.yaml_cfg.get("fail_on_zero_grad", False)

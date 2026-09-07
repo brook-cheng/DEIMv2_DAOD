@@ -268,7 +268,10 @@ class BaseSolver(object):
         self.evaluator = self.cfg.evaluator
 
         # NOTE: Instantiating order
-        if self.cfg.resume:
+        # DetSolver defers the fit-path resume load until after kendall
+        # construction (state completeness); `--test-only` (eval path) keeps
+        # loading here.
+        if self.cfg.resume and not getattr(self, "_defer_fit_resume", False):
             print(f"Resume checkpoint from {self.cfg.resume}")
             self.load_resume_state(self.cfg.resume)
 
