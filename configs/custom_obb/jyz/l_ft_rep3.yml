@@ -8,7 +8,7 @@ __include__: [
 ]
 
 #### 项目配置
-output_dir: ./outputs/jyz_l_ft_rep0
+output_dir: ./outputs/jyz_l_ft_rep3
 comet_project_name: 'deimv2_obb_sp_jyz'
 eval_spatial_size: [640, 640] #  h w
 checkpoint_freq: 10    # save freq
@@ -108,7 +108,7 @@ DEIMTransformer:
   feat_channels: [512, 512, 512] #hidden_dim
   hidden_dim: 512 #hidden_dim
   dim_feedforward: 4096 # hidden_dim*8
-  num_layers: 3 # 当前测试显示前3层的作用较大，为了能够全参数微调，避免OOM，这里减少层数
+  num_layers: 6 # 当前测试显示前3层的作用较大，为了能够全参数微调，避免OOM，这里减少层数
   box_mode: obb
   angle_rep: 3
 
